@@ -1,0 +1,69 @@
+{
+  "app": {
+    "title": "UniHub Admin Portal",
+    "welcome": "Welcome to UniHub Admin Portal"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "users": "Users",
+    "roles": "Roles",
+    "accessControl": "Access Control",
+    "timetable": "Timetable",
+    "enrollment": "Enrollment",
+    "excuses": "Excuses",
+    "reports": "Reports",
+    "integration": "Integration",
+    "academicStaff": "Academic Staff",
+    "courseManagement": "Course Management",
+    "auditLog": "Audit Log",
+    "settings": "Settings"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "username": "Username",
+    "password": "Password",
+    "email": "Email",
+    "forgotPassword": "Forgot Password?",
+    "resetPassword": "Reset Password",
+    "rememberMe": "Remember me"
+  },
+  "common": {
+    "search": "Search",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "create": "Create",
+    "update": "Update",
+    "back": "Back",
+    "next": "Next",
+    "previous": "Previous",
+    "submit": "Submit",
+    "loading": "Loading...",
+    "noData": "No data available",
+    "success": "Success",
+    "error": "Error",
+    "warning": "Warning",
+    "info": "Information"
+  },
+  "enrollment": {
+    "title": "Student Enrollment",
+    "groups": "Group Management",
+    "import": "Import Students",
+    "selectDepartment": "Select Department",
+    "selectLevel": "Select Level",
+    "createGroup": "Create Group",
+    "autoGroup": "Auto Group by Gender",
+    "maleGroup": "Male Group",
+    "femaleGroup": "Female Group"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "lastUpdated": "Last updated",
+    "quickActions": "Quick Actions",
+    "recentActivities": "Recent Activities",
+    "systemHealth": "System Health"
+  }
+}
