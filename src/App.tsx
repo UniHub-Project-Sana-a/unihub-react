@@ -22,8 +22,6 @@ import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 import CollegesPage from "./pages/CollegesPage";
-import DashboardPage from "./pages/DashboardPage";
-import PlaceholderPage from "./pages/PlaceholderPage";
 
 const queryClient = new QueryClient();
 
@@ -38,48 +36,8 @@ const App = () => (
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/" element={<Index />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/colleges" element={<CollegesPage />} />
-          
-          {/* User Management */}
-          <Route path="/user-management/all-users" element={<PlaceholderPage title="جميع المستخدمين" />} />
-          <Route path="/user-management/roles-permissions" element={<PlaceholderPage title="الأدوار والصلاحيات" />} />
-          <Route path="/user-management/access-control" element={<PlaceholderPage title="التحكم بالوصول" />} />
-          
-          {/* Timetable */}
-          <Route path="/timetable/import-schedule" element={<PlaceholderPage title="استيراد الجدول" />} />
-          <Route path="/timetable/view" element={<PlaceholderPage title="عرض الجدول" />} />
-          <Route path="/timetable/course-mapping" element={<PlaceholderPage title="ربط المقررات" />} />
-          
-          {/* Student Enrollment */}
-          <Route path="/enrollment/import-students" element={<PlaceholderPage title="استيراد الطلاب" />} />
-          <Route path="/enrollment/manage-groups" element={<PlaceholderPage title="إدارة المجموعات" />} />
-          <Route path="/enrollment/course-assignment" element={<PlaceholderPage title="إسناد المقررات" />} />
-          
-          {/* Excuse Management */}
-          <Route path="/excuse/pending-requests" element={<PlaceholderPage title="الطلبات المعلقة" />} />
-          <Route path="/excuse/salary-adjustments" element={<PlaceholderPage title="تعديلات الرواتب" />} />
-          
-          {/* Reports */}
-          <Route path="/reports/financial" element={<PlaceholderPage title="التقارير المالية" />} />
-          <Route path="/reports/teaching-load" element={<PlaceholderPage title="عبء التدريس" />} />
-          <Route path="/reports/attendance" element={<PlaceholderPage title="الحضور" />} />
-          <Route path="/reports/grades-overview" element={<PlaceholderPage title="نظرة عامة على الدرجات" />} />
-          
-          {/* Integration */}
-          <Route path="/integration/mobile-sync" element={<PlaceholderPage title="مزامنة الهاتف المحمول" />} />
-          <Route path="/integration/api-status" element={<PlaceholderPage title="حالة واجهة برمجة التطبيقات" />} />
-          <Route path="/integration/real-time" element={<PlaceholderPage title="المراقبة في الوقت الفعلي" />} />
-          
-          {/* Course Management */}
-          <Route path="/course-management/departments" element={<PlaceholderPage title="عرض الأقسام" />} />
-          <Route path="/course-management/grade-reports" element={<PlaceholderPage title="تقارير الدرجات" />} />
-          <Route path="/course-management/export" element={<PlaceholderPage title="تصدير البيانات" />} />
-          
-          {/* Other pages */}
-          <Route path="/audit-log" element={<PlaceholderPage title="سجل التدقيق" />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/academic-staff" element={<PlaceholderPage title="الهيئة الأكاديمية" />} />
           
           {/* Legacy routes */}
           <Route path="/users" element={<UsersPage />} />

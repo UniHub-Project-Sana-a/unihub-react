@@ -12,6 +12,24 @@ import { Pencil, Trash2, Plus, ArrowLeft, ChevronRight, Users, BookOpen, Buildin
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { lazy, Suspense } from "react";
+
+//lazy imports
+const TimetableModule = lazy(() => import("@/components/colleges/TimetableModule"));
+const EnrollmentModule = lazy(() => import("@/components/colleges/EnrollmentModule"));
+const ExcusesModule = lazy(() => import("@/components/colleges/ExcusesModule"));
+const ReportsModule = lazy(() => import("@/components/colleges/ReportsModule"));
+const ClassworkGradesModule = lazy(() => import("@/components/colleges/ClassworkGradesModule"));
+const ModuleSkeleton = ({ title }: { title: string }) => (
+  <div className="p-6">
+    <div className="mb-4 font-semibold">{title}</div>
+    <div className="space-y-3 animate-pulse">
+      <div className="h-4 bg-muted rounded" />
+      <div className="h-4 bg-muted rounded w-5/6" />
+      <div className="h-4 bg-muted rounded w-2/3" />
+    </div>
+  </div>
+);
 
 // Services
 import { getColleges, createCollege, updateCollege, deleteCollege, type College as ApiCollege } from '@/services/colleges';
@@ -133,6 +151,7 @@ interface EntitlementPayout {
 export default function CollegesPage() {
   const location = useLocation();
 
+  const [activeTab, setActiveTab] = useState("colleges-dashboard");
   // State: من API
   const [colleges, setColleges] = useState<College[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -912,13 +931,65 @@ export default function CollegesPage() {
               <h1 className="text-2xl sm:text-3xl font-bold mt-4">{selectedCollege.name}</h1>
             </div>
 
-            <Tabs defaultValue="colleges-dashboard" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsList className="grid w-full grid-cols-9">
                 <TabsTrigger value="colleges-dashboard">لوحة التحكم</TabsTrigger>
                 <TabsTrigger value="departments">الأقسام</TabsTrigger>
                 <TabsTrigger value="classrooms">القاعات الدراسية</TabsTrigger>
                 <TabsTrigger value="Academic Staff">أعضاء هيئة التدريس</TabsTrigger>
+                <TabsTrigger value="Timetable">الجدول الزمني</TabsTrigger>
+                <TabsTrigger value="Enrollment">تسجيل الطلاب</TabsTrigger>
+                <TabsTrigger value="Excuses">إدارة الاعذار</TabsTrigger>
+                <TabsTrigger value="Reports">التقارير</TabsTrigger>
+                <TabsTrigger value="Class-work-grades">درجات اعمال الفصل</TabsTrigger>
               </TabsList>
+
+              {/* Timetable */}
+              <TabsContent value="Timetable">
+                <Suspense fallback={<ModuleSkeleton title="الجدول الزمني" />}>
+                  {activeTab === "Timetable" && (
+                    <TimetableModule /* مرّر أي props يحتاجها المكوّن هنا */ />
+                    // مثال لو أردت تمرير الكلية المختارة:
+                    // <TimetableModule collegeId={selectedCollege?.id} />
+                  )}
+                </Suspense>
+              </TabsContent>
+              
+              {/* Enrollment */}
+              <TabsContent value="Enrollment">
+                <Suspense fallback={<ModuleSkeleton title="تسجيل الطلاب" />}>
+                  {activeTab === "Enrollment" && (
+                    <EnrollmentModule /* props اختيارية */ />
+                  )}
+                </Suspense>
+              </TabsContent>
+              
+              {/* Excuses */}
+              <TabsContent value="Excuses">
+                <Suspense fallback={<ModuleSkeleton title="إدارة الأعذار" />}>
+                  {activeTab === "Excuses" && (
+                    <ExcusesModule /* props اختيارية */ />
+                  )}
+                </Suspense>
+              </TabsContent>
+              
+              {/* Reports */}
+              <TabsContent value="Reports">
+                <Suspense fallback={<ModuleSkeleton title="التقارير" />}>
+                  {activeTab === "Reports" && (
+                    <ReportsModule /* props اختيارية */ />
+                  )}
+                </Suspense>
+              </TabsContent>
+              
+              {/* Class-work-grades */}
+              <TabsContent value="Class-work-grades">
+                <Suspense fallback={<ModuleSkeleton title="درجات أعمال الفصل" />}>
+                  {activeTab === "Class-work-grades" && (
+                    <ClassworkGradesModule /* props اختيارية */ />
+                  )}
+                </Suspense>
+              </TabsContent>
 
               {/* Dashboard */}
               <TabsContent value="colleges-dashboard">

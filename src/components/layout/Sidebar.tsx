@@ -110,6 +110,13 @@ const menuItems = [
     ]
   },
   {
+    title: "أعضاء الهيئة الأكاديمية",
+    icon: UserCog,
+    href: "/academic-staff",
+    badge: null,
+    subItems: undefined
+  },
+  {
     title: "سجل التدقيق",
     icon: History,
     href: "/auditlog",
@@ -123,13 +130,6 @@ const menuItems = [
     badge: null,
     subItems: undefined
   },
-  {
-    title: "أعضاء الهيئة الأكاديمية",
-    icon: UserCog,
-    href: "/academic-staff",
-    badge: null,
-    subItems: undefined
-  }
 ];
 
 export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
