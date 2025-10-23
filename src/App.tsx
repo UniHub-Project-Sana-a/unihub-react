@@ -22,6 +22,10 @@ import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 import CollegesPage from "./pages/CollegesPage";
+import { setAuthToken } from '@/lib/api';
+
+const saved = sessionStorage.getItem('access_token') || localStorage.getItem('access_token');
+if (saved) setAuthToken(saved);
 
 const queryClient = new QueryClient();
 

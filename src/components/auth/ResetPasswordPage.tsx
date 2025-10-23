@@ -1,47 +1,73 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Eye, EyeOff, CheckCircle, XCircle } from "lucide-react";
 import logoFull from "@/assets/logo-full.png";
 
 const ResetPasswordPage = () => {
+  const [searchParams] = useSearchParams();
+  const initialEmail = useMemo(() => searchParams.get("email") ?? "", [searchParams]);
+  const initialToken = useMemo(() => searchParams.get("token") ?? "", [searchParams]);
+
+  const [email, setEmail] = useState(initialEmail);
+  const [token, setToken] = useState(initialToken);
+
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [errors, setErrors] = useState<string[]>([]);
+  const [serverError, setServerError] = useState<string>('');
+  const [serverSuccess, setServerSuccess] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (initialEmail) setEmail(initialEmail);
+    if (initialToken) setToken(initialToken);
+  }, [initialEmail, initialToken]);
+
   const validatePassword = () => {
-    const validationErrors = [];
-    
-    if (newPassword.length < 6) {
-      validationErrors.push("يجب أن تتكون كلمة المرور من 6 أحرف على الأقل");
-    }
-    
-    if (newPassword !== confirmPassword) {
-      validationErrors.push("كلمتا المرور غير متطابقتين");
-    }
-    
+    const validationErrors: string[] = [];
+    if (!email) validationErrors.push("البريد الإلكتروني مطلوب.");
+    if (!token) validationErrors.push("رمز إعادة التعيين (token) مطلوب.");
+    if (newPassword.length < 6) validationErrors.push("يجب أن تتكون كلمة المرور من 6 أحرف على الأقل");
+    if (newPassword !== confirmPassword) validationErrors.push("كلمتا المرور غير متطابقتين");
     return validationErrors;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setServerError('');
+    setServerSuccess('');
     const validationErrors = validatePassword();
-    
-    if (validationErrors.length > 0) {
-      setErrors(validationErrors);
-      return;
-    }
-    
+    if (validationErrors.length > 0) { setErrors(validationErrors); return; }
     setErrors([]);
-    // محاكاة نجاح تغيير كلمة المرور وإعادة التوجيه إلى لوحة التحكم
-    // في التطبيق الحقيقي، سيتم تحديث كلمة مرور المستخدم
-    navigate("/");
+    setIsSubmitting(true);
+
+    try {
+      await axios.post('/api/v1/auth/reset-password', {
+        email,
+        token,
+        password: newPassword,
+        password_confirmation: confirmPassword
+      }, { headers: { Accept: 'application/json' } });
+
+      setServerSuccess('تم تغيير كلمة المرور بنجاح. سيتم تحويلك إلى صفحة الدخول...');
+      setTimeout(() => navigate('/'), 1200);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'حدث خطأ أثناء تغيير كلمة المرور.';
+      setServerError(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const passwordValidations = [
@@ -56,15 +82,56 @@ const ResetPasswordPage = () => {
           <div className="mx-auto mb-2">
             <img src={logoFull} alt="UniHub" className="h-16 w-auto mx-auto" />
           </div>
-          <CardTitle className="text-2xl font-bold text-foreground">
-            قم بتعيين كلمة المرور الجديدة
-          </CardTitle>
+          <CardTitle className="text-2xl font-bold text-foreground">قم بتعيين كلمة المرور الجديدة</CardTitle>
           <CardDescription className="text-muted-foreground">
             يجب تغيير كلمة المرور قبل استخدام النظام
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {serverError && (
+            <Alert variant="destructive">
+              <AlertDescription>{serverError}</AlertDescription>
+            </Alert>
+          )}
+          {serverSuccess && (
+            <Alert>
+              <AlertDescription>{serverSuccess}</AlertDescription>
+            </Alert>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Email */}
+            <div className="space-y-2">
+              <Label htmlFor="email">البريد الإلكتروني</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="example@domain.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            {/* Token */}
+            <div className="space-y-2">
+              <Label htmlFor="token">رمز إعادة التعيين (token)</Label>
+              <Input
+                id="token"
+                type="text"
+                placeholder="الصق الرمز هنا (إن لم يمتلئ تلقائياً)"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                required
+              />
+              {initialToken && (
+                <p className="text-xs text-muted-foreground">
+                  تم جلب الرمز تلقائياً من الرابط.
+                </p>
+              )}
+            </div>
+
+            {/* New password */}
             <div className="space-y-2">
               <Label htmlFor="newPassword">كلمة المرور الجديدة</Label>
               <div className="relative">
@@ -86,6 +153,7 @@ const ResetPasswordPage = () => {
               </div>
             </div>
 
+            {/* Confirm password */}
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">تأكيد كلمة المرور الجديدة</Label>
               <div className="relative">
@@ -107,7 +175,7 @@ const ResetPasswordPage = () => {
               </div>
             </div>
 
-            {/* Password Validation Indicators */}
+            {/* Password rules */}
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">متطلبات كلمة المرور:</p>
               {passwordValidations.map((validation, index) => (
@@ -124,7 +192,7 @@ const ResetPasswordPage = () => {
               ))}
             </div>
 
-            {/* Error Messages */}
+            {/* Client-side validation errors */}
             {errors.length > 0 && (
               <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
                 {errors.map((error, index) => (
@@ -133,14 +201,14 @@ const ResetPasswordPage = () => {
               </div>
             )}
 
-            <Button 
-              type="submit" 
-              className="w-full"
-              disabled={validatePassword().length > 0}
-            >
-              حفظ كلمة المرور
+            <Button type="submit" className="w-full" disabled={isSubmitting || validatePassword().length > 0}>
+              {isSubmitting ? 'جارٍ الحفظ...' : 'حفظ كلمة المرور'}
             </Button>
           </form>
+
+          <div className="text-center mt-4">
+            <Link to="/" className="text-sm text-primary hover:underline">العودة لتسجيل الدخول</Link>
+          </div>
         </CardContent>
       </Card>
     </div>

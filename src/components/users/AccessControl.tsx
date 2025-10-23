@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,29 +11,17 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Shield, Globe, Clock, Eye, Download, Plus, Trash2, Users, Settings, CheckCircle, XCircle, AlertTriangle, Loader2 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { useForm, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 
-// بيانات تجريبية
+// بيانات تجريبية لسياسة الأمان (لا يوجد ربط DB لهذه التبويبات)
 const securityPolicies = {
-  passwordComplexity: {
-    minLength: 8,
-    requireUppercase: true,
-    requireLowercase: true,
-    requireNumbers: true,
-    requireSymbols: false,
-  },
-  twoFactorAuth: {
-    enabled: true,
-    requiredForRoles: ["Admin", "Department Head"],
-  },
-  loginPolicy: {
-    maxFailedAttempts: 5,
-    lockoutDuration: 30,
-    sessionTimeout: 120,
-  }
+  passwordComplexity: { minLength: 8, requireUppercase: true, requireLowercase: true, requireNumbers: true, requireSymbols: false },
+  twoFactorAuth: { enabled: true, requiredForRoles: ["Admin", "Department Head"] },
+  loginPolicy: { maxFailedAttempts: 5, lockoutDuration: 30, sessionTimeout: 120 },
 };
 
 const ipRestrictions = [
@@ -42,58 +30,65 @@ const ipRestrictions = [
   { id: 3, type: "blacklist", address: "203.0.113.0/24", description: "منطقة محجوبة", status: "active" },
 ];
 
-const sessionSettings = {
-  globalTimeout: 120,
-  maxConcurrentSessions: 3,
-  rememberMeEnabled: true,
-  rememberMeDuration: 30,
-};
+const sessionSettings = { globalTimeout: 120, maxConcurrentSessions: 3, rememberMeEnabled: true, rememberMeDuration: 30 };
 
-const activeSessions = [
-  { id: 1, user: "Dr. Sarah Johnson", ip: "192.168.1.100", location: "المكتب", device: "Windows Chrome", loginTime: "2024-01-15 09:30", lastActivity: "2024-01-15 10:45" },
-  { id: 2, user: "Prof. Ahmed Hassan", ip: "10.0.1.50", location: "المنزل", device: "MacOS Safari", loginTime: "2024-01-15 08:00", lastActivity: "2024-01-15 10:50" },
-  { id: 3, user: "Mary Rodriguez", ip: "192.168.1.200", location: "مكتب الإدارة", device: "Windows Edge", loginTime: "2024-01-15 07:45", lastActivity: "2024-01-15 10:48" },
-];
-
-const auditLogs = [
-  { id: 1, timestamp: "2024-01-15 10:45:32", user: "Dr. Sarah Johnson", action: "Login", resource: "System", ip: "192.168.1.100", status: "Success" },
-  { id: 2, timestamp: "2024-01-15 10:44:15", user: "System", action: "Policy Change", resource: "Security Settings", ip: "127.0.0.1", status: "Success" },
-  { id: 3, timestamp: "2024-01-15 10:43:21", user: "Unknown", action: "Failed Login", resource: "Login Page", ip: "203.0.113.45", status: "Failed" },
-  { id: 4, timestamp: "2024-01-15 10:42:10", user: "Prof. Ahmed Hassan", action: "Data Export", resource: "User Reports", ip: "10.0.1.50", status: "Success" },
-];
-
-// مخططات النماذج
+// سكيمات Zod بأرقام فعلية
 const securityPolicySchema = z.object({
   minPasswordLength: z.number().min(6).max(50),
   maxFailedAttempts: z.number().min(3).max(10),
   lockoutDuration: z.number().min(5).max(120),
 });
+type SecurityPolicyFormData = z.infer<typeof securityPolicySchema>;
 
 const ipRestrictionSchema = z.object({
   type: z.enum(["whitelist", "blacklist"]),
   address: z.string().min(7, "يرجى إدخال عنوان IP صالح أو مدى CIDR"),
   description: z.string().min(1, "الوصف مطلوب"),
 });
+type IpRestrictionFormData = z.infer<typeof ipRestrictionSchema>;
 
 const sessionSettingsSchema = z.object({
   globalTimeout: z.number().min(15).max(480),
   maxConcurrentSessions: z.number().min(1).max(10),
   rememberMeDuration: z.number().min(1).max(90),
 });
-
-type SecurityPolicyFormData = z.infer<typeof securityPolicySchema>;
-type IpRestrictionFormData = z.infer<typeof ipRestrictionSchema>;
 type SessionSettingsFormData = z.infer<typeof sessionSettingsSchema>;
 
+// أنواع API
+type ApiSession = {
+  id: string;           // token id (oauth_access_tokens.id)
+  user_id: number;
+  full_name: string;
+  email: string;
+  device: string | null;
+  revoked: number;      // 0/1
+  created_at: string | null;
+  expires_at: string | null;
+};
+
+type ApiLog = {
+  activity_id: number;
+  created_at: string;
+  full_name: string;
+  email: string;
+  action_type: string;
+  module_name: string | null;
+  action_description: string | null;
+};
+
 const AccessControl = () => {
+  const { toast } = useToast();
+
   const [activeTab, setActiveTab] = useState("security");
   const [isLoading, setIsLoading] = useState(false);
   const [isAddingIpRule, setIsAddingIpRule] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [logFilter, setLogFilter] = useState("all");
-  const { toast } = useToast();
+  const [logFilter, setLogFilter] = useState("all"); // شكلي فقط
 
-  // النماذج
+  const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const [logs, setLogs] = useState<ApiLog[]>([]);
+
+  // 1) النماذج — يجب تمرير نفس النوع للـ Form ولـ FormField
   const securityForm = useForm<SecurityPolicyFormData>({
     resolver: zodResolver(securityPolicySchema),
     defaultValues: {
@@ -105,11 +100,7 @@ const AccessControl = () => {
 
   const ipForm = useForm<IpRestrictionFormData>({
     resolver: zodResolver(ipRestrictionSchema),
-    defaultValues: {
-      type: "whitelist",
-      address: "",
-      description: "",
-    },
+    defaultValues: { type: "whitelist", address: "", description: "" },
   });
 
   const sessionForm = useForm<SessionSettingsFormData>({
@@ -121,104 +112,106 @@ const AccessControl = () => {
     },
   });
 
-  const onUpdateSecurityPolicy = async (data: SecurityPolicyFormData) => {
+  // 2) استدعاءات API
+  const fetchSessions = async () => {
+    try {
+      const res = await api.get("/v1/admin/sessions");
+      const data: ApiSession[] = res.data?.data ?? res.data;
+      setSessions(data);
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل الجلسات", variant: "destructive" });
+    }
+  };
+
+  const revokeToken = async (tokenId: string) => {
+    try {
+      await api.post("/v1/admin/sessions/revoke", { token_id: tokenId });
+      toast({ title: "نجاح", description: "تم إنهاء الجلسة" });
+      await fetchSessions();
+    } catch {
+      toast({ title: "خطأ", description: "فشل إنهاء الجلسة", variant: "destructive" });
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const res = await api.get("/v1/admin/audit-logs");
+      const data: ApiLog[] = res.data?.data ?? res.data;
+      setLogs(data);
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل سجلات الوصول", variant: "destructive" });
+    }
+  };
+
+  useEffect(() => {
+    fetchSessions();
+    fetchLogs();
+  }, []);
+
+  // 3) معالجات إرسال النماذج — بتواقيع SubmitHandler متوافقة
+  const onUpdateSecurityPolicy: SubmitHandler<SecurityPolicyFormData> = async (_) => {
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      toast({
-        title: "نجاح",
-        description: "تم تحديث سياسة الأمان بنجاح",
-      });
-    } catch (error) {
-      toast({
-        title: "خطأ",
-        description: "فشل تحديث سياسة الأمان",
-        variant: "destructive",
-      });
+      await new Promise((r) => setTimeout(r, 700));
+      toast({ title: "نجاح", description: "تم تحديث سياسة الأمان (تجريبي)" });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const onAddIpRestriction = async (data: IpRestrictionFormData) => {
+  const onAddIpRestriction: SubmitHandler<IpRestrictionFormData> = async (_) => {
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      toast({
-        title: "نجاح",
-        description: "تمت إضافة قاعدة تقييد IP بنجاح",
-      });
+      await new Promise((r) => setTimeout(r, 700));
+      toast({ title: "نجاح", description: "تمت إضافة قاعدة IP (تجريبي)" });
       ipForm.reset();
       setIsAddingIpRule(false);
-    } catch (error) {
-      toast({
-        title: "خطأ",
-        description: "فشل في إضافة قاعدة تقييد IP",
-        variant: "destructive",
-      });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const onUpdateSessionSettings = async (data: SessionSettingsFormData) => {
+  const onUpdateSessionSettings: SubmitHandler<SessionSettingsFormData> = async (_) => {
     setIsLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      toast({
-        title: "نجاح",
-        description: "تم تحديث إعدادات الجلسات بنجاح",
-      });
-    } catch (error) {
-      toast({
-        title: "خطأ",
-        description: "فشل في تحديث إعدادات الجلسات",
-        variant: "destructive",
-      });
+      await new Promise((r) => setTimeout(r, 700));
+      toast({ title: "نجاح", description: "تم تحديث إعدادات الجلسات (تجريبي)" });
     } finally {
       setIsLoading(false);
     }
   };
 
+  // 4) فلترة السجلات محليًا (لا يوجد status في DB)
+  const filteredLogs = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return logs.filter((log) => {
+      const hay = `${log.full_name} ${log.email} ${log.action_type} ${log.module_name ?? ""} ${log.action_description ?? ""}`.toLowerCase();
+      const matchesSearch = q === "" || hay.includes(q);
+      const matchesFilter = logFilter === "all";
+      return matchesSearch && matchesFilter;
+    });
+  }, [logs, searchQuery, logFilter]);
+
+  // 5) واجهة
   const handleTestConnectivity = () => {
-    toast({
-      title: "اختبار الاتصال",
-      description: "جارٍ اختبار الاتصال من عنوان IP الحالي...",
-    });
-    
-    // محاكاة الاختبار
-    setTimeout(() => {
-      toast({
-        title: "تم الاختبار بنجاح",
-        description: "يمكن لعنوان IP الحالي الوصول إلى النظام",
-      });
-    }, 2000);
+    toast({ title: "اختبار الاتصال", description: "جارٍ اختبار الاتصال من عنوان IP الحالي..." });
+    setTimeout(() => toast({ title: "تم الاختبار بنجاح", description: "يمكن لعنوان IP الحالي الوصول إلى النظام" }), 1200);
   };
 
-  const handleForceLogout = (sessionId: number) => {
-    toast({
-      title: "نجاح",
-      description: "تم إنهاء جلسة المستخدم بنجاح",
-    });
+  const exportLogsCsv = () => {
+    const header = ["timestamp","full_name","email","action_type","module_name","action_description"];
+    const rows = filteredLogs.map((l) => [
+      l.created_at, l.full_name, l.email, l.action_type, l.module_name ?? "", (l.action_description ?? "").replace(/[\r\n]+/g, " "),
+    ]);
+    const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "audit_logs.csv";
+    a.click();
+    URL.revokeObjectURL(url);
   };
-
-  const handleExportLogs = () => {
-    toast({
-      title: "نجاح",
-      description: "تم تصدير سجلات التدقيق بنجاح",
-    });
-  };
-
-  const filteredLogs = auditLogs.filter(log => {
-    const matchesSearch = searchQuery === "" || 
-      log.user.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.action.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      log.resource.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesFilter = logFilter === "all" || log.status.toLowerCase() === logFilter;
-    
-    return matchesSearch && matchesFilter;
-  });
 
   return (
     <div className="space-y-6">
@@ -249,9 +242,9 @@ const AccessControl = () => {
           </TabsTrigger>
         </TabsList>
 
-        {/* تبويب سياسة الأمان */}
+        {/* سياسة الأمان (تجريبي) */}
         <TabsContent value="security" className="space-y-6">
-          <Form {...securityForm}>
+          <Form<SecurityPolicyFormData> {...securityForm}>
             <form onSubmit={securityForm.handleSubmit(onUpdateSecurityPolicy)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card>
@@ -263,14 +256,14 @@ const AccessControl = () => {
                     <CardDescription>ضبط متطلبات تعقيد كلمة المرور</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField
+                    <FormField<SecurityPolicyFormData>
                       control={securityForm.control}
                       name="minPasswordLength"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>الحد الأدنى لطول كلمة المرور</FormLabel>
                           <FormControl>
-                            <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
+                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -318,27 +311,27 @@ const AccessControl = () => {
                     <CardDescription>ضبط إعدادات تسجيل الدخول والمصادقة</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField
+                    <FormField<SecurityPolicyFormData>
                       control={securityForm.control}
                       name="maxFailedAttempts"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>الحد الأقصى لمحاولات تسجيل الدخول الفاشلة</FormLabel>
                           <FormControl>
-                            <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
+                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                    <FormField
+                    <FormField<SecurityPolicyFormData>
                       control={securityForm.control}
                       name="lockoutDuration"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>مدة قفل الحساب (بالدقائق)</FormLabel>
                           <FormControl>
-                            <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
+                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -347,14 +340,14 @@ const AccessControl = () => {
                     <div className="flex items-center justify-between">
                       <div>
                         <Label>تفعيل المصادقة الثنائية</Label>
-                        <p className="text-sm text-muted-foreground">طلب المصادقة الثنائية للحسابات ذات الصلاحيات</p>
+                        <p className="text-sm text-muted-foreground">طلب المصادقة للحسابات ذات الصلاحيات</p>
                       </div>
                       <Switch defaultChecked={securityPolicies.twoFactorAuth.enabled} />
                     </div>
                   </CardContent>
                 </Card>
               </div>
-              
+
               <div className="flex justify-end">
                 <Button type="submit" disabled={isLoading}>
                   {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -365,7 +358,7 @@ const AccessControl = () => {
           </Form>
         </TabsContent>
 
-        {/* تبويب قيود IP */}
+        {/* قيود IP (تجريبي) */}
         <TabsContent value="ip" className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
@@ -373,7 +366,10 @@ const AccessControl = () => {
               <p className="text-sm text-muted-foreground">التحكم في الوصول بناءً على عناوين IP والشبكات</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handleTestConnectivity}>
+              <Button variant="outline" onClick={() => {
+                toast({ title: "اختبار الاتصال", description: "جارٍ اختبار الاتصال من عنوان IP الحالي..." });
+                setTimeout(() => toast({ title: "تم الاختبار بنجاح", description: "يمكن لعنوان IP الحالي الوصول إلى النظام" }), 1200);
+              }}>
                 اختبار الاتصال
               </Button>
               <Button onClick={() => setIsAddingIpRule(true)}>
@@ -389,10 +385,10 @@ const AccessControl = () => {
                 <CardTitle>إضافة قاعدة تقييد IP</CardTitle>
               </CardHeader>
               <CardContent>
-                <Form {...ipForm}>
+                <Form<IpRestrictionFormData> {...ipForm}>
                   <form onSubmit={ipForm.handleSubmit(onAddIpRestriction)} className="space-y-4">
-                    <div className="grid grid-cols-3 gap-4">
-                      <FormField
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <FormField<IpRestrictionFormData>
                         control={ipForm.control}
                         name="type"
                         render={({ field }) => (
@@ -413,7 +409,7 @@ const AccessControl = () => {
                           </FormItem>
                         )}
                       />
-                      <FormField
+                      <FormField<IpRestrictionFormData>
                         control={ipForm.control}
                         name="address"
                         render={({ field }) => (
@@ -426,7 +422,7 @@ const AccessControl = () => {
                           </FormItem>
                         )}
                       />
-                      <FormField
+                      <FormField<IpRestrictionFormData>
                         control={ipForm.control}
                         name="description"
                         render={({ field }) => (
@@ -440,13 +436,8 @@ const AccessControl = () => {
                         )}
                       />
                     </div>
-                    <div className="flex justify-end space-x-2">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={() => setIsAddingIpRule(false)}
-                        disabled={isLoading}
-                      >
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" variant="outline" onClick={() => setIsAddingIpRule(false)} disabled={isLoading}>
                         إلغاء
                       </Button>
                       <Button type="submit" disabled={isLoading}>
@@ -483,9 +474,7 @@ const AccessControl = () => {
                       <TableCell className="font-mono">{rule.address}</TableCell>
                       <TableCell>{rule.description}</TableCell>
                       <TableCell>
-                        <Badge className="bg-green-100 text-green-700">
-                          {rule.status}
-                        </Badge>
+                        <Badge className="bg-green-100 text-green-700">{rule.status}</Badge>
                       </TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm">
@@ -500,9 +489,9 @@ const AccessControl = () => {
           </Card>
         </TabsContent>
 
-        {/* تبويب إدارة الجلسات */}
+        {/* الجلسات (فعلي) */}
         <TabsContent value="sessions" className="space-y-6">
-          <Form {...sessionForm}>
+          <Form<SessionSettingsFormData> {...sessionForm}>
             <form onSubmit={sessionForm.handleSubmit(onUpdateSessionSettings)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
@@ -511,17 +500,17 @@ const AccessControl = () => {
                       <Clock className="h-5 w-5 text-blue-600" />
                       مهلة الجلسة
                     </CardTitle>
-                    <CardDescription>ضبط مهلة الجلسة العامة</CardDescription>
+                    <CardDescription>ضبط مهلة الجلسة العامة (تجريبي)</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField
+                    <FormField<SessionSettingsFormData>
                       control={sessionForm.control}
                       name="globalTimeout"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>المهلة (بالدقائق)</FormLabel>
                           <FormControl>
-                            <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
+                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -532,11 +521,9 @@ const AccessControl = () => {
                         <Label>تحذير قبل انتهاء المهلة</Label>
                         <p className="text-sm text-muted-foreground">إظهار تحذير قبل 5 دقائق</p>
                       </div>
-                      <Switch defaultChecked={true} />
+                      <Switch defaultChecked={sessionSettings.rememberMeEnabled} />
                     </div>
-                    <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-                      تحديث المهلة
-                    </Button>
+                    <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">تحديث المهلة</Button>
                   </CardContent>
                 </Card>
 
@@ -546,17 +533,17 @@ const AccessControl = () => {
                       <Users className="h-5 w-5 text-green-600" />
                       الجلسات المتزامنة
                     </CardTitle>
-                    <CardDescription>إدارة الوصول عبر جلسات متعددة</CardDescription>
+                    <CardDescription>إدارة الوصول عبر جلسات متعددة (تجريبي)</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField
+                    <FormField<SessionSettingsFormData>
                       control={sessionForm.control}
                       name="maxConcurrentSessions"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>الحد الأقصى للجلسات المتزامنة</FormLabel>
                           <FormControl>
-                            <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
+                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -569,14 +556,14 @@ const AccessControl = () => {
                       </div>
                       <Switch defaultChecked={sessionSettings.rememberMeEnabled} />
                     </div>
-                    <FormField
+                    <FormField<SessionSettingsFormData>
                       control={sessionForm.control}
                       name="rememberMeDuration"
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>مدة "تذكرني" (أيام)</FormLabel>
                           <FormControl>
-                            <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value))} />
+                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -588,21 +575,21 @@ const AccessControl = () => {
                     </Button>
                   </CardContent>
                 </Card>
-                
+
                 <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Eye className="h-5 w-5 text-purple-600" />
                       الجلسات النشطة
                     </CardTitle>
-                    <CardDescription>{activeSessions.length} جلسة نشطة حالياً</CardDescription>
+                    <CardDescription>{sessions.filter((s) => !s.revoked).length} جلسة نشطة حالياً</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="text-center">
-                      <p className="text-3xl font-bold text-purple-700">{activeSessions.length}</p>
+                      <p className="text-3xl font-bold text-purple-700">{sessions.filter((s) => !s.revoked).length}</p>
                       <p className="text-sm text-purple-600">جلسات نشطة</p>
                     </div>
-                    <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white">
+                    <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white" onClick={() => setActiveTab("sessions")}>
                       عرض جميع الجلسات
                     </Button>
                   </CardContent>
@@ -614,9 +601,14 @@ const AccessControl = () => {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>جلسات المستخدمين النشطة</CardTitle>
+                <CardTitle>جلسات المستخدمين</CardTitle>
                 <div className="flex items-center gap-2">
-                  <Input placeholder="ابحث في الجلسات النشطة..." className="w-64" />
+                  <Input
+                    placeholder="ابحث في الجلسات..."
+                    className="w-64"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
                 </div>
               </div>
             </CardHeader>
@@ -625,50 +617,61 @@ const AccessControl = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>المستخدم</TableHead>
-                    <TableHead>عنوان IP</TableHead>
-                    <TableHead>الموقع</TableHead>
                     <TableHead>الجهاز</TableHead>
-                    <TableHead>وقت تسجيل الدخول</TableHead>
-                    <TableHead>آخر نشاط</TableHead>
+                    <TableHead>وقت الإنشاء</TableHead>
+                    <TableHead>الانتهاء</TableHead>
+                    <TableHead>الحالة</TableHead>
                     <TableHead>الإجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {activeSessions.map((session) => (
-                    <TableRow key={session.id}>
-                      <TableCell className="font-medium">{session.user}</TableCell>
-                      <TableCell className="font-mono">{session.ip}</TableCell>
-                      <TableCell>{session.location}</TableCell>
-                      <TableCell>{session.device}</TableCell>
-                      <TableCell>{session.loginTime}</TableCell>
-                      <TableCell>{session.lastActivity}</TableCell>
-                      <TableCell>
-                        <Button 
-                          variant="destructive" 
-                          size="sm"
-                          onClick={() => handleForceLogout(session.id)}
-                        >
-                          تسجيل خروج إجباري
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {sessions
+                    .filter((s) => {
+                      const q = searchQuery.toLowerCase();
+                      const hay = `${s.full_name} ${s.email} ${s.device ?? ""}`.toLowerCase();
+                      return hay.includes(q);
+                    })
+                    .map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="whitespace-nowrap">
+                          <div className="font-medium">{s.full_name}</div>
+                          <div className="text-xs text-muted-foreground">{s.email}</div>
+                        </TableCell>
+                        <TableCell>{s.device ?? "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{s.created_at ?? "—"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{s.expires_at ?? "—"}</TableCell>
+                        <TableCell>
+                          <Badge className={!s.revoked ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
+                            {!s.revoked ? "مفعّلة" : "ملغاة"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {!s.revoked ? (
+                            <Button variant="destructive" size="sm" onClick={() => revokeToken(s.id)}>
+                              تسجيل خروج إجباري
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
                 </TableBody>
               </Table>
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* تبويب سجلات الوصول */}
+        {/* سجلات الوصول (فعلي) */}
         <TabsContent value="logs" className="space-y-6">
           <div className="flex items-center justify-between">
             <div>
               <h3 className="text-lg font-semibold">سجلات الوصول</h3>
-              <p className="text-sm text-muted-foreground">مراقبة وصول النظام والأحداث الأمنية</p>
+              <p className="text-sm text-muted-foreground">مراقبة وصول النظام والأحداث</p>
             </div>
             <div className="flex items-center gap-4">
-              <Input 
-                placeholder="ابحث في السجلات..." 
+              <Input
+                placeholder="ابحث في السجلات..."
                 className="w-64"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -683,7 +686,7 @@ const AccessControl = () => {
                   <SelectItem value="failed">فاشلة</SelectItem>
                 </SelectContent>
               </Select>
-              <Button onClick={handleExportLogs}>
+              <Button onClick={exportLogsCsv}>
                 <Download className="w-4 h-4 mr-2" />
                 تصدير
               </Button>
@@ -697,38 +700,24 @@ const AccessControl = () => {
                   <TableRow>
                     <TableHead>الطابع الزمني</TableHead>
                     <TableHead>المستخدم</TableHead>
-                    <TableHead>الإجراء</TableHead>
-                    <TableHead>المورد</TableHead>
-                    <TableHead>عنوان IP</TableHead>
-                    <TableHead>الحالة</TableHead>
+                    <TableHead>العملية</TableHead>
+                    <TableHead>الوحدة</TableHead>
+                    <TableHead>الوصف</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredLogs.map((log) => (
-                    <TableRow key={log.id}>
-                      <TableCell className="font-mono text-sm">{log.timestamp}</TableCell>
-                      <TableCell>{log.user}</TableCell>
-                      <TableCell>{log.action}</TableCell>
-                      <TableCell>{log.resource}</TableCell>
-                      <TableCell className="font-mono">{log.ip}</TableCell>
+                    <TableRow key={log.activity_id}>
+                      <TableCell className="font-mono text-sm">{log.created_at}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          {log.status === "Success" ? (
-                            <CheckCircle className="h-4 w-4 text-green-600" />
-                          ) : log.status === "Failed" ? (
-                            <XCircle className="h-4 w-4 text-red-600" />
-                          ) : (
-                            <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                          )}
-                          <Badge 
-                            className={
-                              log.status === "Success" 
-                                ? "bg-green-100 text-green-700" 
-                                : "bg-red-100 text-red-700"
-                            }
-                          >
-                            {log.status}
-                          </Badge>
+                        <div className="font-medium">{log.full_name}</div>
+                        <div className="text-xs text-muted-foreground">{log.email}</div>
+                      </TableCell>
+                      <TableCell>{log.action_type}</TableCell>
+                      <TableCell>{log.module_name ?? "—"}</TableCell>
+                      <TableCell className="max-w-[420px]">
+                        <div className="text-sm text-muted-foreground truncate">
+                          {log.action_description ?? "—"}
                         </div>
                       </TableCell>
                     </TableRow>

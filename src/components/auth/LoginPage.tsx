@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import logoFull from "@/assets/logo-full.png";
+import { api, setAuthToken } from '@/lib/api';
 
 const users = [
   { username: 'admin', password: '123', role: 'admin', redirect: '/dashboard/admin' },
@@ -29,31 +30,23 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setIsLoading(true);
-
-    // Simulate loading delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    const user = users.find(u => u.username === username && u.password === password);
-    
-    if (user) {
-      // Store session info if remember me is checked
-      if (rememberMe) {
-        localStorage.setItem('rememberedUser', username);
-      }
-      
-      // Store current user session
-      sessionStorage.setItem('currentUser', JSON.stringify({
-        username: user.username,
-        role: user.role
-      }));
-      
-      // Redirect to appropriate dashboard
-      window.location.href = user.redirect;
-    } else {
-      setError('اسم المستخدم أو كلمة المرور غير صحيحة. حاول مرة أخرى.');
+    try {
+      const res = await api.post('/v1/auth/login', {
+        email: username,       // غيّر الـ UI ليعرض "البريد الإلكتروني" بدل اسم المستخدم
+        password,
+        device_name: 'web',
+      });
+      const token = res.data?.access_token;
+      if (!token) throw new Error('No token');
+      setAuthToken(token); // يعيّن Authorization ويحفظ التوكن
+  
+      // توجيه بعد نجاح الدخول
+      window.location.href = '/';
+    } catch (err) {
+      setError('بيانات الدخول غير صحيحة أو حدث خطأ بالخادم.');
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
   };
 
   // Load remembered user on component mount

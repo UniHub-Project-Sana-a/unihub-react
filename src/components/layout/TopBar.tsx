@@ -1,10 +1,10 @@
+// src/components/layout/TopBar.tsx
 import { useState } from "react";
-import { Search, Bell, User, Menu, Settings } from "lucide-react";
+import { Search, Bell, User, Menu, Settings, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { LanguageSwitcher } from "./LanguageSwitcher";
-import logoFull from "@/assets/logo-full.png";
+import { setAuthToken, api } from "@/lib/api";
 
 interface TopBarProps {
   onMenuToggle: () => void;
@@ -12,6 +12,20 @@ interface TopBarProps {
 
 export function TopBar({ onMenuToggle }: TopBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await api.post("/v1/auth/logout");
+    } catch {}
+    // تنظيف التوكن
+    setAuthToken(undefined);
+    localStorage.removeItem("access_token");
+    // لا نحذف active_college_id
+    window.location.href = "/login";
+  };
 
   return (
     <header className="h-16 bg-card shadow-lg border-b border-border flex items-center justify-between px-6">
@@ -21,6 +35,7 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
           size="icon"
           onClick={onMenuToggle}
           className="hover:bg-accent lg:hidden"
+          aria-label="Toggle Menu"
         >
           <Menu className="w-5 h-5" />
         </Button>
@@ -37,16 +52,28 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
       </div>
 
       <div className="flex items-center space-x-reverse space-x-4">
-        
-        <Button variant="ghost" size="icon" className="relative hover:bg-accent">
+        <Button variant="ghost" size="icon" className="relative hover:bg-accent" aria-label="Notifications">
           <Bell className="w-5 h-5" />
           <Badge className="absolute -top-1 -left-1 w-5 h-5 flex items-center justify-center p-0 bg-destructive">
             3
           </Badge>
         </Button>
-        
-        <Button variant="ghost" size="icon" className="hover:bg-accent">
+
+        <Button variant="ghost" size="icon" className="hover:bg-accent" aria-label="Settings">
           <Settings className="w-5 h-5" />
+        </Button>
+
+        {/* زر تسجيل الخروج */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hover:bg-accent"
+          onClick={handleLogout}
+          disabled={loggingOut}
+          aria-label="Logout"
+          title="تسجيل الخروج"
+        >
+          <LogOut className="w-5 h-5" />
         </Button>
 
         <div className="flex items-center space-x-reverse space-x-3 pr-4 border-r border-border">
