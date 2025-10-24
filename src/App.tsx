@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import "./i18n/config";
+
+// Pages
 import Index from "./pages/Index";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
@@ -17,15 +19,18 @@ import SettingsPage from "./pages/SettingsPage";
 import AuditLogPage from "./pages/AuditLogPage";
 import AcademicStaffPage from "./pages/AcademicStaffPage";
 import CourseManagementPage from "./pages/CourseManagementPage";
+import CollegesPage from "./pages/CollegesPage";
+
+// Auth & Other Pages
 import LoginPage from "./components/auth/LoginPage";
 import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
-import CollegesPage from "./pages/CollegesPage";
-import { setAuthToken } from '@/lib/api';
 
-const saved = sessionStorage.getItem('access_token') || localStorage.getItem('access_token');
-if (saved) setAuthToken(saved);
+// Auth & Security Components
+import { AuthProvider } from "@/context/AuthContext";
+import RequireAuth from "@/auth/RequireAuth";
+import RedirectIfAuthed from "@/auth/RedirectIfAuthed";
 
 const queryClient = new QueryClient();
 
@@ -35,29 +40,35 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/" element={<Index />} />
-          <Route path="/colleges" element={<CollegesPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          
-          {/* Legacy routes */}
-          <Route path="/users" element={<UsersPage />} />
-          <Route path="/users/roles" element={<RolesPage />} />
-          <Route path="/users/access-control" element={<AccessControlPage />} />
-          <Route path="/timetable/*" element={<TimetablePage />} />
-          <Route path="/enrollment/*" element={<EnrollmentPage />} />
-          <Route path="/excuses/*" element={<ExcusesPage />} />
-          <Route path="/reports/*" element={<ReportsPage />} />
-          <Route path="/integration/*" element={<IntegrationPage />} />
-          <Route path="/course-management/*" element={<CourseManagementPage />} />
-          <Route path="/auditlog" element={<AuditLogPage />} />
-          
-          {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            {/* المسارات العامة: محمية بـ RedirectIfAuthed لمنع الوصول إليها بعد تسجيل الدخول */}
+            <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+
+            {/* المسارات المحمية: كل مسار مغلف بـ RequireAuth */}
+            <Route path="/" element={<RequireAuth><Index /></RequireAuth>} />
+            <Route path="/colleges" element={<RequireAuth><CollegesPage /></RequireAuth>} />
+            <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+            
+            {/* Legacy routes (محمية) */}
+            <Route path="/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
+            <Route path="/users/roles" element={<RequireAuth><RolesPage /></RequireAuth>} />
+            <Route path="/users/access-control" element={<RequireAuth><AccessControlPage /></RequireAuth>} />
+            <Route path="/timetable/*" element={<RequireAuth><TimetablePage /></RequireAuth>} />
+            <Route path="/enrollment/*" element={<RequireAuth><EnrollmentPage /></RequireAuth>} />
+            <Route path="/excuses/*" element={<RequireAuth><ExcusesPage /></RequireAuth>} />
+            <Route path="/reports/*" element={<RequireAuth><ReportsPage /></RequireAuth>} />
+            <Route path="/integration/*" element={<RequireAuth><IntegrationPage /></RequireAuth>} />
+            <Route path="/course-management/*" element={<RequireAuth><CourseManagementPage /></RequireAuth>} />
+            <Route path="/auditlog" element={<RequireAuth><AuditLogPage /></RequireAuth>} />
+            <Route path="/academic-staff" element={<RequireAuth><AcademicStaffPage /></RequireAuth>} />
+
+            {/* Catch-all */}
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
