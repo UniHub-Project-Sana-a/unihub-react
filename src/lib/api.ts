@@ -1,8 +1,11 @@
 // src/lib/api.ts
-import axios, { AxiosHeaders, type InternalAxiosRequestConfig } from 'axios';
+import axios from 'axios';
+
+// استخدم IP جهازك هنا
+const API_BASE_URL = 'http://192.168.0.124/api'; 
 
 export const api = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api', // عدّل إن لزم
+  baseURL: API_BASE_URL,
   headers: { Accept: 'application/json' },
 });
 
@@ -13,31 +16,18 @@ export function setAuthToken(token?: string) {
   } else {
     delete api.defaults.headers.common['Authorization'];
     sessionStorage.removeItem('access_token');
+    localStorage.removeItem('access_token');
   }
 }
 
-// حقن تلقائي للتوكن و X-College-Id مع توافق Axios v1
-api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  // تأكد من وجود كائن رؤوس من نوع AxiosHeaders
-  const headers = (config.headers ?? new AxiosHeaders()) as AxiosHeaders;
-
-  // Authorization
-  const token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token');
-  if (token && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-
-  // X-College-Id لطلبات الكتابة فقط
-  const method = (config.method ?? '').toLowerCase();
-  if (['post', 'put', 'patch', 'delete'].includes(method)) {
-    const collegeId =
-      localStorage.getItem('active_college_id') ||
-      sessionStorage.getItem('active_college_id');
-    if (collegeId && !headers.has('X-College-Id')) {
-      headers.set('X-College-Id', collegeId);
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401 && !error.config.url.endsWith('/auth/login')) {
+      setAuthToken(undefined);
+      const next = window.location.pathname + window.location.search;
+      window.location.href = `/login?next=${encodeURIComponent(next)}`;
     }
+    return Promise.reject(error);
   }
-
-  config.headers = headers;
-  return config;
-});
+);

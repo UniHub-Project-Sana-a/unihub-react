@@ -7,6 +7,7 @@ export default function RedirectIfAuthed({ children }: { children: JSX.Element }
   const next = new URLSearchParams(location.search).get("next");
 
   if (loading) return children;
+
   if (isAuthenticated) {
     return <Navigate to={next || "/"} replace />;
   }

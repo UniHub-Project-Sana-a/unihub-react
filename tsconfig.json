@@ -5,6 +5,7 @@
     { "path": "./tsconfig.node.json" }
   ],
   "compilerOptions": {
+    "types": ["@types/fingerprintjs__fingerprintjs"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

@@ -70,13 +70,13 @@ const ResetPasswordPage = () => {
     setServerSuccess('');
     if (!isPasswordValid || !email || !token) return;
     setIsSubmitting(true);
-
+  
     try {
       await api.post('/v1/auth/reset-password', {
         email, token, password: newPassword, password_confirmation: confirmPassword
       });
       setServerSuccess('تم تغيير كلمة المرور بنجاح. سيتم تحويلك إلى صفحة الدخول...');
-      setTimeout(() => navigate('/login'), 1500);
+      setTimeout(() => navigate('/login'), 1500); // <-- توجيه إلى /login
     } catch (err: any) {
       const msg = err?.response?.data?.errors?.password?.[0] || err?.response?.data?.message || 'حدث خطأ أثناء تغيير كلمة المرور.';
       setServerError(msg);

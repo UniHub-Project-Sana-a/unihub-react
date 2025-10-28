@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import "./i18n/config";
 
-// Pages
 import Index from "./pages/Index";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
@@ -21,13 +20,11 @@ import AcademicStaffPage from "./pages/AcademicStaffPage";
 import CourseManagementPage from "./pages/CourseManagementPage";
 import CollegesPage from "./pages/CollegesPage";
 
-// Auth & Other Pages
 import LoginPage from "./components/auth/LoginPage";
 import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 
-// Auth & Security Components
 import { AuthProvider } from "@/context/AuthContext";
 import RequireAuth from "@/auth/RequireAuth";
 import RedirectIfAuthed from "@/auth/RedirectIfAuthed";
@@ -42,17 +39,16 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            {/* المسارات العامة: محمية بـ RedirectIfAuthed لمنع الوصول إليها بعد تسجيل الدخول */}
+            {/* مسارات عامة */}
             <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-            {/* المسارات المحمية: كل مسار مغلف بـ RequireAuth */}
+            {/* مسارات محمية */}
             <Route path="/" element={<RequireAuth><Index /></RequireAuth>} />
             <Route path="/colleges" element={<RequireAuth><CollegesPage /></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
-            
-            {/* Legacy routes (محمية) */}
+
             <Route path="/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
             <Route path="/users/roles" element={<RequireAuth><RolesPage /></RequireAuth>} />
             <Route path="/users/access-control" element={<RequireAuth><AccessControlPage /></RequireAuth>} />

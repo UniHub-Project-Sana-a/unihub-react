@@ -7,10 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Pencil, Trash2, Plus, ArrowLeft, ChevronRight, Users, BookOpen, Building2, DollarSign } from "lucide-react";
+import { Pencil, Trash2, Plus, ArrowLeft, ChevronRight } from "lucide-react";
 import { lazy, Suspense } from "react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
+import { useMemo } from "react";
 
 // Lazy imports
 const TimetableModule = lazy(() => import("@/components/colleges/TimetableModule"));
@@ -42,6 +44,7 @@ interface College {
 export default function CollegesPage() {
   const location = useLocation();
   const { toast } = useToast();
+  const { user: me } = useAuth();
 
   const [activeTab, setActiveTab] = useState("colleges-dashboard");
   const [colleges, setColleges] = useState<College[]>([]);
@@ -49,15 +52,31 @@ export default function CollegesPage() {
   const [isCollegeFormOpen, setIsCollegeFormOpen] = useState(false);
   const [editingCollegeId, setEditingCollegeId] = useState<string | null>(null);
   const [collegeFormData, setCollegeFormData] = useState({ name: "", academicCode: "" });
+  const [userTypes, setUserTypes] = useState<any[]>([]);
+  
+  const myUserType = useMemo(() => {
+    // لا تحسب أي شيء إلا بعد تحميل `me` و `userTypes`
+    if (!me || !userTypes || userTypes.length === 0) {
+      return null;
+    }
+    return userTypes.find(t => t.user_type_id === me.user_type_id) || null;
+  }, [me, userTypes]); // يعتمد على me و userTypes
+  
+  const myUserTypeCode = myUserType?.user_type_code;
 
   const loadColleges = async () => {
     try {
       const res = await api.get("/v1/colleges");
-      const data: any[] = res.data?.data ?? res.data;
+      let data: any[] = res.data?.data ?? res.data;
+      
+      if (myUserTypeCode === 'dean') {
+        data = data.filter(c => c.college_id === me?.college_id);
+      }
+  
       setColleges(data.map(c => ({
-        id: c.college_id,
+        id: String(c.college_id),
         name: c.college_name,
-        academicCode: c.college_code
+        academicCode: c.college_code || ""
       })));
     } catch {
       toast({ title: "خطأ", description: "فشل تحميل الكليات", variant: "destructive" });
@@ -65,11 +84,23 @@ export default function CollegesPage() {
   };
 
   useEffect(() => {
-    if (location.pathname === "/colleges") {
+    const fetchLookups = async () => {
+      try {
+        const typesRes = await api.get("/v1/lookups/user-types");
+        setUserTypes(typesRes.data?.data ?? typesRes.data);
+      } catch {
+        toast({ title: "خطأ", description: "فشل تحميل أنواع المستخدم", variant: "destructive" });
+      }
+    };
+    fetchLookups();
+  }, []);
+  
+  useEffect(() => {
+    if (location.pathname === "/colleges" && myUserTypeCode) {
       setSelectedCollege(null);
       loadColleges();
     }
-  }, [location.pathname]);
+  }, [location.pathname, myUserTypeCode]);
 
   const handleAddCollege = () => {
     setIsCollegeFormOpen(true);
@@ -97,26 +128,21 @@ export default function CollegesPage() {
   const handleSubmitCollege = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const payload = {
+        college_name: collegeFormData.name,
+        college_code: collegeFormData.academicCode,
+      };
       if (editingCollegeId) {
-        await api.put(`/v1/colleges/${editingCollegeId}`, {
-          college_name: collegeFormData.name,
-          college_code: collegeFormData.academicCode
-        });
+        await api.put(`/v1/colleges/${editingCollegeId}`, payload);
         toast({ title: "نجاح", description: "تم تحديث الكلية" });
       } else {
-        await api.post("/v1/colleges", {
-          college_name: collegeFormData.name,
-          college_code: collegeFormData.academicCode
-        });
+        await api.post("/v1/colleges", payload);
         toast({ title: "نجاح", description: "تم إنشاء الكلية" });
       }
       setIsCollegeFormOpen(false);
       await loadColleges();
     } catch (error: any) {
-      const msg = error?.response?.data?.errors?.college_name?.[0] ||
-                  error?.response?.data?.errors?.college_code?.[0] ||
-                  error?.response?.data?.message ||
-                  "فشل حفظ الكلية";
+      const msg = error?.response?.data?.errors?.college_name?.[0] || error?.response?.data?.errors?.college_code?.[0] || error?.response?.data?.message || "فشل حفظ الكلية";
       toast({ title: "خطأ", description: msg, variant: "destructive" });
     }
   };
@@ -128,12 +154,14 @@ export default function CollegesPage() {
           <>
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl sm:text-3xl font-bold">الكليات</h1>
-              <Button onClick={handleAddCollege}>
-                <Plus className="w-4 h-4 mr-2" />
-                إضافة كلية
-              </Button>
+              {(myUserTypeCode === 'admin' || myUserTypeCode === 'presidency') && (
+                <Button onClick={handleAddCollege}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  إضافة كلية
+                </Button>
+              )}
             </div>
-
+        
             {isCollegeFormOpen && (
               <Card className="mb-6">
                 <CardHeader>
@@ -157,7 +185,7 @@ export default function CollegesPage() {
                 </CardContent>
               </Card>
             )}
-
+        
             <Card>
               <CardContent className="pt-6">
                 <Table>
@@ -175,12 +203,17 @@ export default function CollegesPage() {
                         <TableCell>{college.academicCode}</TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleEditCollege(college); }}>
-                              <Pencil className="w-4 h-4" />
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleDeleteCollege(college.id); }}>
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                            {/* عرض أزرار التعديل والحذف فقط للمشرف العام */}
+                            {(myUserTypeCode === 'admin' || myUserTypeCode === 'presidency') && (
+                              <>
+                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleEditCollege(college); }}>
+                                  <Pencil className="w-4 h-4" />
+                                </Button>
+                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleDeleteCollege(college.id); }}>
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
                             <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setSelectedCollege(college); }}>
                               <ChevronRight className="w-4 h-4" />
                             </Button>

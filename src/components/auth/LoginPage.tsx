@@ -10,9 +10,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import logoFull from "@/assets/logo-full.png";
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
 export default function LoginPage() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -24,44 +25,59 @@ export default function LoginPage() {
   const fromState = (location.state as any)?.from?.pathname;
   const nextQuery = new URLSearchParams(location.search).get("next");
 
+  const getDeviceDetails = async (): Promise<{ mac_address: string; device_name: string; os_type: string; }> => {
+    const fpPromise = FingerprintJS.load();
+    const fp = await fpPromise;
+    const result = await fp.get();
+    const visitorId = result.visitorId;
+    
+    const os = window.navigator.platform;
+    const browser = window.navigator.userAgent.split(') ')[0].split(' (')[1] || 'Unknown Browser';
+  
+    return {
+      mac_address: visitorId,
+      device_name: `${os} - ${browser}`,
+      os_type: "web",
+    };
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
     try {
+      const deviceDetails = await getDeviceDetails();
       const res = await api.post('/v1/auth/login', {
-        email: username,
-        password,
-        mac_address: "web-device", // قيمة افتراضية
-        device_name: "Web Browser", // قيمة افتراضية
-        os_type: "web", // قيمة افتراضية
+        email: email,
+        password: password,
+        ...deviceDetails,
       });
       const token = res.data?.access_token;
-      if (!token) throw new Error('No token');
+      if (!token) throw new Error('No token returned from server');
       
-      await login(token, rememberMe);
-
-      if (rememberMe) localStorage.setItem('rememberedUser', username);
+      login(token, rememberMe);
+  
+      if (rememberMe) localStorage.setItem('rememberedUser', email);
       else localStorage.removeItem('rememberedUser');
-
+  
       const target = nextQuery || fromState || '/';
       navigate(target, { replace: true });
-    } catch (err) {
-      setError('بيانات الدخول غير صحيحة أو حدث خطأ بالخادم.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'بيانات الدخول غير صحيحة أو حدث خطأ بالخادم.';
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleForgotPassword = () => {
-    // لا حاجة لـ clearToken هنا
     navigate('/forgot-password');
   };
 
   useEffect(() => {
     const rememberedUser = localStorage.getItem('rememberedUser');
     if (rememberedUser) {
-      setUsername(rememberedUser);
+      setEmail(rememberedUser);
       setRememberMe(true);
     }
   }, []);
@@ -73,8 +89,8 @@ export default function LoginPage() {
           <div className="flex items-center justify-center mb-4">
             <img src={logoFull} alt="UniHub" className="h-20 w-auto" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">بوابة إدارة الجامعة</h1>
-          <p className="text-muted-foreground mt-1">نظام العام  </p>
+          <h1 className="text-2xl font-bold text-foreground"> نظام التحضير الاكاديمي ومراقبة الأداء </h1>
+          <p className="text-muted-foreground mt-1">النظام العام  </p>
         </div>
 
         <Card className="shadow-2xl border border-border/50 bg-card backdrop-blur-sm">
@@ -91,15 +107,15 @@ export default function LoginPage() {
                 </Alert>
               )}
               <div className="space-y-2">
-                <Label htmlFor="username">البريد الإلكتروني</Label>
+                <Label htmlFor="email">البريد الإلكتروني</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    id="username"
+                    id="email"
                     type="email"
                     placeholder="أدخل البريد الإلكتروني"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="pl-10"
                     required
                   />
@@ -146,20 +162,6 @@ export default function LoginPage() {
               <Button variant="link" onClick={handleForgotPassword} className="text-sm text-primary hover:underline">
                 هل نسيت كلمة المرور؟
               </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mt-6 bg-muted/30 border-muted">
-          <CardContent className="pt-4">
-            <p className="text-xs text-muted-foreground text-center mb-2 font-medium">
-              بيانات الدخول التجريبية:
-            </p>
-            <div className="text-xs text-muted-foreground space-y-1">
-              <div className="flex justify-between">
-                <span>المشرف:</span>
-                <span>admin@unihub.test / Admin@12345</span>
-              </div>
             </div>
           </CardContent>
         </Card>

@@ -7,72 +7,73 @@ type MeUser = {
   full_name: string;
   email: string;
   user_type_id: number;
+  college_id?: number | null;
 };
 
 type AuthContextType = {
+  token: string | null;
   user: MeUser | null;
   loading: boolean;
-  isAuthenticated: boolean;
+  isAuthenticated: boolean; // <-- تأكد من وجود هذه الخاصية
   login: (token: string, remember?: boolean) => Promise<void>;
-  logout: () => Promise<void>;
-  refreshMe: () => Promise<void>;
+  logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [token, setToken] = useState<string | null>(
+    () => sessionStorage.getItem("access_token") || localStorage.getItem("access_token")
+  );
   const [user, setUser] = useState<MeUser | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const navigate = useNavigate();
 
-  const refreshMe = async () => {
-    const token = sessionStorage.getItem("access_token") || localStorage.getItem("access_token");
-    if (!token) {
-      setUser(null);
+  useEffect(() => {
+    const bootstrapAuth = async () => {
+      if (token) {
+        setAuthToken(token);
+        try {
+          const res = await api.get("/v1/auth/me");
+          setUser(res.data?.data ?? res.data);
+        } catch {
+          setAuthToken(undefined);
+          setToken(null);
+          setUser(null);
+        }
+      }
       setLoading(false);
-      return;
-    }
-    try {
-      const res = await api.get("/v1/auth/me");
-      const data = res.data?.data ?? res.data;
-      setUser(data as MeUser);
-    } catch {
-      setAuthToken(undefined);
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+    bootstrapAuth();
+  }, [token]);
 
   const login = async (newToken: string, remember?: boolean) => {
-    setAuthToken(newToken);
-    if (remember) localStorage.setItem("access_token", newToken);
-    await refreshMe();
+    if (remember) {
+      localStorage.setItem("access_token", newToken);
+    } else {
+      sessionStorage.setItem("access_token", newToken);
+    }
+    setToken(newToken);
   };
 
-  const logout = async () => {
-    try {
-      await api.post("/v1/auth/logout");
-    } catch {}
+  const logout = () => {
+    api.post("/v1/auth/logout").catch(() => {});
     setAuthToken(undefined);
+    setToken(null);
     setUser(null);
+    navigate("/login", { replace: true });
   };
-
-  useEffect(() => {
-    refreshMe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const value = useMemo(
     () => ({
+      token,
       user,
       loading,
-      isAuthenticated: !!user,
+      isAuthenticated: !!user, // <-- توفير isAuthenticated
       login,
       logout,
-      refreshMe,
     }),
-    [user, loading]
+    [token, user, loading]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
