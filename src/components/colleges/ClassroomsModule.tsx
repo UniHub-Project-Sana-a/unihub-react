@@ -134,10 +134,11 @@ function getPreciseLocation(
 export default function ClassroomsModule({ collegeId }: Props) {
   const { toast } = useToast();
   const lastAccuracyRef = useRef<number>(Infinity);
-
   // Buildings
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null);
+
+  
 
   // Building form (جديد)
   const [isBuildingFormOpen, setIsBuildingFormOpen] = useState(false);
