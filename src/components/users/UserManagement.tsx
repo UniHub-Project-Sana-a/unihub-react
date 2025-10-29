@@ -163,7 +163,7 @@ const allowedRoleCodesForCreate = useMemo(() => {
         academic_number: data.academic_number,
         gender: Number(data.gender),
         user_type_id: Number(data.user_type_id),
-        password: "123",
+        password: "12345678",
         college_id: data.college_id ? Number(data.college_id) : null
       };
       await api.post("/v1/users", payload, { headers: { "X-College-Id": data.college_id || "1" } });
