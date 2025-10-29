@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -9,29 +9,66 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
+
+interface AcademicStaff {
+  id: string;               // lecturer_id
+  userId: string;           // user_id
+  fullName: string;         // users.full_name
+  staffNumber: string;      // users.academic_number
+  academicAffairsNumber?: string; // غير مستخدمة في DB - للعرض فقط
+  academicRank: string;     // academic_titles.title_name
+  academicTitleId?: string; // title_id
+  employmentType: "متفرغ" | "غير متفرغ"; // نربطها بـ status (true/false)
+  lectureRate: number;      // academic_titles.hourly_price (للعرض)
+  address?: string;         // لا يوجد في DB - للعرض فقط
+  phone?: string;           // users.phone
+  email?: string;           // users.email
+  notes?: string;           // للعرض فقط
+  collegeId: string;        // lecturers.college_id
+  departmentId?: string | null; // lecturers.department_id
+  hireDate?: string;        // lecturers.hire_date
+}
 
 interface Department {
   id: string;
   name: string;
-  code: string;
+  code?: string;
   collegeId: string;
 }
 
-interface AcademicStaff {
+interface Title {
   id: string;
+  name: string;
+  hourlyPrice: number;
+  lecturePrice: number;
+}
+
+interface UserOption {
+  id: string;          // user_id
+  name: string;        // full_name
+  email?: string;
+  phone?: string;
+  academicNumber?: string;
+}
+
+type StaffFormData = {
+  userId: string; // حقل جديد لاختيار المستخدم
   fullName: string;
   staffNumber: string;
-  academicAffairsNumber?: string;
-  academicRank: string;
+  academicAffairsNumber: string;
+  academicRank: string;      // title_name
+  academicTitleId: string;   // title_id
+  departmentId: string;
   employmentType: "متفرغ" | "غير متفرغ";
-  lectureRate: number;
-  address?: string;
-  phone?: string;
-  email?: string;
-  notes?: string;
-  collegeId: string;
-  departmentId?: string | null;
-}
+  lectureRate: number;       // للعرض فقط من title
+  address: string;
+  phone: string;
+  email: string;
+  notes: string;
+  hireDate: string;
+};
 
 interface EntitlementPeriod {
   from: string;
@@ -61,73 +98,315 @@ interface EntitlementPayout {
   status: string;
 }
 
-type StaffFormData = {
-  fullName: string;
-  staffNumber: string;
-  academicAffairsNumber: string;
-  academicRank: string;
-  departmentId: string;
-  employmentType: "متفرغ" | "غير متفرغ";
-  lectureRate: number;
-  address: string;
-  phone: string;
-  email: string;
-  notes: string;
-};
-
 interface Props {
-  collegeStaff: AcademicStaff[];
-  departments: Department[];
-
-  entitlementStep: string;
-  setEntitlementStep: (v: string) => void;
-  entitlementPeriod: EntitlementPeriod;
-  setEntitlementPeriod: (v: EntitlementPeriod) => void;
-  entitlementReviews: EntitlementReview[];
-  entitlementApprovals: EntitlementApproval[];
-  entitlementPayouts: EntitlementPayout[];
-  toggleApprovalStatus: (staffId: string) => void;
-
-  isStaffFormOpen: boolean;
-  editingStaffId: string | null;
-  staffFormData: StaffFormData;
-  setIsStaffFormOpen: (v: boolean) => void;
-  setEditingStaffId: (v: string | null) => void;
-  setStaffFormData: (v: StaffFormData) => void;
-
-  handleAddStaff: () => void;
-  handleEditStaff: (staff: AcademicStaff) => void;
-  handleDeleteStaff: (id: string) => void | Promise<void>;
-  handleSubmitStaff: (e: React.FormEvent) => void | Promise<void>;
+  collegeId: string;
 }
 
-const AcademicStaffModule: React.FC<Props> = ({
-  collegeStaff,
-  departments,
+export default function AcademicStaffModule({ collegeId }: Props) {
+  const { toast } = useToast();
 
-  entitlementStep,
-  setEntitlementStep,
-  entitlementPeriod,
-  setEntitlementPeriod,
-  entitlementReviews,
-  entitlementApprovals,
-  entitlementPayouts,
-  toggleApprovalStatus,
+  // Lists
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [titles, setTitles] = useState<Title[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
+  const [collegeStaff, setCollegeStaff] = useState<AcademicStaff[]>([]);
 
-  isStaffFormOpen,
-  editingStaffId,
-  staffFormData,
-  setIsStaffFormOpen,
-  setEditingStaffId,
-  setStaffFormData,
+  // Entitlements UI state (واجهات فقط)
+  const [entitlementStep, setEntitlementStep] = useState("1");
+  const [entitlementPeriod, setEntitlementPeriod] = useState<EntitlementPeriod>({
+    from: "",
+    to: "",
+  });
+  const [entitlementReviews, setEntitlementReviews] = useState<EntitlementReview[]>([]);
+  const [entitlementApprovals, setEntitlementApprovals] = useState<EntitlementApproval[]>([]);
+  const [entitlementPayouts, setEntitlementPayouts] = useState<EntitlementPayout[]>([]);
 
-  handleAddStaff,
-  handleEditStaff,
-  handleDeleteStaff,
-  handleSubmitStaff,
-}) => {
+  // Form state
+  const [isStaffFormOpen, setIsStaffFormOpen] = useState(false);
+  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [staffFormData, setStaffFormData] = useState<StaffFormData>({
+    userId: "",
+    fullName: "",
+    staffNumber: "",
+    academicAffairsNumber: "",
+    academicRank: "",
+    academicTitleId: "",
+    departmentId: "",
+    employmentType: "متفرغ",
+    lectureRate: 0,
+    address: "",
+    phone: "",
+    email: "",
+    notes: "",
+    hireDate: "",
+  });
+
+  // Fetchers
+  const fetchDepartments = async () => {
+    try {
+      const res = await api.get("/v1/departments", { params: { college_id: collegeId } });
+      const raw: any[] = res.data?.data ?? res.data;
+      setDepartments(
+        raw.map((d) => ({
+          id: String(d.department_id),
+          name: d.department_name,
+          code: d.department_code || "",
+          collegeId: String(d.college_id),
+        }))
+      );
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل الأقسام", variant: "destructive" });
+    }
+  };
+
+  const fetchTitles = async () => {
+    try {
+      // تأكد أن عندك resource academic-titles
+      const res = await api.get("/v1/academic-titles", { params: { college_id: collegeId } });
+      const raw: any[] = res.data?.data ?? res.data;
+      setTitles(
+        raw.map((t) => ({
+          id: String(t.title_id),
+          name: t.title_name,
+          hourlyPrice: Number(t.hourly_price ?? 0),
+          lecturePrice: Number(t.lecture_price ?? 0),
+        }))
+      );
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل الدرجات الأكاديمية", variant: "destructive" });
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await api.get("/v1/users", { params: { college_id: collegeId } });
+      const raw: any[] = res.data?.data ?? res.data;
+      setUsers(
+        raw.map((u) => ({
+          id: String(u.user_id),
+          name: u.full_name,
+          email: u.email || "",
+          phone: u.phone || "",
+          academicNumber: u.academic_number || "",
+        }))
+      );
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل المستخدمين", variant: "destructive" });
+    }
+  };
+
+  const fetchStaff = async () => {
+    try {
+      // يفترض وجود LecturersController@index يدعم college_id ويعيد user/title/department محملة أو مفاتيحها
+      const res = await api.get("/v1/lecturers", { params: { college_id: collegeId } });
+      const raw: any[] = res.data?.data ?? res.data;
+
+      // لو الـ API لا يعيد user و title بالداخل، سنحتاج تطبيع عبر users/titles التي حمّلناها
+      const usersMap = new Map(users.map((u) => [u.id, u]));
+      const titlesMap = new Map(titles.map((t) => [t.id, t]));
+
+      const mapped: AcademicStaff[] = raw.map((lec) => {
+        const userId = String(lec.user_id);
+        const depId = lec.department_id ? String(lec.department_id) : null;
+        const titleId = lec.title_id ? String(lec.title_id) : "";
+        const u = usersMap.get(userId);
+        const t = titlesMap.get(titleId);
+
+        return {
+          id: String(lec.lecturer_id),
+          userId,
+          fullName: u?.name || lec.full_name || "",
+          staffNumber: u?.academicNumber || "",
+          academicAffairsNumber: "", // ليس في DB
+          academicRank: t?.name || lec.academic_rank || "",
+          academicTitleId: titleId || undefined,
+          employmentType: lec.status ? "متفرغ" : "غير متفرغ",
+          lectureRate: t?.hourlyPrice ?? 0,
+          address: "", // ليس في DB
+          phone: u?.phone || "",
+          email: u?.email || "",
+          notes: "",
+          collegeId: String(lec.college_id),
+          departmentId: depId,
+          hireDate: lec.hire_date || "",
+        };
+      });
+
+      setCollegeStaff(mapped);
+      // بيانات واجهات الاستحقاقات (اختيارية)
+      setEntitlementReviews(
+        mapped.map((s) => ({
+          staffId: s.id,
+          hoursWorked: 0,
+          hourlyRate: s.lectureRate,
+          total: 0,
+        }))
+      );
+      setEntitlementApprovals(
+        mapped.map((s) => ({
+          staffId: s.id,
+          status: "قيد المراجعة",
+          approvedBy: "-",
+          date: "",
+        }))
+      );
+      setEntitlementPayouts([]);
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل أعضاء هيئة التدريس", variant: "destructive" });
+    }
+  };
+
+  useEffect(() => {
+    if (!collegeId) return;
+    (async () => {
+      await Promise.all([fetchDepartments(), fetchTitles(), fetchUsers()]);
+      await fetchStaff();
+    })();
+  }, [collegeId]);
+
+  // When titles or users change, refetch staff to improve mapping (اختياري)
+  useEffect(() => {
+    if (collegeId && (users.length || titles.length)) {
+      fetchStaff();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users.length, titles.length]);
+
+  const toggleApprovalStatus = (staffId: string) => {
+    setEntitlementApprovals((prev) =>
+      prev.map((a) =>
+        a.staffId === staffId
+          ? { ...a, status: a.status === "قيد المراجعة" ? "معتمد" : "قيد المراجعة", approvedBy: "المشرف", date: new Date().toISOString().slice(0, 10) }
+          : a
+      )
+    );
+  };
+
+  // Handlers
+  const handleAddStaff = () => {
+    setEditingStaffId(null);
+    setStaffFormData({
+      userId: "",            // يجب اختيار مستخدم موجود
+      fullName: "",
+      staffNumber: "",
+      academicAffairsNumber: "",
+      academicRank: "",
+      academicTitleId: "",
+      departmentId: "",
+      employmentType: "متفرغ",
+      lectureRate: 0,
+      address: "",
+      phone: "",
+      email: "",
+      notes: "",
+      hireDate: "",
+    });
+    setIsStaffFormOpen(true);
+  };
+
+  const handleEditStaff = (staff: AcademicStaff) => {
+    setEditingStaffId(staff.id);
+    setStaffFormData({
+      userId: staff.userId,
+      fullName: staff.fullName,
+      staffNumber: staff.staffNumber,
+      academicAffairsNumber: staff.academicAffairsNumber || "",
+      academicRank: staff.academicRank,
+      academicTitleId: staff.academicTitleId || "",
+      departmentId: staff.departmentId || "",
+      employmentType: staff.employmentType,
+      lectureRate: staff.lectureRate,
+      address: staff.address || "",
+      phone: staff.phone || "",
+      email: staff.email || "",
+      notes: staff.notes || "",
+      hireDate: staff.hireDate || "",
+    });
+    setIsStaffFormOpen(true);
+  };
+
+  const handleDeleteStaff = async (id: string) => {
+    if (!confirm("هل تريد حذف هذا العضو؟")) return;
+    try {
+      await api.delete(`/v1/lecturers/${id}`);
+      toast({ title: "نجاح", description: "تم حذف العضو" });
+      await fetchStaff();
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || "فشل حذف العضو";
+      toast({ title: "خطأ", description: msg, variant: "destructive" });
+    }
+  };
+
+  const handleSubmitStaff = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      // تحقق من المستخدم المختار
+      if (!staffFormData.userId) {
+        toast({ title: "تنبيه", description: "يرجى اختيار المستخدم المرتبط بالعضو", variant: "destructive" });
+        return;
+      }
+      // تحديد العنوان الأكاديمي (title)
+      const titleId = staffFormData.academicTitleId || titles.find((t) => t.name === staffFormData.academicRank)?.id || "";
+
+      const payload = {
+        user_id: Number(staffFormData.userId),
+        college_id: Number(collegeId),
+        department_id: staffFormData.departmentId ? Number(staffFormData.departmentId) : null,
+        title_id: titleId ? Number(titleId) : null,
+        hire_date: staffFormData.hireDate || null,
+        status: staffFormData.employmentType === "متفرغ",
+      };
+
+      if (editingStaffId) {
+        await api.put(`/v1/lecturers/${editingStaffId}`, payload);
+        toast({ title: "نجاح", description: "تم تعديل العضو" });
+      } else {
+        await api.post(`/v1/lecturers`, payload);
+        toast({ title: "نجاح", description: "تم إنشاء العضو" });
+      }
+      setIsStaffFormOpen(false);
+      setEditingStaffId(null);
+      await fetchStaff();
+    } catch (error: any) {
+      const err = error?.response?.data?.errors || error?.response?.data?.message || "فشل حفظ بيانات العضو";
+      const msg = typeof err === "string" ? err : Object.values(err)?.[0]?.[0] || "فشل حفظ بيانات العضو";
+      toast({ title: "خطأ", description: String(msg), variant: "destructive" });
+    }
+  };
+
+  // تحديث اسم الدرجة وأجر الساعة عند تغيير الـ Title
+  useEffect(() => {
+    if (!staffFormData.academicTitleId) return;
+    const t = titles.find((x) => x.id === staffFormData.academicTitleId);
+    if (t) {
+      setStaffFormData((prev) => ({
+        ...prev,
+        academicRank: t.name,
+        lectureRate: t.hourlyPrice,
+      }));
+    }
+  }, [staffFormData.academicTitleId, titles]);
+
+  // عند اختيار مستخدم، حدّث البيانات العرضية للحقول (اسم/رقم/بريد/جوال)
+  useEffect(() => {
+    if (!staffFormData.userId) return;
+    const u = users.find((x) => x.id === staffFormData.userId);
+    if (u) {
+      setStaffFormData((prev) => ({
+        ...prev,
+        fullName: u.name,
+        staffNumber: u.academicNumber || "",
+        email: u.email || "",
+        phone: u.phone || "",
+      }));
+    }
+  }, [staffFormData.userId, users]);
+
+  // عرض الاسم للقسم/الدرجة
+  const departmentsMap = useMemo(() => new Map(departments.map((d) => [d.id, d.name])), [departments]);
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">أعضاء هيئة التدريس</h2>
         <Button onClick={handleAddStaff}>
@@ -185,7 +464,7 @@ const AcademicStaffModule: React.FC<Props> = ({
                     <TableRow key={staff.id}>
                       <TableCell>{staff.fullName}</TableCell>
                       <TableCell>
-                        <Input type="number" min={0} defaultValue={staff.lectureRate} className="w-32" />
+                        <Input type="number" min={0} defaultValue={staff.lectureRate} className="w-32" disabled />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -311,20 +590,40 @@ const AcademicStaffModule: React.FC<Props> = ({
           <CardContent>
             <form onSubmit={handleSubmitStaff} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* اختيار المستخدم (مطلوب للربط مع lecturers.user_id) */}
                 <div>
-                  <Label>الاسم الكامل *</Label>
+                  <Label>المستخدم (مطلوب)</Label>
+                  <Select
+                    value={staffFormData.userId}
+                    onValueChange={(value) => setStaffFormData({ ...staffFormData, userId: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر مستخدم" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {users.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.name} {u.email ? `- ${u.email}` : ""} {u.academicNumber ? `- ${u.academicNumber}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <Label>الاسم الكامل</Label>
                   <Input
                     value={staffFormData.fullName}
                     onChange={(e) => setStaffFormData({ ...staffFormData, fullName: e.target.value })}
-                    required
+                    placeholder="يتم تعبئته تلقائياً بعد اختيار المستخدم"
                   />
                 </div>
                 <div>
-                  <Label>الرقم الوظيفي *</Label>
+                  <Label>الرقم الوظيفي</Label>
                   <Input
                     value={staffFormData.staffNumber}
                     onChange={(e) => setStaffFormData({ ...staffFormData, staffNumber: e.target.value })}
-                    required
+                    placeholder="يتم تعبئته من المستخدم (academic_number)"
                   />
                 </div>
                 <div>
@@ -334,24 +633,26 @@ const AcademicStaffModule: React.FC<Props> = ({
                     onChange={(e) => setStaffFormData({ ...staffFormData, academicAffairsNumber: e.target.value })}
                   />
                 </div>
+
                 <div>
                   <Label>الدرجة الأكاديمية *</Label>
                   <Select
-                    value={staffFormData.academicRank}
-                    onValueChange={(value) => setStaffFormData({ ...staffFormData, academicRank: value })}
+                    value={staffFormData.academicTitleId}
+                    onValueChange={(value) => setStaffFormData({ ...staffFormData, academicTitleId: value })}
                   >
                     <SelectTrigger>
-                      <SelectValue />
+                      <SelectValue placeholder="اختر الدرجة" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="أستاذ">أستاذ</SelectItem>
-                      <SelectItem value="أستاذ مشارك">أستاذ مشارك</SelectItem>
-                      <SelectItem value="أستاذ مساعد">أستاذ مساعد</SelectItem>
-                      <SelectItem value="محاضر">محاضر</SelectItem>
-                      <SelectItem value="معيد">معيد</SelectItem>
+                      {titles.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div>
                   <Label>القسم</Label>
                   <Select
@@ -370,6 +671,7 @@ const AcademicStaffModule: React.FC<Props> = ({
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div>
                   <Label>الحالة الوظيفية *</Label>
                   <Select
@@ -387,8 +689,9 @@ const AcademicStaffModule: React.FC<Props> = ({
                     </SelectContent>
                   </Select>
                 </div>
+
                 <div>
-                  <Label>أجر الساعة *</Label>
+                  <Label>أجر الساعة (من الدرجة)</Label>
                   <Input
                     type="number"
                     min={0}
@@ -396,12 +699,26 @@ const AcademicStaffModule: React.FC<Props> = ({
                     onChange={(e) =>
                       setStaffFormData({ ...staffFormData, lectureRate: parseInt(e.target.value || "0") })
                     }
-                    required
+                    disabled
                   />
                 </div>
+
+                <div>
+                  <Label>تاريخ التعيين</Label>
+                  <Input
+                    type="date"
+                    value={staffFormData.hireDate}
+                    onChange={(e) => setStaffFormData({ ...staffFormData, hireDate: e.target.value })}
+                  />
+                </div>
+
                 <div>
                   <Label>رقم الجوال</Label>
-                  <Input value={staffFormData.phone} onChange={(e) => setStaffFormData({ ...staffFormData, phone: e.target.value })} />
+                  <Input
+                    value={staffFormData.phone}
+                    onChange={(e) => setStaffFormData({ ...staffFormData, phone: e.target.value })}
+                    placeholder="من بيانات المستخدم"
+                  />
                 </div>
                 <div>
                   <Label>البريد الإلكتروني</Label>
@@ -409,17 +726,23 @@ const AcademicStaffModule: React.FC<Props> = ({
                     type="email"
                     value={staffFormData.email}
                     onChange={(e) => setStaffFormData({ ...staffFormData, email: e.target.value })}
+                    placeholder="من بيانات المستخدم"
                   />
                 </div>
                 <div className="md:col-span-2">
                   <Label>العنوان</Label>
-                  <Input value={staffFormData.address} onChange={(e) => setStaffFormData({ ...staffFormData, address: e.target.value })} />
+                  <Input
+                    value={staffFormData.address}
+                    onChange={(e) => setStaffFormData({ ...staffFormData, address: e.target.value })}
+                    placeholder="غير مخزن في DB - للعرض فقط"
+                  />
                 </div>
                 <div className="md:col-span-2">
                   <Label>ملاحظات</Label>
                   <Textarea
                     value={staffFormData.notes}
                     onChange={(e) => setStaffFormData({ ...staffFormData, notes: e.target.value })}
+                    placeholder="غير مخزن في DB - للعرض فقط"
                   />
                 </div>
               </div>
@@ -455,9 +778,9 @@ const AcademicStaffModule: React.FC<Props> = ({
                 <TableRow key={staff.id}>
                   <TableCell className="font-medium">{staff.fullName}</TableCell>
                   <TableCell>{staff.staffNumber}</TableCell>
-                  <TableCell>{staff.academicAffairsNumber}</TableCell>
+                  <TableCell>{staff.academicAffairsNumber || "-"}</TableCell>
                   <TableCell>{staff.academicRank}</TableCell>
-                  <TableCell>{departments.find((d) => d.id === staff.departmentId)?.name || "-"}</TableCell>
+                  <TableCell>{departmentsMap.get(staff.departmentId || "") || "-"}</TableCell>
                   <TableCell>{staff.employmentType}</TableCell>
                   <TableCell>{staff.lectureRate}</TableCell>
                   <TableCell>
@@ -472,12 +795,17 @@ const AcademicStaffModule: React.FC<Props> = ({
                   </TableCell>
                 </TableRow>
               ))}
+              {collegeStaff.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    لا توجد بيانات
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
   );
-};
-
-export default AcademicStaffModule;
+}

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -7,14 +7,41 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Building } from "@/services/buildings";
+import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
+
+type ApiBuilding = {
+  building_id: number;
+  building_name: string;
+  floors_count: number;
+  college_id: number;
+};
+
+type Building = {
+  id: string;
+  name: string;
+  floorCount: number;
+  collegeId: string;
+};
+
+type ApiClassroom = {
+  classroom_id: number;
+  classroom_name: string;
+  building_id: number;
+  floor: number | null;
+  capacity: number;
+  latitude: number | null;
+  longitude: number | null;
+  allowed_distance: number | null;
+  classroom_type: number; // 0: CLASSROOM, 1: LAB
+};
 
 interface Classroom {
   id: string;
   name: string;
   type: "CLASSROOM" | "LAB";
   capacity: number;
-  floor: number;
+  floor: number | null;
   latitude?: number | null;
   longitude?: number | null;
   allowedDistance?: number | null;
@@ -32,45 +59,350 @@ type ClassroomFormData = {
 };
 
 interface Props {
-  buildings: Building[];
-  selectedBuilding: Building | null;
-  onSelectBuilding: (b: Building) => void | Promise<void>;
-  classrooms: Classroom[];
-
-  isClassroomFormOpen: boolean;
-  editingClassroomId: string | null;
-  classroomFormData: ClassroomFormData;
-  setIsClassroomFormOpen: (v: boolean) => void;
-  setEditingClassroomId: (v: string | null) => void;
-  setClassroomFormData: (v: ClassroomFormData) => void;
-
-  handleAddClassroom: () => void;
-  handleDeleteClassroom: (id: string) => void | Promise<void>;
-  handleSubmitClassroom: (e: React.FormEvent) => void | Promise<void>;
+  collegeId: string;
 }
 
-const ClassroomsModule: React.FC<Props> = ({
-  buildings,
-  selectedBuilding,
-  onSelectBuilding,
-  classrooms,
+const typeIntToStr = (v: number): "CLASSROOM" | "LAB" => (v === 1 ? "LAB" : "CLASSROOM");
+const typeStrToInt = (v: "CLASSROOM" | "LAB"): number => (v === "LAB" ? 1 : 0);
 
-  isClassroomFormOpen,
-  editingClassroomId,
-  classroomFormData,
-  setIsClassroomFormOpen,
-  setEditingClassroomId,
-  setClassroomFormData,
+// دالة تجلب إحداثيات دقيقة قدر الإمكان مع تحسين تدريجي حتى نصل لدقة الهدف
+function getPreciseLocation(
+  targetAccuracy = 10,
+  maxWaitMs = 30000
+): Promise<{ lat: number; lng: number; accuracy: number }> {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("المتصفح لا يدعم تحديد الموقع"));
+      return;
+    }
 
-  handleAddClassroom,
-  handleDeleteClassroom,
-  handleSubmitClassroom,
-}) => {
+    const options: PositionOptions = {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: maxWaitMs,
+    };
+
+    let best: GeolocationPosition | null = null;
+    let settled = false;
+    let watchId: number | null = null;
+
+    const cleanup = () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      clearTimeout(timerId);
+    };
+
+    const finish = (pos: GeolocationPosition) => {
+      const lat = Number(pos.coords.latitude.toFixed(7));
+      const lng = Number(pos.coords.longitude.toFixed(7));
+      const accuracy = Math.round(pos.coords.accuracy ?? 9999);
+      resolve({ lat, lng, accuracy });
+    };
+
+    const onSuccess = (pos: GeolocationPosition) => {
+      const acc = pos.coords.accuracy ?? 9999;
+      if (!best || acc < (best.coords.accuracy ?? 9999)) best = pos;
+      if (acc <= targetAccuracy && !settled) {
+        settled = true;
+        cleanup();
+        finish(best!);
+      }
+    };
+
+    const onError = () => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        if (best) finish(best);
+        else reject(new Error("تعذّر تحديد الموقع"));
+      }
+    };
+
+    const timerId = window.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        if (best) finish(best);
+        else reject(new Error("انتهى وقت تحديد الموقع"));
+      }
+    }, maxWaitMs);
+
+    navigator.geolocation.getCurrentPosition(onSuccess, () => {}, options);
+    watchId = navigator.geolocation.watchPosition(onSuccess, onError, options);
+  });
+}
+
+export default function ClassroomsModule({ collegeId }: Props) {
+  const { toast } = useToast();
+  const lastAccuracyRef = useRef<number>(Infinity);
+
+  // Buildings
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null);
+
+  // Building form (جديد)
+  const [isBuildingFormOpen, setIsBuildingFormOpen] = useState(false);
+  const [buildingFormData, setBuildingFormData] = useState<{ name: string; floorCount: number }>({
+    name: "",
+    floorCount: 1,
+  });
+
+  // Classrooms
+  const [classrooms, setClassrooms] = useState<Classroom[]>([]);
+
+  // Classroom form
+  const [isClassroomFormOpen, setIsClassroomFormOpen] = useState(false);
+  const [editingClassroomId, setEditingClassroomId] = useState<string | null>(null);
+  const [classroomFormData, setClassroomFormData] = useState<ClassroomFormData>({
+    name: "",
+    type: "CLASSROOM",
+    capacity: 30,
+    floor: 0,
+    latitude: "",
+    longitude: "",
+    allowedDistance: "",
+  });
+
+  // Fetch buildings for selected college
+  const fetchBuildings = async () => {
+    try {
+      const res = await api.get("/v1/buildings", { params: { college_id: collegeId } });
+      const raw: ApiBuilding[] = res.data?.data ?? res.data;
+      const mapped: Building[] = raw.map((b) => ({
+        id: String(b.building_id),
+        name: b.building_name,
+        floorCount: b.floors_count,
+        collegeId: String(b.college_id),
+      }));
+      setBuildings(mapped);
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل المباني", variant: "destructive" });
+    }
+  };
+
+  // Fetch classrooms for selected building
+  const fetchClassrooms = async (buildingId: string) => {
+    try {
+      const res = await api.get("/v1/classrooms", { params: { building_id: Number(buildingId) } });
+      const raw: ApiClassroom[] = res.data?.data ?? res.data;
+      const mapped: Classroom[] = raw.map((c) => ({
+        id: String(c.classroom_id),
+        name: c.classroom_name,
+        type: typeIntToStr(c.classroom_type),
+        capacity: c.capacity,
+        floor: c.floor ?? 0,
+        latitude: c.latitude,
+        longitude: c.longitude,
+        allowedDistance: c.allowed_distance,
+        buildingId: String(c.building_id),
+      }));
+      setClassrooms(mapped);
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل القاعات", variant: "destructive" });
+    }
+  };
+
+  // Effects
+  useEffect(() => {
+    if (!collegeId) return;
+    setSelectedBuilding(null);
+    setClassrooms([]);
+    fetchBuildings();
+  }, [collegeId]);
+
+  // Handlers
+  const onSelectBuilding = async (b: Building) => {
+    setSelectedBuilding(b);
+    setIsClassroomFormOpen(false);
+    setEditingClassroomId(null);
+    setClassroomFormData({
+      name: "",
+      type: "CLASSROOM",
+      capacity: 30,
+      floor: 0,
+      latitude: "",
+      longitude: "",
+      allowedDistance: "",
+    });
+    await fetchClassrooms(b.id);
+  };
+
+  // إنشاء مبنى (جديد)
+  const handleAddBuilding = () => {
+    setIsBuildingFormOpen(true);
+    setBuildingFormData({ name: "", floorCount: 1 });
+  };
+
+  const handleSubmitBuilding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        building_name: buildingFormData.name,
+        floors_count: Number(buildingFormData.floorCount || 1),
+        college_id: Number(collegeId),
+      };
+      const res = await api.post("/v1/buildings", payload);
+      const b: ApiBuilding = res.data?.data ?? res.data;
+
+      const mapped: Building = {
+        id: String(b.building_id),
+        name: b.building_name,
+        floorCount: b.floors_count,
+        collegeId: String(b.college_id),
+      };
+
+      // حدّث القائمة وحدد المبنى الجديد مباشرة
+      setBuildings((prev) => [mapped, ...prev]);
+      setSelectedBuilding(mapped);
+      setIsBuildingFormOpen(false);
+      toast({ title: "نجاح", description: "تم إنشاء المبنى" });
+
+      // تحميل القاعات الخاصة بالمبنى الجديد (فارغة غالبًا)
+      await fetchClassrooms(mapped.id);
+    } catch (error: any) {
+      const err = error?.response?.data?.errors || error?.response?.data?.message || "فشل حفظ المبنى";
+      const msg = typeof err === "string" ? err : Object.values(err)?.[0]?.[0] || "فشل حفظ المبنى";
+      toast({ title: "خطأ", description: String(msg), variant: "destructive" });
+    }
+  };
+
+  // Classrooms
+const handleAddClassroom = () => {
+  if (!selectedBuilding) {
+    toast({ title: "تنبيه", description: "اختر مبنى أولاً لإضافة قاعة", variant: "destructive" });
+    return;
+  }
+
+  setEditingClassroomId(null);
+  setClassroomFormData({
+    name: "",
+    type: "CLASSROOM",
+    capacity: 30,
+    floor: 0,
+    latitude: "",
+    longitude: "",
+    allowedDistance: "",
+  });
+  setIsClassroomFormOpen(true);
+
+  if (!navigator.geolocation) {
+    toast({ title: "تنبيه", description: "المتصفح لا يدعم تحديد الموقع", variant: "destructive" });
+    return;
+  }
+
+  // محاولة سريعة لعرض إحداثيات فورية
+  const quickOptions: PositionOptions = { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 };
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const lat = Number(pos.coords.latitude.toFixed(7));
+      const lng = Number(pos.coords.longitude.toFixed(7));
+      const acc = Math.round(pos.coords.accuracy ?? 9999);
+      lastAccuracyRef.current = acc;
+
+      setClassroomFormData((prev) => ({
+        ...prev,
+        latitude: prev.latitude || lat,
+        longitude: prev.longitude || lng,
+      }));
+
+      // تحسين الدقة تدريجيًا
+      getPreciseLocation(10, 30000)
+        .then(({ lat: pLat, lng: pLng, accuracy }) => {
+          if (accuracy < (lastAccuracyRef.current ?? Infinity)) {
+            lastAccuracyRef.current = accuracy;
+            setClassroomFormData((prev) => ({
+              ...prev,
+              latitude: pLat,
+              longitude: pLng,
+            }));
+            // toast({ title: "تم تحسين الدقة", description: `الدقة ≈ ${accuracy}م`, variant: "default" });
+          }
+        })
+        .catch(() => {
+          // تجاهل أو أعرض تنبيه خفيف
+        });
+    },
+    (err) => {
+      const map: Record<number, string> = {
+        1: "تم رفض الإذن للوصول للموقع",
+        2: "تعذّر الحصول على موقع الجهاز",
+        3: "انتهت مهلة تحديد الموقع",
+      };
+      toast({ title: "تعذّر تحديد الموقع", description: map[err.code] || "تحقق من إعدادات الموقع وGPS", variant: "destructive" });
+    },
+    quickOptions
+  );
+};
+  const handleSubmitClassroom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBuilding) {
+      toast({ title: "تنبيه", description: "يرجى اختيار مبنى أولاً", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const payload = {
+        classroom_name: classroomFormData.name,
+        building_id: Number(selectedBuilding.id),
+        floor: Number(classroomFormData.floor || 0),
+        capacity: Number(classroomFormData.capacity || 0),
+        latitude:
+          classroomFormData.latitude === "" || classroomFormData.latitude === null
+            ? null
+            : Number(classroomFormData.latitude),
+        longitude:
+          classroomFormData.longitude === "" || classroomFormData.longitude === null
+            ? null
+            : Number(classroomFormData.longitude),
+        allowed_distance:
+          classroomFormData.allowedDistance === "" || classroomFormData.allowedDistance === null
+            ? null
+            : Number(classroomFormData.allowedDistance),
+        classroom_type: typeStrToInt(classroomFormData.type),
+      };
+
+      if (editingClassroomId) {
+        await api.put(`/v1/classrooms/${editingClassroomId}`, payload);
+        toast({ title: "نجاح", description: "تم تعديل القاعة" });
+      } else {
+        await api.post("/v1/classrooms", payload);
+        toast({ title: "نجاح", description: "تم إنشاء القاعة" });
+      }
+
+      setIsClassroomFormOpen(false);
+      setEditingClassroomId(null);
+      await fetchClassrooms(selectedBuilding.id);
+    } catch (error: any) {
+      const err =
+        error?.response?.data?.errors ||
+        error?.response?.data?.message ||
+        "فشل حفظ القاعة";
+      const msg =
+        typeof err === "string"
+          ? err
+          : Object.values(err)?.[0]?.[0] || "فشل حفظ القاعة";
+      toast({ title: "خطأ", description: String(msg), variant: "destructive" });
+    }
+  };
+
+  const handleDeleteClassroom = async (id: string) => {
+    if (!selectedBuilding) return;
+    if (!confirm("هل تريد حذف هذه القاعة؟")) return;
+
+    try {
+      await api.delete(`/v1/classrooms/${id}`);
+      toast({ title: "نجاح", description: "تم حذف القاعة" });
+      await fetchClassrooms(selectedBuilding.id);
+    } catch (error: any) {
+      const msg = error?.response?.data?.message || "فشل حذف القاعة";
+      toast({ title: "خطأ", description: msg, variant: "destructive" });
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">القاعات الدراسية</h2>
-        <Button onClick={handleAddClassroom}>
+        <Button onClick={handleAddClassroom} disabled={!selectedBuilding}>
           <Plus className="w-4 h-4 mr-2" />
           إضافة قاعة
         </Button>
@@ -79,9 +411,47 @@ const ClassroomsModule: React.FC<Props> = ({
       {/* Buildings grid */}
       <Card>
         <CardHeader>
-          <CardTitle>اختر مبنى</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>اختر مبنى</CardTitle>
+            <Button variant="outline" onClick={handleAddBuilding}>
+              <Plus className="w-4 h-4 ml-2" />
+              إضافة مبنى
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
+          {/* Building form (جديد) */}
+          {isBuildingFormOpen && (
+            <div className="mb-4">
+              <form onSubmit={handleSubmitBuilding} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <Label>اسم المبنى *</Label>
+                  <Input
+                    value={buildingFormData.name}
+                    onChange={(e) => setBuildingFormData({ ...buildingFormData, name: e.target.value })}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>عدد الأدوار *</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={buildingFormData.floorCount}
+                    onChange={(e) => setBuildingFormData({ ...buildingFormData, floorCount: parseInt(e.target.value || "1") })}
+                    required
+                  />
+                </div>
+                <div className="flex items-end gap-2">
+                  <Button type="submit">حفظ</Button>
+                  <Button type="button" variant="outline" onClick={() => setIsBuildingFormOpen(false)}>
+                    إلغاء
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
             {buildings.map((b) => (
               <Card
@@ -97,6 +467,9 @@ const ClassroomsModule: React.FC<Props> = ({
                 </CardContent>
               </Card>
             ))}
+            {buildings.length === 0 && (
+              <div className="text-sm text-muted-foreground">لا توجد مبانٍ لهذه الكلية</div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -272,6 +645,4 @@ const ClassroomsModule: React.FC<Props> = ({
       </Card>
     </div>
   );
-};
-
-export default ClassroomsModule;
+}

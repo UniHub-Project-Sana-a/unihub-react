@@ -313,13 +313,13 @@ export default function CollegesPage() {
                 </Suspense>
               </TabsContent>
               
-              <TabsContent value="Class-work-grades">
+              {/* <TabsContent value="Class-work-grades">
                 <Suspense fallback={<ModuleSkeleton title="درجات أعمال الفصل" />}>
                   {activeTab === "Class-work-grades" && (
                     <ClassworkGradesModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
-              </TabsContent>
+              </TabsContent> */}
             </Tabs>
           </>
         )}
