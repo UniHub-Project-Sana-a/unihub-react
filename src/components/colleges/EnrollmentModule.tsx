@@ -1000,55 +1000,55 @@ const fetchGroups = async () => {
 
           {/* Groups Canvas */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-  {groups.map(group => (
-    <Card
-      key={group.id}
-      className={cn(
-        "backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-colors cursor-pointer",
-        selectedGroupId === String(group.id) && "border-primary"
-      )}
-      onClick={() => {
-        setSelectedGroupId(String(group.id));
-        fetchGroupMembers(String(group.id));
-      }}
-    >
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">{group.name}</CardTitle>
-          <Badge variant="outline">{group.studentsCount}/{group.maxSize}</Badge>
-        </div>
-        <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-          <div
-            className="bg-primary h-full transition-all duration-300"
-            style={{ width: `${(group.studentsCount / group.maxSize) * 100}%` }}
-          ></div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2 min-h-[200px] border-2 border-dashed border-border/30 rounded-lg p-3">
-          {/* عرض مختصر داخل البطاقة (اختياري): لا بيانات تفصيلية حتى لا نكرر الطلب */}
-          <div className="text-sm text-muted-foreground">
-            عدد الطلاب: {group.studentsCount}
+            {groups.map(group => (
+              <Card
+                key={group.id}
+                className={cn(
+                  "backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-colors cursor-pointer",
+                  selectedGroupId === String(group.id) && "border-primary"
+                )}
+                onClick={() => {
+                  setSelectedGroupId(String(group.id));
+                  fetchGroupMembers(String(group.id));
+                }}
+              >
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">{group.name}</CardTitle>
+                    <Badge variant="outline">{group.studentsCount}/{group.maxSize}</Badge>
+                  </div>
+                  <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-primary h-full transition-all duration-300"
+                      style={{ width: `${(group.studentsCount / group.maxSize) * 100}%` }}
+                    ></div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2 min-h-[200px] border-2 border-dashed border-border/30 rounded-lg p-3">
+                    {/* عرض مختصر داخل البطاقة (اختياري): لا بيانات تفصيلية حتى لا نكرر الطلب */}
+                    <div className="text-sm text-muted-foreground">
+                      عدد الطلاب: {group.studentsCount}
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-4 border-t space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>الذكور:</span>
+                      <span className="font-medium">0</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>الإناث:</span>
+                      <span className="font-medium">0</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>التعارضات:</span>
+                      <Badge variant="outline" className="text-xs">0</Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
-        </div>
-        <div className="mt-4 pt-4 border-t space-y-2">
-          <div className="flex justify-between text-sm">
-            <span>الذكور:</span>
-            <span className="font-medium">0</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span>الإناث:</span>
-            <span className="font-medium">0</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span>التعارضات:</span>
-            <Badge variant="outline" className="text-xs">0</Badge>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  ))}
-</div>
 
           {/* Available Students */}
           <Card className="backdrop-blur-sm">
