@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -111,6 +111,9 @@ export default function AcademicStaffModule({ collegeId }: Props) {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [collegeStaff, setCollegeStaff] = useState<AcademicStaff[]>([]);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isImportingCsv, setIsImportingCsv] = useState(false);
+
   // Entitlements UI state (واجهات فقط)
   const [entitlementStep, setEntitlementStep] = useState("1");
   const [entitlementPeriod, setEntitlementPeriod] = useState<EntitlementPeriod>({
@@ -140,6 +143,51 @@ export default function AcademicStaffModule({ collegeId }: Props) {
     notes: "",
     hireDate: "",
   });
+
+  const handleClickImportCsv = () => {
+  // تأكد من وجود collegeId
+  if (!collegeId) {
+    toast({ title: "تنبيه", description: "الكلية غير محددة", variant: "destructive" });
+    return;
+  }
+  fileInputRef.current?.click();
+};
+
+const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  // تحقق من الامتداد
+  const isCsv = file.name.toLowerCase().endsWith(".csv");
+  if (!isCsv) {
+    toast({ title: "تنبيه", description: "الرجاء اختيار ملف CSV", variant: "destructive" });
+    e.target.value = "";
+    return;
+  }
+
+  try {
+    setIsImportingCsv(true);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("college_id", collegeId); // لو الـ API يحتاج تمرير الكلية
+
+    // نوصي بمسار مثل: POST /v1/lecturers/import-csv
+    await api.post("/v1/lecturers/import-csv", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+
+    toast({ title: "نجاح", description: "تم استيراد أعضاء هيئة التدريس من CSV" });
+    await fetchStaff();
+  } catch (error: any) {
+    const err = error?.response?.data?.errors || error?.response?.data?.message || "فشل استيراد الملف";
+    const msg = typeof err === "string" ? err : Object.values(err)?.[0]?.[0] || "فشل استيراد الملف";
+    toast({ title: "خطأ", description: String(msg), variant: "destructive" });
+  } finally {
+    setIsImportingCsv(false);
+    // لتسمح برفع نفس الملف مرة أخرى
+    e.target.value = "";
+  }
+};
 
   // Fetchers
   const fetchDepartments = async () => {
@@ -179,19 +227,22 @@ export default function AcademicStaffModule({ collegeId }: Props) {
 
   const fetchUsers = async () => {
     try {
-      const res = await api.get("/v1/users", { params: { college_id: collegeId } });
+      const res = await api.get("/v1/users", {
+        params: {
+          college_id: collegeId,
+          user_type_code: "lecturer", // ← طلب المحاضرين فقط
+        },
+      });
       const raw: any[] = res.data?.data ?? res.data;
-      setUsers(
-        raw.map((u) => ({
-          id: String(u.user_id),
-          name: u.full_name,
-          email: u.email || "",
-          phone: u.phone || "",
-          academicNumber: u.academic_number || "",
-        }))
-      );
+      setUsers(raw.map((u) => ({
+        id: String(u.user_id),
+        name: u.full_name,
+        email: u.email || "",
+        phone: u.phone || "",
+        academicNumber: u.academic_number || "",
+      })));
     } catch {
-      toast({ title: "خطأ", description: "فشل تحميل المستخدمين", variant: "destructive" });
+      toast({ title: "خطأ", description: "فشل تحميل المستخدمين (المحاضرين)", variant: "destructive" });
     }
   };
 
@@ -409,11 +460,25 @@ export default function AcademicStaffModule({ collegeId }: Props) {
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">أعضاء هيئة التدريس</h2>
-        <Button onClick={handleAddStaff}>
-          <Plus className="w-4 h-4 mr-2" />
-          إضافة عضو
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleClickImportCsv} disabled={isImportingCsv}>
+            {isImportingCsv && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            <Upload className="w-4 h-4 mr-2" />
+            استيراد CSV
+          </Button>
+          <Button onClick={handleAddStaff}>
+            <Plus className="w-4 h-4 mr-2" />
+            إضافة عضو
+          </Button>
+        </div>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={handleCsvChange}
+      />
 
       {/* Entitlements (واجهة فقط) */}
       <Card>
@@ -609,15 +674,6 @@ export default function AcademicStaffModule({ collegeId }: Props) {
                     </SelectContent>
                   </Select>
                 </div>
-
-                <div>
-                  <Label>الاسم الكامل</Label>
-                  <Input
-                    value={staffFormData.fullName}
-                    onChange={(e) => setStaffFormData({ ...staffFormData, fullName: e.target.value })}
-                    placeholder="يتم تعبئته تلقائياً بعد اختيار المستخدم"
-                  />
-                </div>
                 <div>
                   <Label>الرقم الوظيفي</Label>
                   <Input
@@ -727,22 +783,6 @@ export default function AcademicStaffModule({ collegeId }: Props) {
                     value={staffFormData.email}
                     onChange={(e) => setStaffFormData({ ...staffFormData, email: e.target.value })}
                     placeholder="من بيانات المستخدم"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label>العنوان</Label>
-                  <Input
-                    value={staffFormData.address}
-                    onChange={(e) => setStaffFormData({ ...staffFormData, address: e.target.value })}
-                    placeholder="غير مخزن في DB - للعرض فقط"
-                  />
-                </div>
-                <div className="md:col-span-2">
-                  <Label>ملاحظات</Label>
-                  <Textarea
-                    value={staffFormData.notes}
-                    onChange={(e) => setStaffFormData({ ...staffFormData, notes: e.target.value })}
-                    placeholder="غير مخزن في DB - للعرض فقط"
                   />
                 </div>
               </div>

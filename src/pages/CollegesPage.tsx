@@ -24,6 +24,7 @@ const AcademicStaffModule = lazy(() => import("@/components/colleges/AcademicSta
 const ClassroomsModule = lazy(() => import("@/components/colleges/ClassroomsModule"));
 const CollegesDashboardModule = lazy(() => import("@/components/colleges/CollegesDashboardModule"));
 const DepartmentsModule = lazy(() => import("@/components/colleges/DepartmentsModule"));
+const AcademicTitlesModule = lazy(() => import("@/components/colleges/AcademicTitlesModule"));
 const ModuleSkeleton = ({ title }: { title: string }) => (
   <div className="p-6">
     <div className="mb-4 font-semibold">{title}</div>
@@ -241,6 +242,7 @@ export default function CollegesPage() {
                 <TabsTrigger value="colleges-dashboard">لوحة التحكم</TabsTrigger>
                 <TabsTrigger value="departments">الأقسام</TabsTrigger>
                 <TabsTrigger value="classrooms">القاعات الدراسية</TabsTrigger>
+                <TabsTrigger value="academic-titles">الدرجات الأكاديمية</TabsTrigger>
                 <TabsTrigger value="Academic Staff">أعضاء هيئة التدريس</TabsTrigger>
                 <TabsTrigger value="Timetable">الجدول الزمني</TabsTrigger>
                 <TabsTrigger value="Enrollment">تسجيل الطلاب</TabsTrigger>
@@ -255,6 +257,14 @@ export default function CollegesPage() {
                     <CollegesDashboardModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
+              </TabsContent>
+
+              <TabsContent value="academic-titles">
+                <Suspense fallback={<ModuleSkeleton title="الدرجات الأكاديمية" />}>
+                  {activeTab === "academic-titles" && ( 
+                    <AcademicTitlesModule collegeId={selectedCollege.id} /> 
+                    )} 
+                </Suspense> 
               </TabsContent>
 
               <TabsContent value="departments">
