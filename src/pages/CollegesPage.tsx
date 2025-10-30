@@ -147,6 +147,7 @@ export default function CollegesPage() {
       toast({ title: "خطأ", description: msg, variant: "destructive" });
     }
   };
+  
 
   return (
     <AdminLayout>
@@ -238,7 +239,7 @@ export default function CollegesPage() {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-9">
+              <TabsList className="grid w-full grid-cols-10">
                 <TabsTrigger value="colleges-dashboard">لوحة التحكم</TabsTrigger>
                 <TabsTrigger value="departments">الأقسام</TabsTrigger>
                 <TabsTrigger value="classrooms">القاعات الدراسية</TabsTrigger>
@@ -323,13 +324,13 @@ export default function CollegesPage() {
                 </Suspense>
               </TabsContent>
               
-              {/* <TabsContent value="Class-work-grades">
+              <TabsContent value="Class-work-grades">
                 <Suspense fallback={<ModuleSkeleton title="درجات أعمال الفصل" />}>
                   {activeTab === "Class-work-grades" && (
                     <ClassworkGradesModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
-              </TabsContent> */}
+              </TabsContent>
             </Tabs>
           </>
         )}

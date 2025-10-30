@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Link2, FilePlus, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { useRef } from "react";
+import { cn } from "@/lib/utils";
 
 // const csvInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,6 +64,13 @@ type ApiStudent = {
 };
 type ApiStudentGroup = { group_id: number; group_name: string };
 
+type GroupVM = {
+  id: number;
+  name: string;
+  studentsCount: number; // عدد الطلاب في المجموعة
+  maxSize: number;       // للبار فقط (قيمة ثابتة 30 مثلاً)
+};
+
 // Props
 interface EnrollmentModuleProps {
   collegeId: string;
@@ -105,8 +113,10 @@ const requirePath = (needCourse = false) => {
   if (needCourse && !selectedCourseId) { toast({ title: "تنبيه", description: "اختر المقرر أولًا", variant: "destructive" }); return false; }
   if (!selectedCohort) { toast({ title: "تنبيه", description: "اختر الدفعة (السنة الأكاديمية)", variant: "destructive" }); return false; }
   if (!groupName.trim()) { toast({ title: "تنبيه", description: "أدخل اسم المجموعة", variant: "destructive" }); return false; }
+  if (!groupName.trim()) { toast({ title: "تنبيه", description: "أدخل اسم المجموعة", variant: "destructive" }); return false; }
   return true;
 };
+
 
 const handleClickImportCsv = () => {
   if (!requirePath(false)) return;
@@ -135,9 +145,11 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     formData.append("semester_id", selectedTermId);
     if (selectedCourseId) formData.append("course_id", selectedCourseId);
     formData.append("cohort", selectedCohort);
+    formData.append("group_name", groupName.trim());
+
 
     // Endpoint متوقع: POST /v1/students/import-csv
-    await api.post("/v1/students/import-csv", formData, { headers: { "Content-Type": "multipart/form-data" } });
+    await api.post("/v1/student-groups/import-csv", formData, { headers: { "Content-Type": "multipart/form-data" } });
     toast({ title: "نجاح", description: "تم استيراد الطلاب من CSV" });
     await fetchAvailableStudents();
   } catch (error: any) {
@@ -174,8 +186,9 @@ const handleImportFromApi = async () => {
       semester_id: Number(selectedTermId),
       course_id: selectedCourseId ? Number(selectedCourseId) : null,
       cohort: selectedCohort,
+      group_name: groupName.trim(),
     };
-    await api.post("/v1/students/import-external", payload);
+    await api.post("/v1/student-groups/import-external", payload);
     toast({ title: "نجاح", description: "تم استيراد الطلاب من مصدر API" });
     setIsApiDialogOpen(false);
     await fetchAvailableStudents();
@@ -202,29 +215,55 @@ const openManualDialog = () => {
 
 const handleSubmitManual = async (e: React.FormEvent) => {
   e.preventDefault();
+
+  // تأكد من اكتمال المسار واختيار اسم المجموعة والدفعة
+  if (!requirePath(false)) return;
+
+  // تحقق بسيط لحقول الطالب
+  if (!manualForm.fullName.trim() || !manualForm.academicNumber.trim() || !manualForm.email.trim() || !manualForm.phone.trim()) {
+    toast({ title: "تنبيه", description: "الحقول الأساسية للطالب مطلوبة (الاسم، الرقم الأكاديمي، البريد، الجوال)", variant: "destructive" });
+    return;
+  }
+
   try {
     setIsSavingManual(true);
+
+    // 1) إنشاء user + student
     const payload = {
-      // نقترح أن يوفر الباك اند endpoint يقوم بإنشاء user + student معًا
-      full_name: manualForm.fullName,
-      email: manualForm.email,
-      phone: manualForm.phone,
-      academic_number: manualForm.academicNumber,
-      gender: Number(manualForm.gender),
-      status: manualForm.status === "1",
+      full_name: manualForm.fullName.trim(),
+      email: manualForm.email.trim(),
+      phone: manualForm.phone.trim(),
+      academic_number: manualForm.academicNumber.trim(),
+      gender: Number(manualForm.gender),                 // 1 ذكر - 2 أنثى
+      status: manualForm.status === "1",                 // true/false
       college_id: Number(collegeId),
       department_id: Number(selectedDepartmentId),
       program_id: Number(selectedProgramId),
       level_id: Number(selectedLevelId),
       semester_id: Number(selectedTermId),
       course_id: selectedCourseId ? Number(selectedCourseId) : null,
-      cohort: selectedCohort,
+      cohort: selectedCohort,                            // الدفعة
     };
-    // Endpoint متوقع: POST /v1/students (أو /v1/students/manual)
+
     await api.post("/v1/students", payload);
-    toast({ title: "نجاح", description: "تم إضافة الطالب يدويًا" });
+
+    // 2) إلحاقه بالمجموعة عبر الرقم الأكاديمي
+    try {
+      await api.post("/v1/student-groups/upsert-and-attach", {
+        college_id: Number(collegeId),
+        group_name: groupName.trim(),
+        academic_numbers: [manualForm.academicNumber.trim()],
+      });
+      toast({ title: "نجاح", description: "تم إضافة الطالب وإلحاقه بالمجموعة" });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || "تم إنشاء الطالب، لكن فشل إلحاقه بالمجموعة";
+      toast({ title: "تنبيه", description: msg, variant: "destructive" });
+    }
+
+    // إغلاق النموذج وتحديث القائمة
     setIsManualDialogOpen(false);
     await fetchAvailableStudents();
+
   } catch (error: any) {
     const err = error?.response?.data?.errors || error?.response?.data?.message || "فشل حفظ بيانات الطالب";
     const msg = typeof err === "string" ? err : Object.values(err)?.[0]?.[0] || "فشل حفظ بيانات الطالب";
@@ -238,6 +277,8 @@ const handleSubmitManual = async (e: React.FormEvent) => {
   const [importStep, setImportStep] = useState(1);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [autoBalanceEnabled, setAutoBalanceEnabled] = useState(false);
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("");
+  const [groupMembers, setGroupMembers] = useState<{ id: string; name: string; gender: string }[]>([]);
 
   // Steps state
   const [departments, setDepartments] = useState<ApiDepartment[]>([]);
@@ -253,7 +294,7 @@ const handleSubmitManual = async (e: React.FormEvent) => {
   const [selectedCourseId, setSelectedCourseId] = useState<string>("");
 
   // Groups/Students
-  const [groups, setGroups] = useState<{ id: number; name: string; students: any[]; maxSize: number }[]>([]);
+  const [groups, setGroups] = useState<GroupVM[]>([]);
   const [availableStudents, setAvailableStudents] = useState<{ id: string; name: string; gender: string; gpa?: number; group?: string | null }[]>([]);
 
   // Mock (kept for UI)
@@ -274,7 +315,28 @@ const handleSubmitManual = async (e: React.FormEvent) => {
     { num: 6, label: "المعاينة" },
   ];
 
+  const listToRender = useMemo(
+  () => (selectedGroupId ? groupMembers : availableStudents),
+  [selectedGroupId, groupMembers, availableStudents]
+);
   // Fetchers
+
+const fetchGroupMembers = async (groupId: string) => {
+  try {
+    const res = await api.get(`/v1/student-groups/${groupId}/students`);
+    const raw: any[] = res.data?.data ?? res.data;
+
+    setGroupMembers(
+      raw.map((s) => ({
+        id: String(s.user?.academic_number || s.student_id),
+        name: s.user?.full_name || `طالب ${s.student_id}`,
+        gender: s.user?.gender === 1 ? "ذكر" : s.user?.gender === 2 ? "أنثى" : "-",
+      }))
+    );
+  } catch {
+    toast({ title: "خطأ", description: "فشل تحميل طلاب المجموعة", variant: "destructive" });
+  }
+};
   const fetchDepartments = async () => {
     try {
       const res = await api.get("/v1/departments", { params: { college_id: collegeId } });
@@ -353,20 +415,25 @@ const fetchSemesters = async (levelId: number) => {
     }
   };
 
-  const fetchGroups = async () => {
-    try {
-      const res = await api.get("/v1/student-groups", { params: { college_id: collegeId } });
-      const raw: ApiStudentGroup[] = res.data?.data ?? res.data;
-      setGroups(raw.map(g => ({
+const fetchGroups = async () => {
+  try {
+    const res = await api.get("/v1/student-groups", {
+      params: { college_id: collegeId, with_counts: 1 },
+    });
+    const raw: any[] = res.data?.data ?? res.data;
+
+    setGroups(
+      raw.map((g) => ({
         id: g.group_id,
         name: g.group_name,
-        students: [], // سيتم تعبئتها عندما تنفذ الربط
-        maxSize: 30,
-      })));
-    } catch {
-      toast({ title: "خطأ", description: "فشل تحميل المجموعات", variant: "destructive" });
-    }
-  };
+        studentsCount: Number(g.students_count ?? g.count ?? 0), // يعتمد على ما يرجعه الـ API
+        maxSize: 30, // ثابت للبار
+      }))
+    );
+  } catch {
+    toast({ title: "خطأ", description: "فشل تحميل المجموعات", variant: "destructive" });
+  }
+};
 
   const fetchAvailableStudents = async () => {
     try {
@@ -798,9 +865,14 @@ const fetchSemesters = async (levelId: number) => {
                     />
                   )}
                 </div>
-                <div> 
-                  <Label>اسم المجموعة *</Label> 
-                  <Input placeholder="مثال: المجموعة أ - الفصل الأول" value={groupName} onChange={(e) => setGroupName(e.target.value)} required /> 
+                <div>
+                  <Label>اسم المجموعة *</Label>
+                  <Input
+                    placeholder="مثال: المجموعة أ - الفصل الأول"
+                    value={groupName}
+                    onChange={(e) => setGroupName(e.target.value)}
+                    required
+                  />
                 </div>
 
                 
@@ -928,79 +1000,84 @@ const fetchSemesters = async (levelId: number) => {
 
           {/* Groups Canvas */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {groups.map(group => (
-              <Card key={group.id} className="backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-colors">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{group.name}</CardTitle>
-                    <Badge variant="outline">{group.students.length}/{group.maxSize}</Badge>
-                  </div>
-                  <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
-                    <div
-                      className="bg-primary h-full transition-all duration-300"
-                      style={{ width: `${(group.students.length / group.maxSize) * 100}%` }}
-                    ></div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2 min-h-[200px] border-2 border-dashed border-border/30 rounded-lg p-3">
-                    {group.students.length === 0 ? (
-                      <div className="flex items-center justify-center h-full text-muted-foreground">
-                        <UserPlus className="w-8 h-8" />
-                      </div>
-                    ) : (
-                      group.students.map(student => (
-                        <div key={student.id} className="p-2 bg-card rounded border text-sm">
-                          <div className="font-medium">{student.name}</div>
-                          <div className="text-xs text-muted-foreground">{student.id}</div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                  <div className="mt-4 pt-4 border-t space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>الذكور:</span>
-                      <span className="font-medium">0</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>الإناث:</span>
-                      <span className="font-medium">0</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>التعارضات:</span>
-                      <Badge variant="outline" className="text-xs">0</Badge>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+  {groups.map(group => (
+    <Card
+      key={group.id}
+      className={cn(
+        "backdrop-blur-sm border-primary/20 hover:border-primary/40 transition-colors cursor-pointer",
+        selectedGroupId === String(group.id) && "border-primary"
+      )}
+      onClick={() => {
+        setSelectedGroupId(String(group.id));
+        fetchGroupMembers(String(group.id));
+      }}
+    >
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg">{group.name}</CardTitle>
+          <Badge variant="outline">{group.studentsCount}/{group.maxSize}</Badge>
+        </div>
+        <div className="w-full bg-secondary rounded-full h-2 overflow-hidden">
+          <div
+            className="bg-primary h-full transition-all duration-300"
+            style={{ width: `${(group.studentsCount / group.maxSize) * 100}%` }}
+          ></div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2 min-h-[200px] border-2 border-dashed border-border/30 rounded-lg p-3">
+          {/* عرض مختصر داخل البطاقة (اختياري): لا بيانات تفصيلية حتى لا نكرر الطلب */}
+          <div className="text-sm text-muted-foreground">
+            عدد الطلاب: {group.studentsCount}
           </div>
+        </div>
+        <div className="mt-4 pt-4 border-t space-y-2">
+          <div className="flex justify-between text-sm">
+            <span>الذكور:</span>
+            <span className="font-medium">0</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span>الإناث:</span>
+            <span className="font-medium">0</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span>التعارضات:</span>
+            <Badge variant="outline" className="text-xs">0</Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  ))}
+</div>
 
           {/* Available Students */}
           <Card className="backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle>الطلاب المتاحون</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                {(availableStudents.length ? availableStudents : []).map(student => (
-                  <Card key={student.id} className="cursor-move hover:shadow-lg transition-all duration-200 border-primary/20">
-                    <CardContent className="p-3 text-center">
-                      <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
-                        <Users className="w-6 h-6 text-primary" />
-                      </div>
-                      <div className="font-medium text-sm">{student.name}</div>
-                      <div className="text-xs text-muted-foreground">{student.id}</div>
-                      <Badge variant="outline" className="mt-2 text-xs">{student.gender}</Badge>
-                    </CardContent>
-                  </Card>
-                ))}
-                {availableStudents.length === 0 && (
-                  <div className="text-sm text-muted-foreground">لا يوجد طلاب متاحون وفق الفلاتر المختارة.</div>
-                )}
+  <CardHeader>
+    <CardTitle>{selectedGroupId ? "طلاب المجموعة المختارة" : "اختر مجموعة لعرض طلابها"}</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+      {selectedGroupId && groupMembers.length > 0 ? (
+        groupMembers.map(student => (
+          <Card key={student.id} className="hover:shadow-lg transition-all duration-200 border-primary/20">
+            <CardContent className="p-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-2">
+                <Users className="w-6 h-6 text-primary" />
               </div>
+              <div className="font-medium text-sm">{student.name}</div>
+              <div className="text-xs text-muted-foreground">{student.id}</div>
+              <Badge variant="outline" className="mt-2 text-xs">{student.gender}</Badge>
             </CardContent>
           </Card>
+        ))
+      ) : (
+        <div className="text-sm text-muted-foreground col-span-full">
+          {selectedGroupId ? "لا يوجد طلاب في هذه المجموعة" : "اختر مجموعة من الأعلى لعرض طلابها"}
+        </div>
+      )}
+    </div>
+  </CardContent>
+</Card>
         </TabsContent>
       </Tabs>
     </div>
