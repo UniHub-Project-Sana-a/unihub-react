@@ -48,6 +48,7 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
     hourlyPrice: 0,
     lecturePrice: 0,
   });
+  
 
   const fetchTitles = async () => {
     setIsLoading(true);
@@ -171,26 +172,47 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
                   required
                 />
               </div>
-              <div>
-                <Label>أجر الساعة (ريال)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={formData.hourlyPrice}
-                  onChange={(e) => setFormData((p) => ({ ...p, hourlyPrice: Number(e.target.value || 0) }))}
-                />
-              </div>
-              <div>
-                <Label>أجر المحاضرة (ريال)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={formData.lecturePrice}
-                  onChange={(e) => setFormData((p) => ({ ...p, lecturePrice: Number(e.target.value || 0) }))}
-                />
-              </div>
+             <div>
+               <Label>أجر الساعة (ريال)</Label>
+               <Input
+                 type="number"
+                 step="0.01"
+                 min={0}
+                 value={formData.hourlyPrice ?? ""} // يسمح يكون فاضي أثناء الكتابة
+                 onChange={(e) =>
+                   setFormData((p) => ({
+                     ...p,
+                     hourlyPrice: e.target.value === "" ? (undefined as any) : Number(e.target.value),
+                   }))
+                 }
+                 onBlur={() => {
+                   // لو بقي فاضي عند الخروج، رجّعه 0 أو أي قيمة افتراضية تريدها
+                   if (formData.hourlyPrice == null || Number.isNaN(formData.hourlyPrice as any)) {
+                     setFormData((p) => ({ ...p, hourlyPrice: 0 }));
+                   }
+                 }}
+               />
+             </div>
+             <div>
+               <Label>أجر المحاضرة (ريال)</Label>
+               <Input
+                 type="number"
+                 step="0.01"
+                 min={0}
+                 value={formData.lecturePrice ?? ""} // يسمح يكون فاضي أثناء الكتابة
+                 onChange={(e) =>
+                   setFormData((p) => ({
+                     ...p,
+                     lecturePrice: e.target.value === "" ? (undefined as any) : Number(e.target.value),
+                   }))
+                 }
+                 onBlur={() => {
+                   if (formData.lecturePrice == null || Number.isNaN(formData.lecturePrice as any)) {
+                     setFormData((p) => ({ ...p, lecturePrice: 0 }));
+                   }
+                 }}
+               />
+             </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>

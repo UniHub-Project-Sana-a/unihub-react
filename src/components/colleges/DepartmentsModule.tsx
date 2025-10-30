@@ -712,13 +712,25 @@ export default function DepartmentsModule({ collegeId }: DepartmentsModuleProps)
                           <CardContent className="pt-6">
                             <form onSubmit={handleSubmitLevel} className="space-y-4">
                               <div>
-                                <Label>رقم المستوى *</Label>
-                                <Input
-                                  type="number"
-                                  value={levelFormData.levelNumber}
-                                  onChange={(e) => setLevelFormData({ levelNumber: parseInt(e.target.value) || 1 })}
-                                  required
-                                />
+                               <Label>رقم المستوى *</Label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    value={levelFormData.levelNumber ?? ""} // يسمح يكون فاضي أثناء الكتابة
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setLevelFormData({
+                                        levelNumber: v === "" ? (undefined as any) : parseInt(v, 10) || 1,
+                                      });
+                                    }}
+                                    onBlur={() => {
+                                      // عند الخروج: لو فاضي، رجّعه 1
+                                      if (levelFormData.levelNumber == null || Number.isNaN(levelFormData.levelNumber)) {
+                                        setLevelFormData({ levelNumber: 1 });
+                                      }
+                                    }}
+                                    required
+                                  />
                               </div>
                               <div className="flex gap-2">
                                 <Button type="submit">حفظ</Button>
