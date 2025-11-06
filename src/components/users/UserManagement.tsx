@@ -91,7 +91,7 @@ const allowedRoleCodesForCreate = useMemo(() => {
   if (code === "admin" || code === "presidency") return ["dean"];
   if (code === "dean") {
     return userTypes
-      .filter(t => !["student", "lecturer", "admin", "dean"].includes(t.user_type_code))
+      .filter(t => !["student",  "admin", "dean"].includes(t.user_type_code))
       .map(t => t.user_type_code);
   }
   return [];

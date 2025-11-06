@@ -1,23 +1,22 @@
-import { Navigate, useLocation } from "react-router-dom";
-import { useAuth } from "@/context/AuthContext";
-import { Loader2 } from "lucide-react";
+// src/auth/RequireAuth.tsx
 
-export default function RequireAuth({ children }: { children: JSX.Element }) {
-  const { isAuthenticated, loading } = useAuth();
+import { useLocation, Navigate, Outlet } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
+
+export default function RequireAuth() {
+  const { user, isLoading } = useAuth();
   const location = useLocation();
 
-  if (loading) {
-    return (
-      <div className="w-full h-[50vh] flex items-center justify-center text-muted-foreground">
-        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-        جارٍ التحقق من الجلسة...
-      </div>
-    );
+  // إذا كانت بيانات المستخدم قيد التحميل، أظهر رسالة انتظار
+  if (isLoading) {
+    return <div>Loading authentication...</div>; 
   }
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
+  // إذا كان المستخدم موجودًا (مسجل دخوله)، اسمح له بالمرور إلى المسارات الفرعية
+  if (user) {
+    return <Outlet />; // <-- هذا هو التغيير الرئيسي. يعرض المكون الفرعي المطابق للمسار
   }
 
-  return children;
+  // إذا لم يكن المستخدم مسجلاً، أعد توجيهه إلى صفحة تسجيل الدخول
+  return <Navigate to="/login" state={{ from: location }} replace />;
 }

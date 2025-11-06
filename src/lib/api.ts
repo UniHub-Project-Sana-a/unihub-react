@@ -2,10 +2,10 @@
 import axios from 'axios';
 
 // استخدم IP جهازك هنا
-const API_BASE_URL = 'http://192.168.0.124/api'; 
+// const API_BASE_URL = 'http://127.0.0.1/api'; 
 
 export const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: import.meta.env.VITE_API_BASE_URL,
   headers: { Accept: 'application/json' },
 });
 

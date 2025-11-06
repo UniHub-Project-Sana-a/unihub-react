@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { useMemo } from "react";
 
+
 // Lazy imports
 const TimetableModule = lazy(() => import("@/components/colleges/TimetableModule"));
 const EnrollmentModule = lazy(() => import("@/components/colleges/EnrollmentModule"));
@@ -25,6 +26,7 @@ const ClassroomsModule = lazy(() => import("@/components/colleges/ClassroomsModu
 const CollegesDashboardModule = lazy(() => import("@/components/colleges/CollegesDashboardModule"));
 const DepartmentsModule = lazy(() => import("@/components/colleges/DepartmentsModule"));
 const AcademicTitlesModule = lazy(() => import("@/components/colleges/AcademicTitlesModule"));
+const PeriodsModule = lazy(() => import("@/components/colleges/PeriodsModule"));
 const ModuleSkeleton = ({ title }: { title: string }) => (
   <div className="p-6">
     <div className="mb-4 font-semibold">{title}</div>
@@ -239,7 +241,7 @@ export default function CollegesPage() {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid w-full grid-cols-10">
+              <TabsList className="grid w-full grid-cols-9">
                 <TabsTrigger value="colleges-dashboard">لوحة التحكم</TabsTrigger>
                 <TabsTrigger value="departments">الأقسام</TabsTrigger>
                 <TabsTrigger value="classrooms">القاعات الدراسية</TabsTrigger>
@@ -247,18 +249,19 @@ export default function CollegesPage() {
                 <TabsTrigger value="Academic Staff">أعضاء هيئة التدريس</TabsTrigger>
                 <TabsTrigger value="Timetable">الجدول الزمني</TabsTrigger>
                 <TabsTrigger value="Enrollment">تسجيل الطلاب</TabsTrigger>
-                <TabsTrigger value="Excuses">إدارة الاعذار</TabsTrigger>
+                {/* <TabsTrigger value="Excuses">إدارة الاعذار</TabsTrigger> */}
                 <TabsTrigger value="Reports">التقارير</TabsTrigger>
-                <TabsTrigger value="Class-work-grades">درجات اعمال الفصل</TabsTrigger>
+                {/* <TabsTrigger value="Class-work-grades">درجات اعمال الفصل</TabsTrigger> */}
+                <TabsTrigger value="periods">الفترات</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="colleges-dashboard">
+              {/* <TabsContent value="colleges-dashboard">
                 <Suspense fallback={<ModuleSkeleton title="لوحة التحكم " />}>
                   {activeTab === "colleges-dashboard" && (
                     <CollegesDashboardModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
-              </TabsContent>
+              </TabsContent> */}
 
               <TabsContent value="academic-titles">
                 <Suspense fallback={<ModuleSkeleton title="الدرجات الأكاديمية" />}>
@@ -299,6 +302,12 @@ export default function CollegesPage() {
                   )}
                 </Suspense>
               </TabsContent>
+
+              <TabsContent value="periods">
+                <Suspense fallback={<ModuleSkeleton title="الفترات" />}>
+                  {activeTab === "periods" && <PeriodsModule collegeId={selectedCollege.id} />}
+                </Suspense>
+              </TabsContent>
               
               <TabsContent value="Enrollment">
                 <Suspense fallback={<ModuleSkeleton title="تسجيل الطلاب" />}>
@@ -308,13 +317,13 @@ export default function CollegesPage() {
                 </Suspense>
               </TabsContent>
               
-              <TabsContent value="Excuses">
+              {/* <TabsContent value="Excuses">
                 <Suspense fallback={<ModuleSkeleton title="إدارة الأعذار" />}>
                   {activeTab === "Excuses" && (
                     <ExcusesModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
-              </TabsContent>
+              </TabsContent> */}
               
               <TabsContent value="Reports">
                 <Suspense fallback={<ModuleSkeleton title="التقارير" />}>
@@ -324,13 +333,13 @@ export default function CollegesPage() {
                 </Suspense>
               </TabsContent>
               
-              <TabsContent value="Class-work-grades">
+              {/* <TabsContent value="Class-work-grades">
                 <Suspense fallback={<ModuleSkeleton title="درجات أعمال الفصل" />}>
                   {activeTab === "Class-work-grades" && (
                     <ClassworkGradesModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
-              </TabsContent>
+              </TabsContent> */}
             </Tabs>
           </>
         )}

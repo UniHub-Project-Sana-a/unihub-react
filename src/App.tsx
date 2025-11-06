@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import "./i18n/config";
 
+// استيراد الصفحات
 import Index from "./pages/Index";
 import UsersPage from "./pages/UsersPage";
 import RolesPage from "./pages/RolesPage";
@@ -19,15 +20,18 @@ import AuditLogPage from "./pages/AuditLogPage";
 import AcademicStaffPage from "./pages/AcademicStaffPage";
 import CourseManagementPage from "./pages/CourseManagementPage";
 import CollegesPage from "./pages/CollegesPage";
-
 import LoginPage from "./components/auth/LoginPage";
 import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
+import LecturerPage from "./pages/LecturerPage";
+import UnauthorizedPage from "./pages/UnauthorizedPage"; // <-- أضف صفحة "غير مصرح به"
 
+// استيراد مكونات الحماية
 import { AuthProvider } from "@/context/AuthContext";
 import RequireAuth from "@/auth/RequireAuth";
 import RedirectIfAuthed from "@/auth/RedirectIfAuthed";
+import RequireRole from "@/auth/RequireRole"; // <-- استيراد المكون الجديد
 
 const queryClient = new QueryClient();
 
@@ -39,29 +43,42 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            {/* مسارات عامة */}
+            {/* 1. المسارات العامة */}
             <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
-            {/* مسارات محمية */}
-            <Route path="/" element={<RequireAuth><Index /></RequireAuth>} />
-            <Route path="/colleges" element={<RequireAuth><CollegesPage /></RequireAuth>} />
-            <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+            {/* 2. المسارات المحمية (تتطلب تسجيل دخول) */}
+            <Route element={<RequireAuth />}>
 
-            <Route path="/users" element={<RequireAuth><UsersPage /></RequireAuth>} />
-            <Route path="/users/roles" element={<RequireAuth><RolesPage /></RequireAuth>} />
-            <Route path="/users/access-control" element={<RequireAuth><AccessControlPage /></RequireAuth>} />
-            <Route path="/timetable/*" element={<RequireAuth><TimetablePage /></RequireAuth>} />
-            <Route path="/enrollment/*" element={<RequireAuth><EnrollmentPage /></RequireAuth>} />
-            <Route path="/excuses/*" element={<RequireAuth><ExcusesPage /></RequireAuth>} />
-            <Route path="/reports/*" element={<RequireAuth><ReportsPage /></RequireAuth>} />
-            <Route path="/integration/*" element={<RequireAuth><IntegrationPage /></RequireAuth>} />
-            <Route path="/course-management/*" element={<RequireAuth><CourseManagementPage /></RequireAuth>} />
-            <Route path="/auditlog" element={<RequireAuth><AuditLogPage /></RequireAuth>} />
-            <Route path="/academic-staff" element={<RequireAuth><AcademicStaffPage /></RequireAuth>} />
+              {/* 2.1. مسارات خاصة بالمحاضر فقط */}
+              <Route element={<RequireRole allowedRoles={['lecturer']} />}>
+                <Route path="/lecturer" element={<LecturerPage />} />
+                {/* يمكنك إضافة مسارات أخرى خاصة بالمحاضر هنا */}
+              </Route>
 
-            {/* Catch-all */}
+              {/* 2.2. مسارات إدارية (محمية من المحاضر) */}
+              <Route element={<RequireRole allowedRoles={['admin', 'dean', 'presidency', 'head_of_department']} />}>
+                <Route path="/" element={<Index />} />
+                <Route path="/colleges" element={<CollegesPage />} />
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/users" element={<UsersPage />} />
+                <Route path="/users/roles" element={<RolesPage />} />
+                <Route path="/users/access-control" element={<AccessControlPage />} />
+                <Route path="/timetable/*" element={<TimetablePage />} />
+                <Route path="/enrollment/*" element={<EnrollmentPage />} />
+                <Route path="/excuses/*" element={<ExcusesPage />} />
+                <Route path="/reports/*" element={<ReportsPage />} />
+                <Route path="/integration/*" element={<IntegrationPage />} />
+                <Route path="/course-management/*" element={<CourseManagementPage />} />
+                <Route path="/auditlog" element={<AuditLogPage />} />
+                <Route path="/academic-staff" element={<AcademicStaffPage />} />
+              </Route>
+
+            </Route>
+
+            {/* 3. مسار احتياطي لـ 404 */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

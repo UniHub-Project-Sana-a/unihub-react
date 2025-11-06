@@ -1,86 +1,102 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { api, setAuthToken } from "@/lib/api";
-import { useNavigate } from "react-router-dom";
+// src/context/AuthContext.tsx
 
-type MeUser = {
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { api, setAuthToken } from "@/lib/api";
+
+interface UserType {
+  user_type_id: number;
+  user_type_name: string;
+  user_type_code: string;
+}
+
+interface User {
   user_id: number;
   full_name: string;
   email: string;
-  user_type_id: number;
-  college_id?: number | null;
-};
+  user_type_code?: string; // خاصية احتياطية لو كانت على المستوى الأعلى
+  user_type: UserType; // <-- استخدم الواجهة الجديدة هنا
+  // أضف أي حقول أخرى تحتاجها
+  college_id?: number;
+}
 
-type AuthContextType = {
-  token: string | null;
-  user: MeUser | null;
-  loading: boolean;
-  isAuthenticated: boolean; // <-- تأكد من وجود هذه الخاصية
-  login: (token: string, remember?: boolean) => Promise<void>;
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean; // <-- الخاصية الجديدة
+  login: (token: string, remember: boolean) => void;
   logout: () => void;
-};
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(
-    () => sessionStorage.getItem("access_token") || localStorage.getItem("access_token")
-  );
-  const [user, setUser] = useState<MeUser | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const navigate = useNavigate();
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true); // <-- ابدأ بـ true
 
   useEffect(() => {
-    const bootstrapAuth = async () => {
+    const initializeAuth = async () => {
+      // تحقق من وجود توكن في sessionStorage أو localStorage
+      const token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token');
+      
       if (token) {
-        setAuthToken(token);
+        setAuthToken(token); // جهّز الهيدر
         try {
-          const res = await api.get("/v1/auth/me");
-          setUser(res.data?.data ?? res.data);
-        } catch {
-          setAuthToken(undefined);
-          setToken(null);
-          setUser(null);
+          // حاول جلب بيانات المستخدم
+          const response = await api.get('/v1/auth/me');
+          const userData = response.data?.data ?? response.data;
+          setUser(userData.user ?? userData);
+        } catch (error) {
+          console.error("Failed to fetch user on initial load", error);
+          // إذا فشل، يعني أن التوكن غير صالح، فقم بتسجيل الخروج
+          setAuthToken(undefined); 
         }
       }
-      setLoading(false);
+      
+      // في كل الأحوال، أوقف التحميل بعد انتهاء المحاولة
+      setIsLoading(false);
     };
-    bootstrapAuth();
-  }, [token]);
 
-  const login = async (newToken: string, remember?: boolean) => {
-    if (remember) {
-      localStorage.setItem("access_token", newToken);
-    } else {
-      sessionStorage.setItem("access_token", newToken);
-    }
-    setToken(newToken);
+    initializeAuth();
+  }, []);
+
+  const login = (token: string, remember: boolean) => {
+    // عند تسجيل الدخول، أعد جلب بيانات المستخدم لتحديث الحالة
+    const fetchUserOnLogin = async () => {
+      setAuthToken(token);
+      try {
+        const response = await api.get('/v1/auth/me');
+        const userData = response.data?.data ?? response.data;
+        setUser(userData.user ?? userData);
+        if (remember) {
+          localStorage.setItem('access_token', token);
+        } else {
+          sessionStorage.setItem('access_token', token);
+        }
+      } catch (error) {
+        console.error("Login failed: could not fetch user", error);
+        setAuthToken(undefined);
+      }
+    };
+    fetchUserOnLogin();
   };
 
   const logout = () => {
-    api.post("/v1/auth/logout").catch(() => {});
     setAuthToken(undefined);
-    setToken(null);
     setUser(null);
-    navigate("/login", { replace: true });
+    localStorage.removeItem('access_token');
+    sessionStorage.removeItem('access_token');
+    // يمكنك إضافة توجيه إلى صفحة تسجيل الدخول هنا إذا أردت
+    // window.location.href = '/login';
   };
 
-  const value = useMemo(
-    () => ({
-      token,
-      user,
-      loading,
-      isAuthenticated: !!user, // <-- توفير isAuthenticated
-      login,
-      logout,
-    }),
-    [token, user, loading]
-  );
+  const value = { user, isLoading, login, logout };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
+};
 
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
-}
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
+};

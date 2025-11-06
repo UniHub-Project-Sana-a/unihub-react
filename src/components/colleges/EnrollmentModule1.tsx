@@ -79,9 +79,9 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     try {
       const res = await api.get("/v1/student-groups", { params: { college_id: collegeId, department_id: selectedDepartmentId, level_id: selectedLevelId, semester_id: selectedSemesterId, with_counts: 1 } });
       const raw: any[] = res.data?.data ?? res.data;
-      setGroups(raw.map((g) => ({ id: g.group_id, name: g.group_name, studentsCount: Number(g.students_count ?? 0), maxSize: 30 })));
+      setGroups(raw.map((g) => ({ id: g.group_id, name: g.group_name, studentsCount: Number(g.students_count ?? 0), maxSize: 500 })));
     } catch { toast({ title: "خطأ", description: "فشل تحميل المجموعات" }); }
-  };
+  };fetchGroups
 
   const fetchGroupMembers = async (groupId: number) => {
     try {
@@ -96,203 +96,36 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   useEffect(() => { if (selectedDepartmentId) fetchPrograms(selectedDepartmentId); }, [selectedDepartmentId]);
   useEffect(() => { if (selectedProgramId) fetchLevels(selectedProgramId); }, [selectedProgramId]);
   useEffect(() => { if (selectedLevelId) fetchSemesters(selectedLevelId); }, [selectedLevelId]);
-  useEffect(() => {
-  // إن لم يكتمل المسار، نظّف القوائم والاختيارات
-  if (!selectedDepartmentId || !selectedLevelId || !selectedSemesterId) {
-    setGroups([]);
-    setSelectedGroup(null);
-    setGroupMembers([]);
-    return;
-  }
-  // useEffect(() => {
-  //   if (selectedSemesterId) {
-  //     fetchCourses(selectedSemesterId);
-  //   } else {
-  //     setCourses([]);
-  //   }
-  // }, [selectedSemesterId]);
-
-  // عند اكتمال المسار، اجلب المجموعات
-  fetchGroups();
-}, [selectedDepartmentId, selectedLevelId, selectedSemesterId]);
+  useEffect(() => { if (selectedSemesterId) { fetchCourses(selectedSemesterId); fetchGroups(); } }, [selectedSemesterId]);
 
   // --- Handlers ---
-  const handleCreateGroup = async (): Promise<void> => {
-    if (
-      !newGroupName.trim() ||
-      !selectedDepartmentId ||
-      !selectedLevelId ||
-      !selectedSemesterId
-    ) {
-      toast({
-        title: "تنبيه",
-        description: "اختر القسم والمستوى والترم وأدخل اسم المجموعة",
-        variant: "destructive",
-      });
-      return;
-    }
-  
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim() || !selectedSemesterId) { toast({ title: "تنبيه", description: "اختر المسار وأدخل اسم المجموعة", variant: "destructive" }); return; }
     try {
       setIsCreatingGroup(true);
-  
-      // المحاولة الأولى: إنشاء/استرجاع المجموعة لنفس المسار (يحترم unique_group_per_path)
-      await api.post("/v1/student-groups/upsert-and-attach", {
-        college_id: Number(collegeId),
-        department_id: Number(selectedDepartmentId),
-        level_id: Number(selectedLevelId),
-        semester_id: Number(selectedSemesterId),
-        group_name: newGroupName.trim(),
-      });
-  
-      toast({ title: "نجاح", description: "تم إنشاء/تجهيز المجموعة" });
+      await api.post("/v1/student-groups", { college_id: Number(collegeId), department_id: Number(selectedDepartmentId), level_id: Number(selectedLevelId), semester_id: Number(selectedSemesterId), group_name: newGroupName.trim() });
+      toast({ title: "نجاح", description: "تم إنشاء المجموعة" });
       setNewGroupName("");
       await fetchGroups();
-    } catch (err: any) {
-      // fallback: استخدام المسار القياسي لو لم يتوفر upsert-and-attach
-      try {
-        await api.post("/v1/student-groups", {
-          college_id: Number(collegeId),
-          department_id: Number(selectedDepartmentId),
-          level_id: Number(selectedLevelId),
-          semester_id: Number(selectedSemesterId),
-          group_name: newGroupName.trim(),
-        });
-  
-        toast({ title: "نجاح", description: "تم إنشاء المجموعة" });
-        setNewGroupName("");
-        await fetchGroups();
-      } catch (e2: any) {
-        toast({
-          title: "خطأ",
-          description: e2?.response?.data?.message || "فشل إنشاء المجموعة",
-          variant: "destructive",
-        });
-      }
-    } finally {
-      setIsCreatingGroup(false);
-    }
+    } catch (err: any) { toast({ title: "خطأ", description: err?.response?.data?.message || "فشل إنشاء المجموعة", variant: "destructive" }); } finally { setIsCreatingGroup(false); }
   };
 
   const handleSelectGroup = (group: GroupVM) => { setSelectedGroup(group); fetchGroupMembers(group.id); };
 
   const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !selectedGroup) return;
-  
     try {
       setIsImporting(true);
-  
       const formData = new FormData();
-      formData.append("file", e.target.files[0]);           // يدعم csv/txt و xlsx/xls
+      formData.append("file", e.target.files[0]);
       formData.append("group_id", String(selectedGroup.id));
-      // ملاحظة: الهاتف غير موجود في الملف وسيُعتبر null. إن كان الباك يدعم خياراً صريحاً:
-      formData.append("allow_null_phone", "1"); // سيتم تجاهله إن لم يدعمه السيرفر
-  
-      // لا تضبط Content-Type يدوياً (ليضيف Axios الـ boundary تلقائياً)
-      const res = await api.post("/v1/student-groups/import-csv", formData);
-  
-      const d = res.data ?? {};
-      const createdUsers     = Number(d.created_users ?? 0);
-      const createdStudents  = Number(d.created_students ?? 0);
-      const attached         = Number(d.attached_to_group ?? 0);
-      const skippedMissing   = Number(d.skipped_missing ?? 0);
-      const skippedConflicts = Number(d.skipped_conflicts ?? 0);
-  
-      if ((createdUsers + createdStudents + attached) === 0) {
-        toast({
-          title: "لم يتم استيراد أي طالب",
-          description: "تحقق من عناوين الأعمدة: academic_number, full_name, email, gender. الهاتف (phone) اختياري وسيُخزّن كـ null إن لم يوجد.",
-          variant: "destructive",
-        });
-      } else {
-        const details = [
-          `مستخدمون جدد: ${createdUsers}`,
-          `طلاب جدد: ${createdStudents}`,
-          `تم ربطهم بالمجموعة: ${attached}`,
-        ].join(" | ");
-  
-        const warnings =
-          skippedMissing + skippedConflicts > 0
-            ? ` | تخطي: ${skippedMissing} | تعارضات: ${skippedConflicts}`
-            : "";
-  
-        toast({
-          title: "نجحت عملية الاستيراد",
-          description: details + warnings,
-        });
-      }
-  
-      await fetchGroupMembers(selectedGroup.id);
-      await fetchGroups();
-    } catch (err: any) {
-      const server = err?.response?.data;
-      const msg =
-        server?.message ||
-        server?.error ||
-        "فشل استيراد الملف. تأكد من أن الأعمدة صحيحة وأن الملف محفوظ بصيغة CSV أو Excel.";
-      console.error("Import error:", server || err);
-      toast({ title: "خطأ", description: msg, variant: "destructive" });
-    } finally {
-      setIsImporting(false);
-      if (csvInputRef.current) csvInputRef.current.value = "";
-    }
+      await api.post("/v1/student-groups/import-csv", formData, { headers: { "Content-Type": "multipart/form-data" } });
+      toast({ title: "نجاح", description: `تم استيراد الطلاب إلى مجموعة "${selectedGroup.name}"` });
+      await fetchGroupMembers(selectedGroup.id); await fetchGroups();
+    } catch (err: any) { toast({ title: "خطأ", description: err?.response?.data?.message || "فشل استيراد الملف", variant: "destructive" }); } finally { setIsImporting(false); if (csvInputRef.current) csvInputRef.current.value = ""; }
   };
   
-  const handleImportFromApi = async (): Promise<void> => {
-    if (!selectedGroup || !apiImportUrl.trim()) {
-      toast({
-        title: "تنبيه",
-        description: "اختر مجموعة وأدخل رابط API",
-        variant: "destructive",
-      });
-      return;
-    }
-  
-    try {
-      setIsImporting(true);
-  
-      const payload = {
-        url: apiImportUrl.trim(),
-        group_id: Number(selectedGroup.id),
-        college_id: Number(collegeId),
-        department_id: selectedDepartmentId ? Number(selectedDepartmentId) : undefined,
-        level_id: selectedLevelId ? Number(selectedLevelId) : undefined,
-        semester_id: selectedSemesterId ? Number(selectedSemesterId) : undefined,
-        course_id: selectedCourseId ? Number(selectedCourseId) : undefined,
-      };
-  
-      const res = await api.post("/v1/student-groups/import-external", payload);
-  
-      toast({
-        title: "نجاح",
-        description: res?.data?.message || "تم الاستيراد من API",
-      });
-  
-      // إغلاق النموذج وتحديث البيانات
-      setIsApiDialogOpen(false);
-      setApiImportUrl("");
-      await fetchGroupMembers(selectedGroup.id);
-      await fetchGroups();
-    } catch (err: any) {
-      const status = err?.response?.status;
-      const msg = err?.response?.data?.message;
-  
-      if (status === 501) {
-        toast({
-          title: "غير مفعّل",
-          description: "الاستيراد من API غير مفعّل حالياً (Placeholder).",
-          variant: "destructive",
-        });
-      } else {
-        toast({
-          title: "خطأ",
-          description: msg || "فشل استيراد من API",
-          variant: "destructive",
-        });
-      }
-    } finally {
-      setIsImporting(false);
-    }
-  };
+  const handleImportFromApi = async () => { /* ... */ };
 
   const handleRemoveStudentFromGroup = async (studentDbId: number) => {
     if (!selectedGroup || !confirm("هل أنت متأكد من حذف هذا الطالب من المجموعة؟")) return;
@@ -342,13 +175,13 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   return (
     <div className="space-y-6">
       <Tabs defaultValue="groups" className="w-full">
-        <TabsList className="grid w-full grid-cols-1 bg-card/50 backdrop-blur-sm">
-          {/* <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">استيراد الطلاب</TabsTrigger> */}
+        <TabsList className="grid w-full grid-cols-2 bg-card/50 backdrop-blur-sm">
+          <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">استيراد الطلاب</TabsTrigger>
           <TabsTrigger value="groups" className="data-[state=active]:bg-primary/10">إدارة المجموعات</TabsTrigger>
         </TabsList>
 
         {/* --- Import Students Tab --- */}
-        {/* <TabsContent value="import" className="space-y-6">
+        <TabsContent value="import" className="space-y-6">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center justify-between">
@@ -404,7 +237,7 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
               </CardContent>
             </Card>
           )}
-        </TabsContent> */}
+        </TabsContent>
 
         {/* --- Manage Groups Tab --- */}
         <TabsContent value="groups" className="space-y-6">
