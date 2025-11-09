@@ -1,7 +1,6 @@
-// src/context/AuthContext.tsx
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { api, setAuthToken } from "@/lib/api";
+// افترض أن setAuthToken و api مستوردان بشكل صحيح
+import { api, setAuthToken } from "@/lib/api"; 
 
 interface UserType {
   user_type_id: number;
@@ -9,20 +8,25 @@ interface UserType {
   user_type_code: string;
 }
 
+interface LecturerInfo {
+  lecturer_id: number;
+  department_id: number;
+  // ... أي خصائص أخرى تأتي من جدول المحاضرين
+}
 interface User {
   user_id: number;
   full_name: string;
   email: string;
-  user_type_code?: string; // خاصية احتياطية لو كانت على المستوى الأعلى
-  user_type: UserType; // <-- استخدم الواجهة الجديدة هنا
-  // أضف أي حقول أخرى تحتاجها
+  user_type_code?: string;
+  user_type: UserType;
   college_id?: number;
+  lecturer?: LecturerInfo
 }
 
 interface AuthContextType {
   user: User | null;
-  isLoading: boolean; // <-- الخاصية الجديدة
-  login: (token: string, remember: boolean) => void;
+  isLoading: boolean;
+  login: (token: string, remember: boolean) => Promise<void>; // أصبحت async وقابلة للانتظار
   logout: () => void;
 }
 
@@ -30,53 +34,68 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // <-- ابدأ بـ true
+  const [isLoading, setIsLoading] = useState(true);
+
+  // دالة لجلب المستخدم وتحديث الحالة (تُستخدم في useEffect و login)
+  const fetchAndSetUser = async (token: string) => {
+    setAuthToken(token);
+    try {
+      const response = await api.get('/v1/auth/me');
+      const userData = response.data?.data ?? response.data;
+      setUser(userData.user ?? userData);
+      return true; // نجاح
+    } catch (error) {
+      console.error("Failed to fetch user:", error);
+      setAuthToken(undefined);
+      setUser(null);
+      return false; // فشل
+    }
+  };
 
   useEffect(() => {
     const initializeAuth = async () => {
-      // تحقق من وجود توكن في sessionStorage أو localStorage
       const token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token');
       
       if (token) {
-        setAuthToken(token); // جهّز الهيدر
-        try {
-          // حاول جلب بيانات المستخدم
-          const response = await api.get('/v1/auth/me');
-          const userData = response.data?.data ?? response.data;
-          setUser(userData.user ?? userData);
-        } catch (error) {
-          console.error("Failed to fetch user on initial load", error);
-          // إذا فشل، يعني أن التوكن غير صالح، فقم بتسجيل الخروج
-          setAuthToken(undefined); 
-        }
+        // لا نحتاج لـ setIsLoading(true) هنا لأنها تبدأ بـ true
+        await fetchAndSetUser(token);
       }
       
-      // في كل الأحوال، أوقف التحميل بعد انتهاء المحاولة
+      // توقف التحميل بعد انتهاء المحاولة الأولية
       setIsLoading(false);
     };
 
     initializeAuth();
   }, []);
 
-  const login = (token: string, remember: boolean) => {
-    // عند تسجيل الدخول، أعد جلب بيانات المستخدم لتحديث الحالة
-    const fetchUserOnLogin = async () => {
-      setAuthToken(token);
-      try {
-        const response = await api.get('/v1/auth/me');
-        const userData = response.data?.data ?? response.data;
-        setUser(userData.user ?? userData);
-        if (remember) {
-          localStorage.setItem('access_token', token);
+  // تم التعديل: أصبحنا ندير isLoading داخلياً لضمان انتظار RequireAuth
+  const login = async (token: string, remember: boolean): Promise<void> => {
+    setIsLoading(true); // ابدأ التحميل فوراً عند محاولة تسجيل الدخول
+    let success = false;
+    
+    try {
+        success = await fetchAndSetUser(token);
+
+        if (success) {
+            // حفظ التوكن بناءً على خيار التذكر
+            if (remember) {
+              localStorage.setItem('access_token', token);
+              sessionStorage.removeItem('access_token');
+            } else {
+              sessionStorage.setItem('access_token', token);
+              localStorage.removeItem('access_token');
+            }
         } else {
-          sessionStorage.setItem('access_token', token);
+             // إذا فشل جلب المستخدم بعد الحصول على التوكن
+             throw new Error("فشل جلب بيانات المستخدم بعد التوثيق.");
         }
-      } catch (error) {
-        console.error("Login failed: could not fetch user", error);
-        setAuthToken(undefined);
-      }
-    };
-    fetchUserOnLogin();
+    } catch (error) {
+        console.error("Login process failed:", error);
+        throw error; // ارفع الخطأ ليمكن لـ finalizeLogin الإمساك به
+    } finally {
+        // انتهى التحميل، سيسمح لـ RequireAuth بالتنفيذ
+        setIsLoading(false); 
+    }
   };
 
   const logout = () => {
@@ -84,8 +103,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(null);
     localStorage.removeItem('access_token');
     sessionStorage.removeItem('access_token');
-    // يمكنك إضافة توجيه إلى صفحة تسجيل الدخول هنا إذا أردت
-    // window.location.href = '/login';
   };
 
   const value = { user, isLoading, login, logout };

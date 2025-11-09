@@ -1,10 +1,14 @@
-import { useState, useEffect } from "react";
+// src/components/lecturer/QRSessionView.tsx
+
 import { Card } from "@/components/ui/card";
 import { QRFallbackView } from "./QRFallbackView";
-import { QRSession3DView } from "./QRSession3DView"; // يمكنك إضافته لاحقًا
-import { QRSettings, AttendanceRecord, ActiveQRInfo } from "@/pages/LecturerPage"; // استورد الواجهات الجديدة
+import { AttendanceRecord, ActiveQRInfo } from "@/pages/LecturerPage";
 
-// 1. تحديث واجهة الـ Props
+interface QRSettings {
+  intervalSeconds: number;
+  validMinutes: number;
+}
+
 interface QRSessionViewProps {
   settings: QRSettings;
   lectureTitle: string;
@@ -22,15 +26,6 @@ export function QRSessionView({
   initialQR,
   onEndSession,
 }: QRSessionViewProps) {
-  // للتبسيط، سنستخدم العرض ثنائي الأبعاد فقط حاليًا
-  const [use3D, setUse3D] = useState(false); 
-
-  useEffect(() => {
-    // يمكنك إعادة تفعيل التحقق من WebGL إذا أردت استخدام العرض ثلاثي الأبعاد
-    // const canvas = document.createElement("canvas");
-    // const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-    // setUse3D(!!gl);
-  }, []);
 
   return (
     <Card className="p-6">
@@ -41,22 +36,12 @@ export function QRSessionView({
       </div>
       
       <div className="mt-6">
-        {use3D ? (
-          <QRSession3DView
-            settings={settings}
-            initialQR={initialQR}
-            lectureId={lectureId}
-            onEndSession={onEndSession}
-          />
-        ) : (
-          // 2. تمرير كل الخصائص اللازمة إلى المكون الفرعي
-          <QRFallbackView
-            settings={settings}
-            initialQR={initialQR}
-            lectureId={lectureId}
-            onEndSession={onEndSession}
-          />
-        )}
+        <QRFallbackView
+          settings={settings}
+          initialQR={initialQR}
+          lectureId={lectureId}
+          onEndSession={onEndSession}
+        />
       </div>
     </Card>
   );

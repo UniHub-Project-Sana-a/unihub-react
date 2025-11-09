@@ -1,17 +1,18 @@
-import { useState, useEffect, useRef } from "react";
-import QRCode from "react-qr-code";
+// src/components/lecturer/QRFallbackView.tsx
+
+import { useState, useEffect, useCallback } from "react"; // استيراد useCallback
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import { Pause, Play, StopCircle, Loader2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import QRCode from "react-qr-code";
 import { api } from "@/lib/api";
-import { QRSettings, ActiveQRInfo, AttendanceRecord } from "@/pages/LecturerPage";
+import { Loader2, Timer, Clock } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { AttendanceRecord, ActiveQRInfo } from "@/pages/LecturerPage";
 
-// وسّع واجهة Window لتعريف Echo
-declare global {
-  interface Window { Echo: any; }
+interface QRSettings {
+  intervalSeconds: number;
+  validMinutes: number;
 }
-
 interface QRFallbackViewProps {
   settings: QRSettings;
   initialQR: ActiveQRInfo;
@@ -19,152 +20,149 @@ interface QRFallbackViewProps {
   onEndSession: (records: AttendanceRecord[]) => void;
 }
 
-export function QRFallbackView({
-  settings,
-  initialQR,
-  lectureId,
-  onEndSession,
-}: QRFallbackViewProps) {
-  const [currentQR, setCurrentQR] = useState(initialQR);
-  const [timeLeft, setTimeLeft] = useState(0); // هذا هو `countdown`
-  const [isPaused, setIsPaused] = useState(false);
+const formatTime = (totalSeconds: number) => {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+};
+
+export function QRFallbackView({ settings, initialQR, lectureId, onEndSession }: QRFallbackViewProps) {
+  const { toast } = useToast();
+
+  const [activeQR, setActiveQR] = useState<ActiveQRInfo>(initialQR);
+  const [qrRefreshTimeLeft, setQrRefreshTimeLeft] = useState(settings.intervalSeconds);
+  const [sessionTimeLeft, setSessionTimeLeft] = useState(settings.validMinutes * 60);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
+  const [isEnding, setIsEnding] = useState(false);
 
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // دالة لتحديث الرمز
-  const refreshQRCode = async () => {
-    if (isRefreshing) return;
+  // ✅ --- التعديل هنا: إضافة دالة handleRefreshQR --- ✅
+  const handleRefreshQR = useCallback(async () => {
+    if (isRefreshing || isEnding) return; // لا تقم بالتحديث إذا كانت هناك عملية أخرى جارية
+    
     setIsRefreshing(true);
     try {
-      const res = await api.post('/v1/qr-codes/refresh', {
-        qr_id: currentQR.qr_id,
+      const res = await api.patch(`/v1/qr-codes/${activeQR.qr_id}/refresh`, {
+        // نرسل مدة صلاحية الرمز الجديد ليقوم الخادم بحساب expires_at
         valid_minutes: settings.validMinutes,
       });
-      // تحديث الرمز الحالي بالبيانات الجديدة
-      setCurrentQR(res.data);
+      
+      const newQR: ActiveQRInfo = res.data.data;
+      
+      // تحديث حالة الـ QR بالبيانات الجديدة من الخادم
+      setActiveQR(newQR);
+      console.log("QR Code refreshed successfully:", newQR);
+      
     } catch (error) {
       console.error("Failed to refresh QR code:", error);
+      // في حال فشل التحديث، سيكمل المؤقت وسيتم محاولة التحديث في الدورة التالية
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [activeQR.qr_id, isRefreshing, isEnding, settings.validMinutes]); // إضافة الاعتماديات
 
-  // تأثير لتشغيل العدادات والتحديث
-  useEffect(() => {
-    const startCountdown = () => {
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      
-      countdownIntervalRef.current = setInterval(() => {
-        const expiryTime = new Date(currentQR.expires_at).getTime();
-        const now = new Date().getTime();
-        const remaining = Math.max(0, Math.floor((expiryTime - now) / 1000));
-        setTimeLeft(remaining);
-      }, 1000);
-    };
+    const handleEndSession = async (isAutoEnd: boolean = false) => {
+    if (isEnding) return;
+    setIsEnding(true);
+    
+    try {
+      // الخطوة 1: إنهاء جلسة الـ QR
+      console.log(`Ending QR session with ID: ${activeQR.qr_id}`);
+      await api.patch(`/v1/qr-codes/${activeQR.qr_id}/end`);
+      console.log("QR session ended successfully on the server.");
 
-    const startRefreshInterval = () => {
-      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
-      
-      refreshIntervalRef.current = setInterval(() => {
-        refreshQRCode();
-      }, settings.intervalSeconds * 1000);
-    };
-
-    if (!isPaused) {
-      startCountdown();
-      startRefreshInterval();
-    }
-
-    return () => {
-      if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
-    };
-  }, [currentQR, isPaused, settings.intervalSeconds]);
-
-  // تأثير للاستماع إلى تحديثات الحضور
-  useEffect(() => {
-    if (window.Echo) {
-      const channel = window.Echo.channel(`lecture.${lectureId}`);
-      channel.listen('.student.attended', (event: any) => {
-        console.log('New attendance record via WebSocket:', event.record);
-        const newRecord: AttendanceRecord = {
-          studentName: event.record.student_name,
-          studentId: event.record.student_id,
-          scanTime: new Date(event.record.scan_time).toLocaleTimeString("ar-SA"),
-          method: "QR",
-        };
-        setAttendance(prev => [...prev, newRecord]);
+      // الخطوة 2: جلب سجلات الحضور
+      console.log(`Fetching attendance records for timetable_id: ${lectureId}`);
+      const attendanceRes = await api.get(`/v1/student-attendance`, {
+        params: { timetable_id: lectureId } 
       });
-        
-      return () => {
-        channel.stopListening('.student.attended');
-        window.Echo.leave(`lecture.${lectureId}`);
-      };
+      console.log("Attendance records fetched successfully.");
+
+      const records: AttendanceRecord[] = attendanceRes.data?.data || [];
+
+      if (!isAutoEnd) {
+        toast({
+          title: "انتهت الجلسة",
+          description: `تم تسجيل حضور ${records.length} طالبًا.`,
+        });
+      }
+
+      // الخطوة 3: استدعاء الدالة الأم وتمرير سجلات الحضور
+      onEndSession(records);
+
+    } catch (error: any) {
+      // ✅ --- التعديل هنا: لعرض الخطأ الفعلي --- ✅
+      console.error("Failed to end session:", error.response?.data || error);
+
+      // استخلاص رسالة الخطأ من استجابة Laravel
+      const errorMessage = 
+        error.response?.data?.error ||   // رسالة الخطأ من 'error'
+        error.response?.data?.message || // رسالة الخطأ من 'message'
+        "فشل إنهاء الجلسة. يرجى المحاولة مرة أخرى."; // رسالة احتياطية
+
+      toast({
+        title: "خطأ",
+        description: errorMessage,
+        variant: "destructive",
+      });
+      // السماح للمستخدم بالمحاولة مرة أخرى في حال الفشل
+      setIsEnding(false); 
     }
-  }, [lectureId]);
+  };// إضافة الاعتماديات
 
-  // دالة الإيقاف المؤقت/الاستئناف
-  const handlePauseToggle = () => {
-    setIsPaused(prev => !prev);
-  };
+  // المؤقت الرئيسي الذي يعمل كل ثانية
+  useEffect(() => {
+    const timer = setInterval(() => {
+      // تحديث عداد تحديث الـ QR
+      setQrRefreshTimeLeft(prev => {
+        if (prev <= 1) {
+          handleRefreshQR();
+          return settings.intervalSeconds;
+        }
+        return prev - 1;
+      });
 
-  // دالة إنهاء الجلسة
-  const handleEndSession = async () => {
-    if (countdownIntervalRef.current) clearInterval(countdownIntervalRef.current);
-    if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
-    onEndSession(attendance);
-  };
+      // تحديث عداد الجلسة الكلي
+      setSessionTimeLeft(prev => {
+        if (prev <= 1) {
+          handleEndSession(true); // إنهاء الجلسة تلقائيًا
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [settings.intervalSeconds, handleRefreshQR, handleEndSession]); // إضافة الدوال إلى الاعتماديات
+
+  const qrProgress = (qrRefreshTimeLeft / settings.intervalSeconds) * 100;
 
   return (
-    <div className="space-y-6">
-      <Card className="p-8 bg-gradient-to-br from-primary/5 to-secondary/5">
-        <div className="flex flex-col items-center justify-center space-y-4">
-          <div className="relative p-4 bg-white rounded-lg shadow-lg">
-            <QRCode value={currentQR.qr_code_value} size={256} />
-            {isRefreshing && (
-              <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
-                <Loader2 className="w-12 h-12 animate-spin text-primary" />
-              </div>
-            )}
-          </div>
+    <div className="flex flex-col items-center gap-6">
+      <div style={{ background: 'white', padding: '16px', borderRadius: '8px' }}>
+        <QRCode value={activeQR.qr_code_value} size={256} />
+      </div>
 
-          <div className="flex items-center gap-4">
-            <Badge variant="outline" className="text-xl px-6 py-3">
-              يتغير خلال: {timeLeft} ثانية {/* <-- تم استخدام timeLeft */}
-            </Badge>
-            <Badge variant="secondary" className="text-xl px-6 py-3">
-              عدد الطلاب: {attendance.length} / {settings.maxScans}
-            </Badge>
+      <div className="w-full max-w-sm text-center space-y-4">
+        <div>
+          <div className="flex items-center justify-center gap-2 text-lg font-mono">
+            <Timer className="w-5 h-5 text-muted-foreground" />
+            <span>يتغير الرمز خلال: {qrRefreshTimeLeft} ثانية</span>
           </div>
+          <Progress value={qrProgress} className="mt-1 h-2" />
         </div>
-      </Card>
-
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={handlePauseToggle} // <-- الدالة موجودة الآن
-            className="gap-2"
-          >
-            {isPaused ? (
-              <> <Play className="w-4 h-4" /> استئناف </>
-            ) : (
-              <> <Pause className="w-4 h-4" /> إيقاف مؤقت </>
-            )}
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={handleEndSession}
-            className="gap-2"
-          >
-            <StopCircle className="w-4 h-4" />
-            إنهاء الجلسة
-          </Button>
+        
+        <div className="text-2xl font-bold text-primary flex items-center justify-center gap-2">
+            <Clock className="w-6 h-6" />
+            <span>الوقت المتبقي: {formatTime(sessionTimeLeft)}</span>
         </div>
       </div>
+
+      <Button onClick={() => handleEndSession(false)} variant="destructive" disabled={isEnding}>
+        {isEnding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+        إنهاء الجلسة الآن
+      </Button>
     </div>
   );
 }

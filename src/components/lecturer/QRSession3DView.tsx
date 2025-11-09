@@ -99,15 +99,17 @@ export function QRSession3DView({
   const refreshQRCode = async () => {
     if (isRefreshing) return;
     try {
+      // أنت ترسل qr_id و valid_minutes
       const res = await api.post('/v1/qr-codes/refresh', {
         qr_id: currentQR.qr_id,
         valid_minutes: settings.validMinutes,
       });
-      setCurrentQR(res.data);
+      // يجب أن تعيد هذه الاستجابة بيانات الـ QR الجديد
+      setCurrentQR(res.data); // هذا صحيح، يفترض أن res.data هو الـ QR الجديد
     } catch (error) {
       console.error("Failed to refresh QR code:", error);
     }
-  };
+};
 
   // تأثير لتوليد الـ Texture عند تغير الرمز
   useEffect(() => {

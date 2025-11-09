@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 
-// استيراد المكونات
+// استيراد المكونات الفرعية
 import { LecturerWelcome } from "@/components/lecturer/LecturerWelcome";
 import { LectureSchedule } from "@/components/lecturer/LectureSchedule";
 import { StartQRModal, QRFormSettings } from "@/components/lecturer/StartQRModal";
@@ -12,42 +13,34 @@ import { QRSessionView } from "@/components/lecturer/QRSessionView";
 import { AttendanceSummary } from "@/components/lecturer/AttendanceSummary";
 
 // --- واجهات الأنواع (Types) ---
-// هذه الواجهة هي نفسها QRFormSettings لكن بدون بيانات الموقع، يمكنك توحيدها لاحقًا
-export interface QRSettings {
-  intervalSeconds: number;
-  validMinutes: number;
-  maxScans: number;
-  latitude: number;
-  longitude: number;
-  allowedDistance: number;
-}
-
-// الواجهة التي تصف بيانات الرمز النشط القادم من الـ API
 export interface ActiveQRInfo {
   qr_id: number;
   qr_code_value: string;
   expires_at: string;
 }
-
-// الواجهة التي تصف المحاضرة في جدول العرض
+export interface ClassroomInfo {
+  latitude: number | null;
+  longitude: number | null;
+  allowed_distance: number | null;
+}
 export interface Lecture {
-  id: string; // entry_id
+  id: string; // timetable_id
   title: string;
   date: string;
   time: string;
   groupName: string;
+  groupId: string;
   isCurrent: boolean;
+  isAttended: boolean;
+  classroom: ClassroomInfo;
 }
-
-// الواجهة التي تصف سجل حضور طالب
 export interface AttendanceRecord {
   studentName: string;
-  studentId: string; // academic_number
+  studentId: string;
   scanTime: string;
   method: "QR" | "يدوي";
 }
 
-// دالة لتطبيع أسماء الأيام لضمان التطابق
 const normalizeDayName = (name?: string): string => {
   if (!name) return "";
   const s = name.trim().replace(/أ|إ|آ/g, "ا").toLowerCase();
@@ -55,75 +48,105 @@ const normalizeDayName = (name?: string): string => {
     "الاحد": "الأحد", "الاثنين": "الاثنين", "الثلاثاء": "الثلاثاء",
     "الاربعاء": "الأربعاء", "الخميس": "الخميس", "الجمعه": "الجمعة", "السبت": "السبت",
   };
-  for (const key in map) {
-    if (s.includes(key)) return map[key];
-  }
+  for (const key in map) { if (s.includes(key)) return map[key]; }
   return name;
 };
 
+// --- المكون الرئيسي ---
 export default function LecturerPage() {
+  // --- 1. Hooks والحالات ---
   const { user } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
-
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrSessionActive, setQrSessionActive] = useState(false);
-  const [qrSettings, setQrSettings] = useState<QRSettings | null>(null);
+  const [qrSettings, setQrSettings] = useState<QRFormSettings | null>(null);
+  const [activeQR, setActiveQR] = useState<ActiveQRInfo | null>(null);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [sessionEnded, setSessionEnded] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeQR, setActiveQR] = useState<ActiveQRInfo | null>(null);
+  const [isStartingSession, setIsStartingSession] = useState(false);
 
   const lecturerName = user?.full_name || "محاضر";
 
-  useEffect(() => {
-    const fetchSchedule = async () => {
-      setIsLoadingSchedule(true);
-      try {
-        const res = await api.get('/v1/lecturer/schedule');
-        const entries = res.data?.data || [];
-        
-        const now = new Date();
-        const todayDayName = new Intl.DateTimeFormat('ar-SA', { weekday: 'long' }).format(now);
-        const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+  // --- 2. الدوال الرئيسية ---
 
-        const formattedLectures = entries.map((entry: any): Lecture => {
-          const startTimeStr = entry.period?.start_time?.slice(0, 5) || '00:00';
-          const endTimeStr = entry.period?.end_time?.slice(0, 5) || '00:00';
-
-          const [startH, startM] = startTimeStr.split(':').map(Number);
-          const startTotalMinutes = startH * 60 + startM;
-          const [endH, endM] = endTimeStr.split(':').map(Number);
-          const endTotalMinutes = endH * 60 + endM;
-
-          const lectureDayName = normalizeDayName(entry.day?.day_name_ar || entry.day?.day_name);
-          const todayDayNameNormalized = normalizeDayName(todayDayName);
-          const isToday = lectureDayName === todayDayNameNormalized;
-          const isCurrentTime = currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes;
-          const isCurrent = isToday && isCurrentTime;
-          
-          return {
-            id: String(entry.entry_id),
-            title: entry.course?.course_name || 'مادة غير محددة',
-            groupName: entry.group?.group_name || 'مجموعة غير محددة',
-            date: lectureDayName,
-            time: `${startTimeStr} - ${endTimeStr}`,
-            isCurrent: isCurrent,
-          };
-        });
-        setLectures(formattedLectures);
-      } catch (error) {
-        console.error("Failed to fetch lecturer schedule:", error);
+  // دالة جلب الجدول
+  const fetchSchedule = useCallback(async () => {
+    if (!user?.user_id) {
+      setIsLoadingSchedule(false);
+      return;
+    }
+    
+    setIsLoadingSchedule(true);
+    try {
+      const lecturerRes = await api.get(`/v1/lecturers`, { params: { user_id: user.user_id } });
+      const lecturerData = (lecturerRes.data?.data || lecturerRes.data || [])[0];
+      if (!lecturerData?.lecturer_id) {
         setLectures([]);
-      } finally {
         setIsLoadingSchedule(false);
+        return;
       }
-    };
+      const lecturerId = lecturerData.lecturer_id;
+
+      const [timetableRes, lecturerAttendanceRes] = await Promise.all([
+          api.get(`/v1/timetable`, { params: { lecturer_id: lecturerId, with: 'course,group,day,period,classroom' } }),
+          api.get(`/v1/lecturer-attendance`, { params: { lecturer_id: lecturerId } })
+      ]);
+      
+      const entries = timetableRes.data?.data || timetableRes.data || [];
+      const attendedTimetableIds = new Set((lecturerAttendanceRes.data?.data || []).map((att: any) => att.timetable_id));
+      
+      const now = new Date();
+      const todayDayName = new Intl.DateTimeFormat('ar-SA', { weekday: 'long' }).format(now);
+      const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+
+      const formattedLectures = entries.map((entry: any): Lecture => {
+        const lectureDayName = normalizeDayName(entry.day?.day_name);
+        const startTimeStr = entry.period?.start_time?.slice(0, 5) || '00:00';
+        const endTimeStr = entry.period?.end_time?.slice(0, 5) || '00:00';
+        const [startH, startM] = startTimeStr.split(':').map(Number);
+        const startTotalMinutes = startH * 60 + startM;
+        const [endH, endM] = endTimeStr.split(':').map(Number);
+        const endTotalMinutes = endH * 60 + endM;
+        
+        const isToday = lectureDayName === normalizeDayName(todayDayName);
+        const isCurrentTime = currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes;
+
+        return {
+          id: String(entry.timetable_id),
+          title: entry.course?.course_name || 'مادة غير محددة',
+          groupName: entry.group?.group_name || 'مجموعة غير محددة',
+          groupId: String(entry.group?.group_id),
+          date: lectureDayName,
+          time: `${startTimeStr} - ${endTimeStr}`,
+          isCurrent: isToday && isCurrentTime,
+          isAttended: attendedTimetableIds.has(entry.timetable_id),
+          classroom: {
+            latitude: entry.classroom?.latitude ?? null,
+            longitude: entry.classroom?.longitude ?? null,
+            allowed_distance: entry.classroom?.allowed_distance ?? null,
+          },
+        };
+      });
+      setLectures(formattedLectures);
+    } catch (error: any) {
+      toast({ title: "خطأ", description: "فشل تحميل الجدول الزمني.", variant: "destructive"});
+      setLectures([]);
+    } finally {
+      setIsLoadingSchedule(false);
+    }
+  }, [user, toast]);
+
+  // استدعاء دالة جلب الجدول عند تحميل المكون
+  useEffect(() => {
     fetchSchedule();
-  }, []);
+  }, [fetchSchedule]);
+
+  // --- 3. معالجات الأحداث (Event Handlers) ---
 
   const handleStartQR = (lecture: Lecture) => {
     setSelectedLecture(lecture);
@@ -132,53 +155,34 @@ export default function LecturerPage() {
 
   const handleQRModalSubmit = async (settings: QRFormSettings) => {
     if (!selectedLecture) {
-      console.error("handleQRModalSubmit: No lecture selected!");
+      toast({ title: "خطأ", description: "لم يتم تحديد أي محاضرة.", variant: "destructive" });
       return;
     }
-  
-    setIsLoading(true);
-    console.log("Step 1: Submitting QR settings...", settings);
-  
+    
+    setIsStartingSession(true);
+    setShowQRModal(false);
     try {
       const payload = {
-        entry_id: Number(selectedLecture.id),
-        ...settings,
+        timetable_id: Number(selectedLecture.id),
+        interval_seconds: settings.intervalSeconds,
+        valid_minutes: settings.validMinutes, // <-- التأكد من إرسال هذا الحقل
+        latitude: settings.latitude,
+        longitude: settings.longitude,
+        allowed_distance: settings.allowedDistance,
       };
-  
       const res = await api.post('/v1/qr-codes/start-session', payload);
-      const firstQrCode = res.data;
-  
-      console.log("Step 2: API response received", firstQrCode);
-  
-      if (!firstQrCode || !firstQrCode.qr_code_value) {
-        throw new Error("Invalid response from start-session API");
-      }
-  
-      const newActiveQR: ActiveQRInfo = {
-        qr_id: firstQrCode.qr_id,
-        qr_code_value: firstQrCode.qr_code_value,
-        expires_at: firstQrCode.expires_at,
-      };
-  
-      // هذا الجزء هو الأهم: تحديث الحالات لبدء الجلسة
-      setActiveQR(newActiveQR);
+      const firstQrCode = res.data.data || res.data;
+      if (!firstQrCode?.qr_code_value) throw new Error("استجابة غير صالحة من الخادم.");
+
+      setActiveQR(firstQrCode);
       setQrSettings(settings);
-      setShowQRModal(false);
       setQrSessionActive(true);
       setSessionEnded(false);
       setAttendanceRecords([]);
-  
-      console.log("Step 3: Session state updated. QR session should be active.");
-  
-    } catch (error) {
-      console.error("Failed to start QR session:", error);
-      toast({ // استخدم التوست لإظهار الخطأ للمستخدم
-        title: "فشل بدء الجلسة",
-        description: (error as any)?.response?.data?.message || "حدث خطأ غير متوقع.",
-        variant: "destructive",
-      });
+    } catch (error: any) {
+      toast({ title: "فشل بدء الجلسة", description: error?.response?.data?.message || "حدث خطأ غير متوقع.", variant: "destructive" });
     } finally {
-      setIsLoading(false);
+      setIsStartingSession(false);
     }
   };
 
@@ -186,32 +190,47 @@ export default function LecturerPage() {
     setAttendanceRecords(records);
     setQrSessionActive(false);
     setSessionEnded(true);
+    setActiveQR(null);
+    setQrSettings(null);
+  };
+  
+  const handleBackToSchedule = () => {
+    setSessionEnded(false);
+    setSelectedLecture(null);
+    setAttendanceRecords([]);
+    // تحديث الجدول لإظهار حالة "تم التحضير"
+    fetchSchedule();
   };
 
-  const handleAddManualAttendance = (record: AttendanceRecord) => {
-    setAttendanceRecords((prev) => [...prev, record]);
-  };
-
+  // --- 4. جزء العرض (Render) ---
   return (
     <div className="min-h-screen bg-background p-4 md:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
+
+        {/* الحالة الافتراضية: عرض الجدول */}
         {!qrSessionActive && !sessionEnded && (
           <>
             <LecturerWelcome name={lecturerName} />
             {isLoadingSchedule ? (
-              <div className="text-center p-8">
-                <Loader2 className="w-8 h-8 mx-auto animate-spin text-primary" />
-                <p className="mt-2 text-muted-foreground">جاري تحميل جدول المحاضرات...</p>
+              <div className="flex justify-center items-center p-10">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
               </div>
             ) : (
               <LectureSchedule lectures={lectures} onStartQR={handleStartQR} />
             )}
+            {isStartingSession && (
+                <div className="flex flex-col items-center justify-center p-10">
+                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                    <p className="mt-2 text-muted-foreground">جاري بدء جلسة الحضور...</p>
+                </div>
+            )}
           </>
         )}
 
+        {/* الحالة الثانية: جلسة QR نشطة */}
         {qrSessionActive && qrSettings && selectedLecture && activeQR && (
           <QRSessionView
-            settings={{...qrSettings, latitude: 0, longitude: 0, allowedDistance: 0}} // QRSettings تحتاج لبيانات الموقع
+            settings={qrSettings}
             lectureTitle={selectedLecture.title}
             groupName={selectedLecture.groupName}
             lectureId={selectedLecture.id}
@@ -220,20 +239,25 @@ export default function LecturerPage() {
           />
         )}
 
+        {/* الحالة الثالثة: ملخص الحضور */}
         {sessionEnded && selectedLecture && (
           <AttendanceSummary
             records={attendanceRecords}
-            onAddManual={handleAddManualAttendance}
             lectureTitle={selectedLecture.title}
             groupName={selectedLecture.groupName}
-            lectureId={selectedLecture.id}
+            groupId={selectedLecture.groupId} 
+            timetableId={selectedLecture.id}
+            onFinalized={handleBackToSchedule}
           />
         )}
 
+        {/* المودال: يظهر عند الحاجة */}
         <StartQRModal
           open={showQRModal}
           onClose={() => setShowQRModal(false)}
           onSubmit={handleQRModalSubmit}
+          lectureId={selectedLecture?.id ?? null}
+          classroomInfo={selectedLecture?.classroom ?? null}
         />
       </div>
     </div>

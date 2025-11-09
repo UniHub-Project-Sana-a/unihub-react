@@ -2,20 +2,27 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button"; // <-- استيراد الزر
 import { User, LogOut } from "lucide-react"; // <-- استيراد أيقونة الخروج
 import { useAuth } from "@/context/AuthContext"; // <-- استيراد useAuth لتنفيذ الخروج
-
+import { setAuthToken, api } from "@/lib/api";
+import { useState } from "react";
 interface LecturerWelcomeProps {
   name: string;
 }
 
 export function LecturerWelcome({ name }: LecturerWelcomeProps) {
   const { logout } = useAuth(); // <-- الحصول على دالة logout
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  const handleLogout = () => {
-    // يمكنك إضافة رسالة تأكيد هنا إذا أردت
-    // if (confirm("هل أنت متأكد من أنك تريد تسجيل الخروج؟")) {
-    //   logout();
-    // }
-    logout();
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await api.post("/v1/auth/logout");
+    } catch {}
+    // تنظيف التوكن
+    setAuthToken(undefined);
+    localStorage.removeItem("access_token");
+    // لا نحذف active_college_id
+    window.location.href = "/login";
   };
 
   return (
@@ -39,10 +46,18 @@ export function LecturerWelcome({ name }: LecturerWelcomeProps) {
 
         {/* الجزء الأيسر: زر تسجيل الخروج */}
         <div>
-          <Button variant="outline" onClick={handleLogout}>
-            <LogOut className="w-4 h-4 ml-2" />
-            تسجيل الخروج
-          </Button>
+          {/* زر تسجيل الخروج */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hover:bg-accent"
+          onClick={handleLogout}
+          disabled={loggingOut}
+          aria-label="Logout"
+          title="تسجيل الخروج"
+        >
+          <LogOut className="w-5 h-5" />
+        </Button>
         </div>
       </div>
       {/* ================================================ */}

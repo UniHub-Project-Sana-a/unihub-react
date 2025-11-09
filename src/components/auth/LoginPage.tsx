@@ -132,31 +132,53 @@ export default function LoginPage() {
   };
 
   const finalizeLogin = async (token: string) => {
+    // 1. إعداد التوكن للمكالمات التالية
     api.defaults.headers.common.Authorization = `Bearer ${token}`;
   
     let target = '/';
+    
+    // 2. جلب بيانات المستخدم لتحديد مسار التوجيه (Target) قبل تحديث السياق
     try {
       const meRes = await api.get('/v1/auth/me');
       const meRaw = meRes.data?.data ?? meRes.data ?? {};
       const me = meRaw.user ?? meRaw;
+      
       const userTypeCode = me?.user_type?.user_type_code || me?.user_type_code || null;
+      
       if (userTypeCode === 'lecturer') {
         target = '/lecturer';
       }
+      
     } catch (meError) {
-      console.error("Failed to fetch user details, redirecting to default path:", meError);
+      console.error("Failed to fetch user details for target determination:", meError);
+      // نستمر بـ '/' كمسار افتراضي
+    }
+    
+    // 3. تحديث حالة المصادقة (Auth Context) - هذه هي الخطوة التي تجعل RequireAuth ينتظر
+    try {
+        // دالة login الآن ستبدأ setIsLoading(true) وتنتظر جلب المستخدم
+        await login(token, rememberMe); 
+    } catch(e) {
+        console.error("Failed to update Auth Context after token acquisition:", e);
+        setError("فشل في المصادقة بعد التوثيق. الرجاء المحاولة مجدداً.");
+        setIsLoading(false); // إيقاف التحميل في مكون الصفحة
+        return; 
     }
 
-    login(token, rememberMe);
 
+    // 4. التوجيه النهائي (الآن AuthContext مُحدَّث، ولن يتم إعادة التوجيه لـ /login)
     const from = new URLSearchParams(location.search).get("from") || location.state?.from?.pathname || target;
     navigate(from, { replace: true });
 
+    // 5. إدارة "تذكرني"
     if (rememberMe) {
       localStorage.setItem('rememberedUser', email);
     } else {
       localStorage.removeItem('rememberedUser');
     }
+    
+    // 6. إيقاف التحميل في مكون الصفحة
+    setIsLoading(false); 
   };
 
   useEffect(() => {

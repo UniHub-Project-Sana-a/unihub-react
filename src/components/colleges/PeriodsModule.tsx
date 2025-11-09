@@ -167,9 +167,8 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
                     <SelectValue placeholder="اختر النوع" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="LECTURE">محاضرة</SelectItem>
-                    <SelectItem value="LAB">معمل</SelectItem>
-                    <SelectItem value="SEMINAR">مدرج</SelectItem>
+                    <SelectItem value="PM">PM</SelectItem>
+                    <SelectItem value="AM">AM</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

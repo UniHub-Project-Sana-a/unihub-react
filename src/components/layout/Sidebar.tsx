@@ -43,50 +43,50 @@ const menuItems = [
       { title: "التحكم في الوصول", href: "/users/access-control" }
     ]
   },
-  {
-    title: "الجدول الزمني",
-    icon: Calendar,
-    href: "/timetable",
-    badge: null,
-    subItems: [
-      { title: "استيراد الجدول", href: "/timetable" },
-      { title: "عرض الجدول", href: "/timetable" },
-      { title: "ربط المقررات", href: "/timetable/course-mapping" }
-    ]
-  },
-  {
-    title: "تسجيل الطلاب",
-    icon: ClipboardList,
-    href: "/enrollment/import-students",
-    badge: null,
-    subItems: [
-      { title: "استيراد الطلاب", href: "/enrollment/import" },
-      { title: "إدارة المجموعات", href: "/enrollment/groups" },
-      { title: "تعيين المقررات", href: "/enrollment" }
-    ]
-  },
-  {
-    title: "إدارة الأعذار",
-    icon: Clock,
-    href: "/excuse/pending-requests",
-    badge: null,
-    subItems: [
-      { title: "الطلبات المعلّقة", href: "/excuses" },
-      { title: "تسويات الرواتب", href: "/excuses/pending" }
-    ]
-  },
-  {
-    title: "التقارير",
-    icon: BarChart3,
-    href: "/reports",
-    badge: null,
-    subItems: [
-      { title: "التقارير المالية", href: "/reports" },
-      { title: "عبء التدريس", href: "/reports/teaching" },
-      { title: "الحضور والغياب", href: "/reports/attendance" },
-      { title: "نظرة عامة على الدرجات", href: "/reports/grades-overview" }
-    ]
-  },
+  // {
+  //   title: "الجدول الزمني",
+  //   icon: Calendar,
+  //   href: "/timetable",
+  //   badge: null,
+  //   subItems: [
+  //     { title: "استيراد الجدول", href: "/timetable" },
+  //     { title: "عرض الجدول", href: "/timetable" },
+  //     { title: "ربط المقررات", href: "/timetable/course-mapping" }
+  //   ]
+  // },
+  // {
+  //   title: "تسجيل الطلاب",
+  //   icon: ClipboardList,
+  //   href: "/enrollment/import-students",
+  //   badge: null,
+  //   subItems: [
+  //     { title: "استيراد الطلاب", href: "/enrollment/import" },
+  //     { title: "إدارة المجموعات", href: "/enrollment/groups" },
+  //     { title: "تعيين المقررات", href: "/enrollment" }
+  //   ]
+  // },
+  // {
+  //   title: "إدارة الأعذار",
+  //   icon: Clock,
+  //   href: "/excuse/pending-requests",
+  //   badge: null,
+  //   subItems: [
+  //     { title: "الطلبات المعلّقة", href: "/excuses" },
+  //     { title: "تسويات الرواتب", href: "/excuses/pending" }
+  //   ]
+  // },
+  // {
+  //   title: "التقارير",
+  //   icon: BarChart3,
+  //   href: "/reports",
+  //   badge: null,
+  //   subItems: [
+  //     { title: "التقارير المالية", href: "/reports" },
+  //     { title: "عبء التدريس", href: "/reports/teaching" },
+  //     { title: "الحضور والغياب", href: "/reports/attendance" },
+  //     { title: "نظرة عامة على الدرجات", href: "/reports/grades-overview" }
+  //   ]
+  // },
   {
     title: "التكامل",
     icon: Plug,
@@ -98,24 +98,24 @@ const menuItems = [
       { title: "المراقبة الفورية", href: "/integration/real-time" }
     ]
   },
-  {
-    title: "إدارة المقررات",
-    icon: BookOpen,
-    href: "/course-management",
-    badge: null,
-    subItems: [
-      { title: "عرض الأقسام", href: "/course-management" },
-      { title: "تقارير الدرجات", href: "/course-management/grade-reports" },
-      { title: "تصدير البيانات", href: "/course-management/export" }
-    ]
-  },
-  {
-    title: "أعضاء الهيئة الأكاديمية",
-    icon: UserCog,
-    href: "/academic-staff",
-    badge: null,
-    subItems: undefined
-  },
+  // {
+  //   title: "إدارة المقررات",
+  //   icon: BookOpen,
+  //   href: "/course-management",
+  //   badge: null,
+  //   subItems: [
+  //     { title: "عرض الأقسام", href: "/course-management" },
+  //     { title: "تقارير الدرجات", href: "/course-management/grade-reports" },
+  //     { title: "تصدير البيانات", href: "/course-management/export" }
+  //   ]
+  // },
+  // {
+  //   title: "أعضاء الهيئة الأكاديمية",
+  //   icon: UserCog,
+  //   href: "/academic-staff",
+  //   badge: null,
+  //   subItems: undefined
+  // },
   {
     title: "سجل التدقيق",
     icon: History,
