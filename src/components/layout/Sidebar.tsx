@@ -87,17 +87,17 @@ const menuItems = [
   //     { title: "نظرة عامة على الدرجات", href: "/reports/grades-overview" }
   //   ]
   // },
-  {
-    title: "التكامل",
-    icon: Plug,
-    href: "/integration/mobile-sync",
-    badge: null,
-    subItems: [
-      { title: "مزامنة الجوال", href: "/integration/mobile" },
-      { title: "حالة واجهة البرمجة (API)", href: "/integration/api-status" },
-      { title: "المراقبة الفورية", href: "/integration/real-time" }
-    ]
-  },
+  // {
+  //   title: "التكامل",
+  //   icon: Plug,
+  //   href: "/integration/mobile-sync",
+  //   badge: null,
+  //   subItems: [
+  //     { title: "مزامنة الجوال", href: "/integration/mobile" },
+  //     { title: "حالة واجهة البرمجة (API)", href: "/integration/api-status" },
+  //     { title: "المراقبة الفورية", href: "/integration/real-time" }
+  //   ]
+  // },
   // {
   //   title: "إدارة المقررات",
   //   icon: BookOpen,
@@ -116,13 +116,13 @@ const menuItems = [
   //   badge: null,
   //   subItems: undefined
   // },
-  {
-    title: "سجل التدقيق",
-    icon: History,
-    href: "/auditlog",
-    badge: null,
-    subItems: undefined
-  },
+  // {
+  //   title: "سجل التدقيق",
+  //   icon: History,
+  //   href: "/auditlog",
+  //   badge: null,
+  //   subItems: undefined
+  // },
   {
     title: "الإعدادات",
     icon: Settings,

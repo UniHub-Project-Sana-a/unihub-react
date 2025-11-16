@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 import animate from "tailwindcss-animate";
-
+// import tailwindcssRtl from 'tailwindcss-rtl';
+/** @type {import('tailwindcss').Config} */
 export default {
   darkMode: ["class"],
   content: [
@@ -20,6 +21,9 @@ export default {
       },
     },
     extend: {
+      direction: {
+        rtl: 'rtl',
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -107,5 +111,7 @@ export default {
       },
     },
   },
-  plugins: [animate],
+  plugins: [
+    // tailwindcssRtl,
+    animate],
 } satisfies Config;

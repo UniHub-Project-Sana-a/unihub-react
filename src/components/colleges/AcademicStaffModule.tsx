@@ -481,7 +481,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       />
 
       {/* Entitlements (واجهة فقط) */}
-      <Card>
+      {/* <Card>
         <CardHeader>
           <CardTitle>الاستحقاقات الأكاديمية</CardTitle>
         </CardHeader>
@@ -644,7 +644,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
             </TabsContent>
           </Tabs>
         </CardContent>
-      </Card>
+      </Card> */}
 
       {/* Staff form */}
       {isStaffFormOpen && (
