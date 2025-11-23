@@ -39,7 +39,7 @@ const menuItems = [
     badge: null,
     subItems: [
       { title: "جميع المستخدمين", href: "/users" },
-      { title: "الأدوار والصلاحيات", href: "/users/roles" },
+      // { title: "الأدوار والصلاحيات", href: "/users/roles" },
       { title: "التحكم في الوصول", href: "/users/access-control" }
     ]
   },

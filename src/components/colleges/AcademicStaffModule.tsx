@@ -11,6 +11,7 @@ import { Plus, Pencil, Trash2, Upload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface AcademicStaff {
   id: string;               // lecturer_id
@@ -29,6 +30,7 @@ interface AcademicStaff {
   collegeId: string;        // lecturers.college_id
   departmentId?: string | null; // lecturers.department_id
   hireDate?: string;        // lecturers.hire_date
+  canTeachExternally?: boolean;
 }
 
 interface Department {
@@ -62,6 +64,7 @@ type StaffFormData = {
   academicTitleId: string;   // title_id
   departmentId: string;
   employmentType: "متفرغ" | "غير متفرغ";
+  canTeachExternally: boolean;
   lectureRate: number;       // للعرض فقط من title
   address: string;
   phone: string;
@@ -142,6 +145,7 @@ export default function AcademicStaffModule({ collegeId }: Props) {
     email: "",
     notes: "",
     hireDate: "",
+    canTeachExternally: false,
   });
 
   const handleClickImportCsv = () => {
@@ -280,6 +284,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
           collegeId: String(lec.college_id),
           departmentId: depId,
           hireDate: lec.hire_date || "",
+          canTeachExternally: lec.can_teach_externally || false,
         };
       });
 
@@ -351,6 +356,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       email: "",
       notes: "",
       hireDate: "",
+      canTeachExternally: false,
     });
     setIsStaffFormOpen(true);
   };
@@ -372,6 +378,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       email: staff.email || "",
       notes: staff.notes || "",
       hireDate: staff.hireDate || "",
+       canTeachExternally: staff.canTeachExternally || false,
     });
     setIsStaffFormOpen(true);
   };
@@ -406,6 +413,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         title_id: titleId ? Number(titleId) : null,
         hire_date: staffFormData.hireDate || null,
         status: staffFormData.employmentType === "متفرغ",
+        can_teach_externally: staffFormData.canTeachExternally,
       };
 
       if (editingStaffId) {
@@ -767,6 +775,23 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     onChange={(e) => setStaffFormData({ ...staffFormData, hireDate: e.target.value })}
                   />
                 </div>
+                {/* ⬇️ أضف هذا الجزء الجديد ⬇️ */}
+                <div className="md:col-span-2 flex items-center space-x-2 rtl:space-x-reverse pt-4 border-t mt-2">
+                    <Checkbox
+                        id="can-teach-externally"
+                        checked={staffFormData.canTeachExternally}
+                        onCheckedChange={(checked: boolean) =>
+                            setStaffFormData({ ...staffFormData, canTeachExternally: checked })
+                        }
+                    />
+                    <label
+                        htmlFor="can-teach-externally"
+                        className="text-sm font-medium leading-none"
+                    >
+                        مخول بالتدريس في كليات أخرى
+                    </label>
+                </div>
+                {/* ⬆️ نهاية الإضافة ⬆️ */}
 
                 <div>
                   <Label>رقم الجوال</Label>

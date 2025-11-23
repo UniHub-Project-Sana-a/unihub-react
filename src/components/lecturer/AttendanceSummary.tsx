@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Label } from "@/components/ui/label";
 import { useNavigate } from "react-router-dom";
+import {AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,} from "@/components/ui/alert-dialog";
 
 // واجهة لبيانات الطالب الكاملة
 interface FullStudent {
@@ -27,10 +28,11 @@ interface AttendanceSummaryProps {
   groupName: string;
   groupId: string;
   timetableId: string;
+  sessionId: string;
   onFinalized: () => void;
 }
 
-export function AttendanceSummary({ records, lectureTitle, groupName, groupId, timetableId, onFinalized  }: AttendanceSummaryProps) {
+export function AttendanceSummary({ records, lectureTitle, groupName, groupId, timetableId, sessionId, onFinalized  }: AttendanceSummaryProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -100,7 +102,6 @@ export function AttendanceSummary({ records, lectureTitle, groupName, groupId, t
   };
 
   const handleFinalize = async () => {
-    if (!confirm("هل أنت متأكد من المصادقة على هذه القائمة؟ سيتم تسجيل الحضور والغياب بشكل نهائي.")) return;
     
     setIsFinalizing(true);
     try {
@@ -111,12 +112,10 @@ export function AttendanceSummary({ records, lectureTitle, groupName, groupId, t
           return student ? student.student_id : null;
       }).filter(id => id !== null); // إزالة أي قيم null في حال عدم العثور على طالب
 
-      console.log("Finalizing session with timetable_id:", timetableId);
-      console.log("Sending PRESENT student IDs:", present_student_ids);
-
       // ✅ 2. إرسال الحمولة الجديدة إلى الـ API
       await api.post('/v1/attendance/finalize', {
         timetable_id: Number(timetableId),
+        session_id: Number(sessionId),
         present_student_ids: present_student_ids, // <-- الاسم الجديد للمصفوفة
         group_id: Number(groupId) // <-- إرسال groupId ليتمكن الخادم من جلب كل الطلاب
       });
@@ -203,11 +202,43 @@ export function AttendanceSummary({ records, lectureTitle, groupName, groupId, t
             </Table>
           </div>
 
-          <div className="mt-6 flex justify-end">
-            <Button onClick={handleFinalize} disabled={isFinalizing} size="lg" className="gap-2">
-              {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-              مصادقة وإنهاء
-            </Button>
+          <div className="mt-6 flex justify-end" >
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={isFinalizing} size="lg" className="gap-2 bg-primary hover:bg-primary/90">
+                  {isFinalizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                  مصادقة وإنهاء الجلسة
+                </Button>
+              </AlertDialogTrigger>
+              
+              <AlertDialogContent className="sm:max-w-[500px]">
+                <AlertDialogHeader>
+                  <div className="flex items-center gap-3 text-primary mb-2" >
+                    <ShieldCheck className="w-8 h-8" />
+                    <AlertDialogTitle className="text-xl">تأكيد المصادقة النهائية</AlertDialogTitle>
+                  </div>
+                  <AlertDialogDescription className="text-base leading-relaxed text-right">
+                    هل أنت متأكد من رغبتك في إنهاء الجلسة واعتماد كشف الحضور الحالي؟
+                    <br />
+                    <span className="text-muted-foreground text-sm mt-2 block bg-muted p-2 rounded border border-border/50 text-right">
+                      ⚠️ تنبيه: سيتم تسجيل الحضور والغياب بشكل نهائي، وسيتم احتساب المستحقات المالية لهذه المحاضرة بناءً على هذا الإجراء.
+                    </span>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                
+                <AlertDialogFooter className="gap-2 mt-4">
+                  <AlertDialogCancel className="mt-0">إلغاء</AlertDialogCancel>
+                  {/* autoFocus تجعل زر الإنتر يعمل مباشرة */}
+                  <AlertDialogAction 
+                    onClick={handleFinalize} 
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold px-8"
+                    autoFocus 
+                  >
+                    نعم، اعتمد الجلسة
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </CardContent>
       </Card>

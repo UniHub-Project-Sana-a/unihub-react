@@ -5,6 +5,9 @@ import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 
+// ✅ --- استيراد دوال التاريخ --- ✅
+import { format, startOfWeek, endOfWeek, isToday } from "date-fns";
+
 // استيراد المكونات الفرعية
 import { LecturerWelcome } from "@/components/lecturer/LecturerWelcome";
 import { LectureSchedule } from "@/components/lecturer/LectureSchedule";
@@ -23,16 +26,22 @@ export interface ClassroomInfo {
   longitude: number | null;
   allowed_distance: number | null;
 }
-export interface Lecture {
-  id: string; // timetable_id
+export interface LectureSession {
+  id: string; // session_id
+  timetableId: string; // timetable_id
   title: string;
-  date: string;
-  time: string;
   groupName: string;
   groupId: string;
+  date: string;
+  time: string;
   isCurrent: boolean;
   isAttended: boolean;
+  status: number;
   classroom: ClassroomInfo;
+  classroomName: string; // ⬅️ أضف هذا
+  buildingName: string;  // ⬅️ أضف هذا
+  departmentName: string;
+  expectedStudents: number;
 }
 export interface AttendanceRecord {
   studentName: string;
@@ -41,27 +50,15 @@ export interface AttendanceRecord {
   method: "QR" | "يدوي";
 }
 
-const normalizeDayName = (name?: string): string => {
-  if (!name) return "";
-  const s = name.trim().replace(/أ|إ|آ/g, "ا").toLowerCase();
-  const map: Record<string, string> = {
-    "الاحد": "الأحد", "الاثنين": "الاثنين", "الثلاثاء": "الثلاثاء",
-    "الاربعاء": "الأربعاء", "الخميس": "الخميس", "الجمعه": "الجمعة", "السبت": "السبت",
-  };
-  for (const key in map) { if (s.includes(key)) return map[key]; }
-  return name;
-};
-
 // --- المكون الرئيسي ---
 export default function LecturerPage() {
-  // --- 1. Hooks والحالات ---
+  // --- 1. Hooks والحالات (مُعدّلة) ---
   const { user } = useAuth();
   const { toast } = useToast();
-  const navigate = useNavigate();
   
-  const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [sessions, setSessions] = useState<LectureSession[]>([]);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
-  const [selectedLecture, setSelectedLecture] = useState<Lecture | null>(null);
+  const [selectedSession, setSelectedSession] = useState<LectureSession | null>(null);
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrSessionActive, setQrSessionActive] = useState(false);
   const [qrSettings, setQrSettings] = useState<QRFormSettings | null>(null);
@@ -69,13 +66,13 @@ export default function LecturerPage() {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [isStartingSession, setIsStartingSession] = useState(false);
+  const [lecturerTitle, setLecturerTitle] = useState<string | undefined>(undefined);
+  const [viewDate, setViewDate] = useState(new Date());
 
   const lecturerName = user?.full_name || "محاضر";
 
-  // --- 2. الدوال الرئيسية ---
-
-  // دالة جلب الجدول
-  const fetchSchedule = useCallback(async () => {
+  // --- 2. الدوال الرئيسية (مُعدّلة) ---
+  const fetchLecturerInfoAndSchedule = useCallback(async (date: Date) => {
     if (!user?.user_id) {
       setIsLoadingSchedule(false);
       return;
@@ -83,79 +80,100 @@ export default function LecturerPage() {
     
     setIsLoadingSchedule(true);
     try {
-      const lecturerRes = await api.get(`/v1/lecturers`, { params: { user_id: user.user_id } });
-      const lecturerData = (lecturerRes.data?.data || lecturerRes.data || [])[0];
+      const lecturerRes = await api.get(`/v1/lecturers`, { params: { user_id: user.user_id, with: 'academicTitle' } });
+      const lecturerData = (lecturerRes.data && Array.isArray(lecturerRes.data)) ? lecturerRes.data[0] : lecturerRes.data;
+
       if (!lecturerData?.lecturer_id) {
-        setLectures([]);
+        setSessions([]); // ✅ استخدام setSessions
         setIsLoadingSchedule(false);
+        setLecturerTitle(undefined);
         return;
       }
+
+      setLecturerTitle(lecturerData.academic_title?.title_name || lecturerData.academicTitle?.title_name);
       const lecturerId = lecturerData.lecturer_id;
 
-      const [timetableRes, lecturerAttendanceRes] = await Promise.all([
-          api.get(`/v1/timetable`, { params: { lecturer_id: lecturerId, with: 'course,group,day,period,classroom' } }),
-          api.get(`/v1/lecturer-attendance`, { params: { lecturer_id: lecturerId } })
-      ]);
-      
-      const entries = timetableRes.data?.data || timetableRes.data || [];
-      const attendedTimetableIds = new Set((lecturerAttendanceRes.data?.data || []).map((att: any) => att.timetable_id));
-      
+      const weekStart = startOfWeek(date, { weekStartsOn: 6 });
+      const weekEnd = endOfWeek(date, { weekStartsOn: 6 });
+
+      const sessionsRes = await api.get('/v1/lecture-sessions', {
+        params: {
+          lecturer_id: lecturerId,
+          start_date: format(weekStart, 'yyyy-MM-dd'),
+          end_date: format(weekEnd, 'yyyy-MM-dd'),
+        }
+      });
+
+      const sessionsData = sessionsRes.data?.data || [];
       const now = new Date();
-      const todayDayName = new Intl.DateTimeFormat('ar-SA', { weekday: 'long' }).format(now);
       const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
 
-      const formattedLectures = entries.map((entry: any): Lecture => {
-        const lectureDayName = normalizeDayName(entry.day?.day_name);
-        const startTimeStr = entry.period?.start_time?.slice(0, 5) || '00:00';
-        const endTimeStr = entry.period?.end_time?.slice(0, 5) || '00:00';
+      const formattedSessions = sessionsData.map((session: any): LectureSession => {
+        const startTimeStr = session.start_time?.slice(0, 5) || '00:00';
+        const endTimeStr = session.end_time?.slice(0, 5) || '00:00';
         const [startH, startM] = startTimeStr.split(':').map(Number);
         const startTotalMinutes = startH * 60 + startM;
         const [endH, endM] = endTimeStr.split(':').map(Number);
         const endTotalMinutes = endH * 60 + endM;
         
-        const isToday = lectureDayName === normalizeDayName(todayDayName);
+        const isSessionToday = isToday(new Date(session.session_date));
         const isCurrentTime = currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes;
+        
+        // ✅ التعديل هنا: جلب عدد طلاب المجموعة
+        // ملاحظة: يفترض أن الباك إند يرسل students_count داخل كائن group
+        const groupStudentCount = session.timetable?.group?.students_count;
+
+        // الأولوية الآن لعدد طلاب المجموعة، ثم سعة القاعة، ثم 50
+        const capacity = groupStudentCount || session.actual_classroom?.capacity || session.timetable?.classroom?.capacity || 50;
 
         return {
-          id: String(entry.timetable_id),
-          title: entry.course?.course_name || 'مادة غير محددة',
-          groupName: entry.group?.group_name || 'مجموعة غير محددة',
-          groupId: String(entry.group?.group_id),
-          date: lectureDayName,
+          id: String(session.session_id), 
+          timetableId: String(session.timetable_id),
+          title: session.timetable?.course?.course_name || 'مادة غير محددة',
+          groupName: session.timetable?.group?.group_name || 'مجموعة غير محددة',
+          groupId: String(session.timetable?.group?.group_id),
+          date: session.session_date.slice(0, 10),
+          
+          expectedStudents: capacity, // ✅ سيأخذ الآن عدد الطلاب إذا توفر
+          
           time: `${startTimeStr} - ${endTimeStr}`,
-          isCurrent: isToday && isCurrentTime,
-          isAttended: attendedTimetableIds.has(entry.timetable_id),
+          isCurrent: isSessionToday && isCurrentTime,
+          isAttended: session.status !== 0,
+          status: session.status,
+          classroomName: session.actual_classroom?.classroom_name || session.timetable?.classroom?.classroom_name || 'قاعة غير محددة',
+          buildingName: session.actual_classroom?.building?.building_name || session.timetable?.classroom?.building?.building_name || 'مبنى غير محدد',
+          departmentName: session.timetable?.department?.department_name || 'قسم غير محدد',
+          
           classroom: {
-            latitude: entry.classroom?.latitude ?? null,
-            longitude: entry.classroom?.longitude ?? null,
-            allowed_distance: entry.classroom?.allowed_distance ?? null,
+            latitude: session.actual_classroom?.latitude ?? session.timetable?.classroom?.latitude ?? null,
+            longitude: session.actual_classroom?.longitude ?? session.timetable?.classroom?.longitude ?? null,
+            allowed_distance: session.actual_classroom?.allowed_distance ?? session.timetable?.classroom?.allowed_distance ?? null,
           },
         };
       });
-      setLectures(formattedLectures);
+      setSessions(formattedSessions); // ✅ استخدام setSessions
+
     } catch (error: any) {
-      toast({ title: "خطأ", description: "فشل تحميل الجدول الزمني.", variant: "destructive"});
-      setLectures([]);
+      toast({ title: "خطأ", description: "فشل تحميل جدول الجلسات.", variant: "destructive"});
+      setSessions([]); // ✅ استخدام setSessions
     } finally {
       setIsLoadingSchedule(false);
     }
   }, [user, toast]);
 
-  // استدعاء دالة جلب الجدول عند تحميل المكون
   useEffect(() => {
-    fetchSchedule();
-  }, [fetchSchedule]);
+    fetchLecturerInfoAndSchedule(viewDate);
+  }, [fetchLecturerInfoAndSchedule, viewDate]);
 
-  // --- 3. معالجات الأحداث (Event Handlers) ---
-
-  const handleStartQR = (lecture: Lecture) => {
-    setSelectedLecture(lecture);
+  // --- 3. معالجات الأحداث (مُعدّلة) ---
+  const handleStartQR = (session: LectureSession) => {
+    setSelectedSession(session);
     setShowQRModal(true);
   };
 
   const handleQRModalSubmit = async (settings: QRFormSettings) => {
-    if (!selectedLecture) {
-      toast({ title: "خطأ", description: "لم يتم تحديد أي محاضرة.", variant: "destructive" });
+    if (!selectedSession) {
+      toast({ title: "خطأ", description: "لم يتم تحديد أي جلسة.", variant: "destructive" });
       return;
     }
     
@@ -163,9 +181,10 @@ export default function LecturerPage() {
     setShowQRModal(false);
     try {
       const payload = {
-        timetable_id: Number(selectedLecture.id),
+        timetable_id: Number(selectedSession.timetableId),
+        session_id: Number(selectedSession.id), // قد تحتاج لإرسال هذا أيضاً
         interval_seconds: settings.intervalSeconds,
-        valid_minutes: settings.validMinutes, // <-- التأكد من إرسال هذا الحقل
+        valid_minutes: settings.validMinutes,
         latitude: settings.latitude,
         longitude: settings.longitude,
         allowed_distance: settings.allowedDistance,
@@ -196,28 +215,27 @@ export default function LecturerPage() {
   
   const handleBackToSchedule = () => {
     setSessionEnded(false);
-    setSelectedLecture(null);
+    setSelectedSession(null);
     setAttendanceRecords([]);
-    // تحديث الجدول لإظهار حالة "تم التحضير"
-    fetchSchedule();
+    fetchLecturerInfoAndSchedule(viewDate);
   };
 
   // --- 4. جزء العرض (Render) ---
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6 lg:p-8">
+    <div className="min-h-screen bg-background p-4 md:p-6 lg:p-8" dir="rtl">
       <div className="max-w-7xl mx-auto space-y-6">
-
         {/* الحالة الافتراضية: عرض الجدول */}
         {!qrSessionActive && !sessionEnded && (
           <>
-            <LecturerWelcome name={lecturerName} />
-            {isLoadingSchedule ? (
-              <div className="flex justify-center items-center p-10">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <LectureSchedule lectures={lectures} onStartQR={handleStartQR} />
-            )}
+            <LecturerWelcome name={lecturerName} academicTitle={lecturerTitle} />
+            <LectureSchedule
+                sessions={sessions}
+                onStartQR={handleStartQR}
+                isLoading={isLoadingSchedule}
+                viewDate={viewDate}
+                setViewDate={setViewDate}
+                onRefresh={() => fetchLecturerInfoAndSchedule(viewDate)}
+            />
             {isStartingSession && (
                 <div className="flex flex-col items-center justify-center p-10">
                     <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -228,36 +246,38 @@ export default function LecturerPage() {
         )}
 
         {/* الحالة الثانية: جلسة QR نشطة */}
-        {qrSessionActive && qrSettings && selectedLecture && activeQR && (
+        {qrSessionActive && qrSettings && selectedSession && activeQR && (
           <QRSessionView
             settings={qrSettings}
-            lectureTitle={selectedLecture.title}
-            groupName={selectedLecture.groupName}
-            lectureId={selectedLecture.id}
+            lectureTitle={selectedSession.title}
+            groupName={selectedSession.groupName}
+            lectureId={selectedSession.timetableId} // قد يكون هذا هو المطلوب
             initialQR={activeQR}
             onEndSession={handleEndSession}
           />
         )}
 
         {/* الحالة الثالثة: ملخص الحضور */}
-        {sessionEnded && selectedLecture && (
+        {sessionEnded && selectedSession && (
           <AttendanceSummary
             records={attendanceRecords}
-            lectureTitle={selectedLecture.title}
-            groupName={selectedLecture.groupName}
-            groupId={selectedLecture.groupId} 
-            timetableId={selectedLecture.id}
+            lectureTitle={selectedSession.title}
+            groupName={selectedSession.groupName}
+            groupId={selectedSession.groupId} 
+            timetableId={selectedSession.timetableId}
+            sessionId={selectedSession.id}
             onFinalized={handleBackToSchedule}
           />
         )}
 
         {/* المودال: يظهر عند الحاجة */}
         <StartQRModal
+          expectedCount={selectedSession?.expectedStudents || 50}
           open={showQRModal}
           onClose={() => setShowQRModal(false)}
           onSubmit={handleQRModalSubmit}
-          lectureId={selectedLecture?.id ?? null}
-          classroomInfo={selectedLecture?.classroom ?? null}
+          lectureId={selectedSession?.timetableId ?? null}
+          classroomInfo={selectedSession?.classroom ?? null}
         />
       </div>
     </div>

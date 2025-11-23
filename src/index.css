@@ -196,3 +196,6 @@
     }
   }
 }
+.force-rtl {
+  direction: rtl !important;
+}

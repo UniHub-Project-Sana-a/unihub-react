@@ -6,14 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle } from "lucide-react";
+import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw  } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { addDays, format, getDay, eachDayOfInterval } from "date-fns";
+import { addDays, format, getDay, subDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday  } from "date-fns";
+import { ar } from 'date-fns/locale';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox"
 
 // --- Types ---
 type ImportLog = { id: number; created_at: string; source: string; items: number; status: string; notes?: string; };
@@ -46,6 +48,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
   const [modalSessions, setModalSessions] = useState<any[]>([]);
   const [modalSlotInfo, setModalSlotInfo] = useState({ day: "", time: "" });
+  const [modalSearchTerm, setModalSearchTerm] = useState("");
 
   // --- حالات خاصة بتبويب عرض الجلسات ---
   const [sessionsGrid, setSessionsGrid] = useState<any[]>([]);
@@ -58,11 +61,20 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [selectedLectureForSession, setSelectedLectureForSession] = useState<any | null>(null);
   const [sessionDate, setSessionDate] = useState<string>("");
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [createAllSessions, setCreateAllSessions] = useState(false);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
+
+    // --- ⬇️ أضف هذه الحالات الجديدة هنا ⬇️ ---
+  const [isExternalLecturer, setIsExternalLecturer] = useState(false);
+  const [externalCollegeId, setExternalCollegeId] = useState<string>("");
+  const [availableLecturers, setAvailableLecturers] = useState<Lecturer[]>([]);
+  // --- ⬆️ نهاية الإضافة ⬆️ ---
 
   const { toast } = useToast();
   const collegeIdNum = Number(collegeId);
   const [importSource, setImportSource] = useState<"manual" | null>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "conflict">("idle");
+  const [viewDate, setViewDate] = useState(new Date());
   
   // ربط axios instance المركزي
   const apiJson = async (path: string, init?: RequestInit) => {
@@ -131,6 +143,66 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     };
     loadInitialForForm();
   }, [collegeIdNum]);
+
+  // هذا الـ Effect مسؤول عن تحديث قائمة المحاضرين المتاحة
+  useEffect(() => {
+    // ✅ --- دالة معدلة لجلب المحاضرين --- ✅
+    const fetchAvailableLecturers = async () => {
+        let apiUrl = '/v1/lecturers?';
+        let params = new URLSearchParams();
+
+        if (isExternalLecturer) {
+            // 1. الوضع الخارجي:
+            // جلب المحاضرين المخولين فقط
+            params.append('can_teach_externally', '1');
+            
+            // (اختياري ولكن موصى به) استثناء محاضري الكلية الحالية
+            params.append('exclude_college_id', String(collegeIdNum));
+            
+            // إذا تم تحديد كلية خارجية محددة، قم بفلترتها
+            if (externalCollegeId) {
+                params.append('college_id', externalCollegeId);
+            }
+
+        } else {
+            // 2. الوضع الداخلي:
+            // جلب جميع المحاضرين من الكلية الحالية
+            if (collegeIdNum) {
+                params.append('college_id', String(collegeIdNum));
+            }
+        }
+        
+        // إذا لم يكن هناك أي بارامترات، لا تقم بالطلب
+        if (params.toString() === '') {
+            setAvailableLecturers([]);
+            return;
+        }
+
+        apiUrl += params.toString();
+
+        try {
+            console.log(`Fetching lecturers from: ${apiUrl}`); // للتصحيح
+            const res = await apiJson(apiUrl);
+            const lecturersData = (res?.data || res || []).map((l: any) => ({
+                lecturer_id: l.lecturer_id,
+                name: l.user?.full_name || l.full_name || l.name,
+                department_id: l.department_id,
+                college_id: l.college_id,
+            }));
+            setAvailableLecturers(lecturersData);
+        } catch (error) {
+            console.error("Failed to fetch lecturers:", error);
+            toast({ title: "خطأ", description: "فشل جلب قائمة المحاضرين.", variant: "destructive" });
+            setAvailableLecturers([]);
+        }
+    };
+
+    fetchAvailableLecturers();
+    
+    // عند التبديل، قم بإعادة تعيين المحاضر المختار لمنع الأخطاء
+    setManualForm(prev => ({ ...prev, lecturer_id: "" }));
+
+  }, [isExternalLecturer, externalCollegeId, collegeIdNum]); // <-- يعتمد على هذه القيم
 
   // ============================ الإدخال اليدوي (timetable) ============================
   interface ManualForm {
@@ -247,34 +319,30 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     return Object.keys(errors).length === 0;
   };
 
-  const openCreateSessionModal = async () => {
-    try {
-      const res = await api.get('/v1/schedulable-lectures');
-      setSchedulableLectures(res.data?.data || []);
-      setIsSessionModalOpen(true);
-    } catch (error: any) {
-      // ✅ --- التعديل هنا: منطق أكثر تفصيلاً لعرض الخطأ --- ✅
-      
-      console.error("Failed to fetch schedulable lectures:", error.response?.data || error);
-
-      // استخلاص رسالة الخطأ من استجابة Laravel
-      let errorMessage = "فشل جلب المحاضرات القابلة للجدولة."; // رسالة افتراضية
-      
-      if (error.response?.data?.error) {
-        // إذا كان الخادم يرسل رسالة خطأ صريحة في حقل 'error'
-        errorMessage = error.response.data.error;
-      } else if (error.response?.data?.message) {
-        // إذا كان الخادم يرسل رسالة في حقل 'message'
-        errorMessage = error.response.data.message;
+  // ✅ --- الدالة الجديدة لجلب البيانات --- ✅
+  const fetchSchedulableLectures = async () => {
+      try {
+          const res = await api.get('/v1/schedulable-lectures');
+          const lectures = res.data?.data || [];
+          setSchedulableLectures(lectures);
+          return lectures; // إرجاع البيانات للاستخدام الفوري
+      } catch (error: any) {
+          console.error("Failed to fetch schedulable lectures:", error.response?.data || error);
+          toast({
+              title: "خطأ في جلب البيانات",
+              description: "فشل جلب المحاضرات القابلة للجدولة.",
+              variant: "destructive",
+          });
+          setSchedulableLectures([]); // أفرغ القائمة عند حدوث خطأ
+          return [];
       }
-
-      toast({
-        title: "خطأ في جلب البيانات",
-        description: errorMessage,
-        variant: "destructive",
-        duration: 9000, // زيادة مدة عرض التنبيه لقراءة الخطأ
-      });
-    }
+  };
+  
+  // ✅ --- تعديل دالة فتح النموذج --- ✅
+  const openCreateSessionModal = async () => {
+      // الآن، هذه الدالة مسؤولة فقط عن جلب البيانات وفتح النموذج
+      await fetchSchedulableLectures();
+      setIsSessionModalOpen(true);
   };
 
   const openSlotModal = (sessions: any[], day: string, time: string) => {
@@ -335,72 +403,177 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   };
 
   // ✅ دالة جديدة لجلب بيانات شبكة الجلسات
-  const fetchSessionsGrid = async () => {
-  setIsGridLoading(true);
-  try {
-    // الطلب الآن لا يرسل أي تواريخ
-    const res = await api.get('/v1/lecture-sessions');
-
-    const sessions = res.data?.data || [];
-    
-    const mappedSessions = sessions.map((session: any) => {
-        const timetable = session.timetable; 
-        if (!timetable) return null;
-
-        return {
-            id: session.session_id,
-            day: timetable.day?.day_name,
-            time: `${fmtHHMM(session.start_time)}-${fmtHHMM(session.end_time)}`,
-            course: timetable.course?.course_name,
-            code: timetable.course?.course_code,
-            instructor: timetable.lecturer?.user?.full_name,
-            room: timetable.classroom?.classroom_name,
-            capacity: String(timetable.classroom?.capacity ?? ''),
-            status: session.status,
-            color: "bg-blue-500/10 border-blue-500/30",
-        };
-    }).filter(Boolean);
-
-    setSessionsGrid(mappedSessions);
-
-  } catch (error) {
-    toast({ title: "خطأ", description: "فشل تحميل جدول الجلسات.", variant: "destructive" });
-    setSessionsGrid([]);
-  } finally {
-    setIsGridLoading(false);
-  }
-};
+  const fetchSessionsGrid = async (date: Date) => {
+    setIsGridLoading(true);
+    try {
+      // 1. حساب تاريخ بداية ونهاية الأسبوع بناءً على التاريخ المُمرر
+      //    نفترض أن الأسبوع يبدأ يوم السبت (weekStartsOn: 6)
+      const weekStart = startOfWeek(date, { weekStartsOn: 6 });
+      const weekEnd = endOfWeek(date, { weekStartsOn: 6 });
+  
+      // 2. إرسال طلب إلى الـ API مع بارامترات التاريخ
+      const res = await api.get('/v1/lecture-sessions', {
+        params: {
+          college_id: collegeIdNum, // فلتر الكلية (مهم)
+          start_date: format(weekStart, 'yyyy-MM-dd'),
+          end_date: format(weekEnd, 'yyyy-MM-dd'),
+        }
+      });
+  
+      const sessions = res.data?.data || [];
+      
+      const mappedSessions = sessions.map((session: any) => {
+          const timetable = session.timetable; 
+          if (!timetable) {
+            console.warn("Session with ID", session.session_id, "is missing timetable relation.");
+            return null;
+          }
+  
+          // 3. معالجة البيانات وإضافة خاصية `date`
+          return {
+              id: session.session_id,
+              date: session.session_date ? String(session.session_date).slice(0, 10) : null,
+              day: timetable.day?.day_name,
+              time: `${fmtHHMM(session.start_time)}-${fmtHHMM(session.end_time)}`,
+              course: timetable.course?.course_name,
+              code: timetable.course?.course_code,
+              instructor: timetable.lecturer?.user?.full_name,
+              room: timetable.classroom?.classroom_name,
+              capacity: String(timetable.classroom?.capacity ?? ''),
+              status: session.status,
+              color: "bg-blue-500/10 border-blue-500/30",
+          };
+      }).filter(Boolean);
+  
+      setSessionsGrid(mappedSessions);
+  
+    } catch (error) {
+      toast({ title: "خطأ", description: "فشل تحميل جدول الجلسات الأسبوعي.", variant: "destructive" });
+      setSessionsGrid([]);
+    } finally {
+      setIsGridLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetchSessionsGrid();
-  }, []);
+      // استدعاء الدالة مع التاريخ الحالي عند تحميل المكون أو تغيير التاريخ
+      fetchSessionsGrid(viewDate);
+  }, [viewDate]);
   
   // دالة لإنشاء الجلسة
   const handleCreateSession = async () => {
-     console.log("Values before submit:", { selectedLectureForSession, sessionDate });
-        if (!selectedLectureForSession || !sessionDate) {
-      toast({ title: "بيانات ناقصة", description: "الرجاء اختيار محاضرة وتاريخ.", variant: "destructive" });
+    // 1. التحقق من وجود محاضرة مختارة
+    if (!selectedLectureForSession) {
+      toast({
+        title: "بيانات ناقصة",
+        description: "الرجاء اختيار محاضرة أولاً.",
+        variant: "destructive",
+      });
       return;
     }
+  
+    // 2. تفعيل حالة التحميل
     setIsCreatingSession(true);
-    try {
-      await api.post('/v1/lecture-sessions', {
-        timetable_id: selectedLectureForSession.timetable_id,
-        session_date: sessionDate,
-      });
-      toast({ title: "نجاح", description: "تم إنشاء الجلسة بنجاح." });
-      setIsSessionModalOpen(false);
-      setSelectedLectureForSession(null);
-      setSessionDate("");
-      // يمكنك إعادة جلب البيانات هنا إذا أردت تحديث القائمة
-    } catch (error: any) {
-      toast({
-        title: "خطأ في الإنشاء",
-        description: error.response?.data?.message || "فشل إنشاء الجلسة.",
-        variant: "destructive"
-      });
-    } finally {
-      setIsCreatingSession(false);
+  
+    // 3. تعريف دالة مساعدة لمعالجة ما بعد النجاح
+    //    هذا يمنع تكرار الكود
+    const handleSuccess = async () => {
+      // أ. جلب بيانات الشبكة المحدثة
+      fetchSessionsGrid(viewDate); 
+      
+      // ب. جلب قائمة المحاضرات المحدثة (مع التواريخ الجديدة)
+      const updatedLectures = await fetchSchedulableLectures(); 
+      
+      // ج. تحديث حالة المحاضرة المختارة حالياً
+      const currentLectureId = selectedLectureForSession.timetable_id;
+      const updatedSelectedLecture = updatedLectures.find(
+          (lec) => lec.timetable_id === currentLectureId
+      );
+  
+      if (updatedSelectedLecture) {
+          // إذا كانت المحاضرة لا تزال قابلة للجدولة (بها تواريخ متبقية)
+          // قم بتحديث الكائن المختار والحالات التابعة له
+          setSelectedLectureForSession(updatedSelectedLecture);
+          setAvailableSessionDates(updatedSelectedLecture.available_dates || []);
+          setSessionDate(""); // تفريغ التاريخ المختار
+      } else {
+          // إذا لم تعد المحاضرة قابلة للجدولة (تم جدولة كل تواريخها)
+          // قم بإعادة تعيين كل شيء لتنظيف النموذج
+          setSelectedLectureForSession(null);
+          setAvailableSessionDates([]);
+          setSessionDate("");
+          setCreateAllSessions(false);
+      }
+      
+      // د. إغلاق النموذج
+      setIsSessionModalOpen(false); 
+    };
+  
+    // 4. تنفيذ منطق الإنشاء بناءً على اختيار المستخدم
+    if (createAllSessions) {
+      // --- الحالة أ: إنشاء جميع الجلسات (Bulk) ---
+      try {
+        const response = await api.post('/v1/lecture-sessions/bulk', {
+          timetable_id: selectedLectureForSession.timetable_id,
+        });
+        
+        const { created_count, skipped_count } = response.data;
+        toast({
+          title: "اكتملت العملية بنجاح",
+          description: `تم إنشاء ${created_count} جلسة جديدة. وتم تخطي ${skipped_count} جلسة لوجودها مسبقاً.`,
+          duration: 9000,
+          className: "bg-green-100 dark:bg-green-900 border-green-300 dark:border-green-700",
+        });
+  
+        // استدعاء دالة النجاح لتحديث الواجهة
+        await handleSuccess();
+  
+      } catch (error: any) {
+        console.error("Bulk Creation API Error:", error.response);
+        const serverMessage = error.response?.data?.message || error.response?.data?.error;
+        const fallbackMessage = "فشل إنشاء الجلسات. تحقق من الـ console لمزيد من التفاصيل.";
+        toast({
+          title: "خطأ في الإنشاء المجمع",
+          description: serverMessage || fallbackMessage,
+          variant: "destructive",
+          duration: 9000,
+        });
+      } finally {
+        setIsCreatingSession(false);
+      }
+  
+    } else {
+      // --- الحالة ب: إنشاء جلسة واحدة (Single) ---
+      if (!sessionDate) {
+        toast({ title: "بيانات ناقصة", description: "الرجاء اختيار تاريخ." });
+        setIsCreatingSession(false);
+        return;
+      }
+  
+      try {
+        await api.post('/v1/lecture-sessions', {
+          timetable_id: selectedLectureForSession.timetable_id,
+          session_date: sessionDate,
+        });
+  
+        toast({
+          title: "نجاح",
+          description: `تم إنشاء الجلسة بتاريخ ${sessionDate} بنجاح.`,
+        });
+  
+        // استدعاء دالة النجاح لتحديث الواجهة
+        await handleSuccess();
+  
+      } catch (error: any) {
+        console.error("Single Creation API Error:", error.response);
+        toast({
+          title: "خطأ في إنشاء الجلسة",
+          description: error.response?.data?.message || "فشل إنشاء الجلسة. قد تكون موجودة بالفعل.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsCreatingSession(false);
+      }
     }
   };
   
@@ -432,6 +605,8 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     setLevels([]);
     setCourses([]);
     setGroups([]);
+    setIsExternalLecturer(false);
+    setExternalCollegeId("");
   };
   
   /**
@@ -548,50 +723,72 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   };
   // console.log("Lectures available for scheduling:", schedulableLectures);
    return (
-    <div className="space-y-6">
-      <Tabs defaultValue="import" className="w-full">
+    <div className="space-y-6" >
+      <Tabs defaultValue="import" className="w-full" dir="rtl">
          {/* ✅ --- قسم الشرح والإرشادات --- ✅ */}
-        {/* ✅ --- قسم الشرح والإرشادات (مُصحح) --- ✅ */}
-        <Alert className="mb-4 bg-background/80">
-          <Info className="h-4 w-4" />
-          <AlertTitle className="font-bold">دليل استخدام وحدة الجداول</AlertTitle>
-          <AlertDescription>
-            <div className="space-y-2 mt-2 text-sm">
+        {/* ✅ --- أيقونة ومودال الشرح (جديد) --- ✅ */}
+        <div className="flex justify-end mb-2">
+          {/* الزر الذي يحتوي على الأيقونة */}
+          <Button variant="ghost" size="icon" onClick={() => setIsInfoModalOpen(true)}>
+            <Info className="h-5 w-5 text-muted-foreground hover:text-primary" />
+            <span className="sr-only">عرض دليل الاستخدام</span>
+          </Button>
+        </div>
+        
+        {/* المودال الذي يحتوي على الشرح */}
+        <Dialog open={isInfoModalOpen} onOpenChange={setIsInfoModalOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Info className="h-5 w-5 text-primary" />
+                دليل استخدام وحدة الجداول
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4 text-sm leading-relaxed space-y-4">
               <p>هذه الوحدة تتيح لك إدارة قوالب الجداول والجلسات الفعلية للمحاضرات بطريقتين:</p>
-              <ul className="list-disc list-inside space-y-1">
-                <li>
-                  <strong className="text-primary">الجداول الأسبوعية (المتكررة):</strong>
-                  <ul className="pr-4">
-                    <li>
-                      اذهب إلى <span className="font-semibold">"إدارة الجدول"</span>
-                      <span className="mx-2">{'>'}</span> 
-                      <span className="font-semibold">"إضافة للجدول الرئيسي"</span>.
-                    </li>
-                    <li className="ml-4">
-                      عند إدخال محاضرة، حدد تاريخ بداية ونهاية يغطي الفصل الدراسي كاملاً (مثلاً، من 1 سبتمبر إلى 31 ديسمبر).
-                    </li>
-                  </ul>
-                </li>
-                <li>
-                  <strong className="text-primary">الجداول اليومية (لمحاضرة واحدة):</strong>
-                   <ul className="pr-4">
-                    <li>
-                      اذهب إلى <span className="font-semibold">"إدارة الجدول"</span>
-                      <span className="mx-2">{'>'}</span> 
-                      <span className="font-semibold">"إضافة للجدول الرئيسي"</span>.
-                    </li>
-                    <li className="ml-4">
-                      عند إدخال المحاضرة، اختر **نفس التاريخ** في حقلي "تاريخ البداية" و "تاريخ النهاية".
-                    </li>
-                  </ul>
-                </li>
-              </ul>
-              <p className="pt-2">
-                لتحويل محاضرة من الجدول الرئيسي إلى جلسة فعلية قابلة للتحضير، استخدم زر <span className="font-semibold">"إنشاء جلسة محاضرة"</span>.
-              </p>
+              
+              <div>
+                <h4 className="font-bold text-primary mb-2">الجداول الأسبوعية (المتكررة)</h4>
+                <ul className="list-disc list-inside space-y-1 pe-4">
+                  <li>
+                    اذهب إلى <span className="font-semibold">"إضافة / تعديل"</span>
+                    <span className="mx-2">{'>'}</span> 
+                    <span className="font-semibold">"إضافة للجدول الرئيسي"</span>.
+                  </li>
+                  <li className="me-4">
+                    عند إدخال محاضرة، حدد تاريخ بداية ونهاية يغطي الفصل الدراسي كاملاً (مثلاً، من 1 سبتمبر إلى 31 ديسمبر).
+                  </li>
+                </ul>
+              </div>
+        
+              <div>
+                <h4 className="font-bold text-primary mb-2">الجداول اليومية (لمحاضرة واحدة)</h4>
+                <ul className="list-disc list-inside space-y-1 pe-4">
+                  <li>
+                    اذهب إلى <span className="font-semibold">"إضافة / تعديل"</span>
+                    <span className="mx-2">{'>'}</span> 
+                    <span className="font-semibold">"إضافة للجدول الرئيسي"</span>.
+                  </li>
+                  <li className="me-4">
+                    عند إدخال المحاضرة، اختر **نفس التاريخ** في حقلي "تاريخ البداية" و "تاريخ النهاية".
+                  </li>
+                  <li className="text-xs text-muted-foreground me-4">
+                    (سيقوم النظام تلقائياً بإنشاء جلسة فعلية لهذه المحاضرة).
+                  </li>
+                </ul>
+              </div>
+              
+              <div className="pt-2 border-t mt-4">
+                <p>
+                  لتحويل محاضرة من الجدول الأسبوعي إلى جلسة فعلية قابلة للتحضير، استخدم زر <span className="font-semibold">"إنشاء جلسة محاضرة"</span>.
+                </p>
+              </div>
             </div>
-          </AlertDescription>
-        </Alert>
+            <DialogFooter>
+                <Button onClick={() => setIsInfoModalOpen(false)}>فهمت</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         {/* ✅ --- نهاية قسم الشرح --- ✅ */}
 
         <TabsList className="grid w-full grid-cols-2 bg-card/50 backdrop-blur-sm">
@@ -730,15 +927,80 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     </Select>
                     {manualFormErrors.group_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.group_id}</p>}
                   </div>
-                  {/* Lecturer */}
-                  <div>
-                    <Label>المحاضر</Label>
-                    <Select value={String(manualForm.lecturer_id)} onValueChange={(v) => setManualForm({ ...manualForm, lecturer_id: v ? Number(v) : "" })}>
-                      <SelectTrigger><SelectValue placeholder="اختر محاضراً" /></SelectTrigger>
-                      <SelectContent>{lecturers.map(l => <SelectItem key={l.lecturer_id} value={String(l.lecturer_id)}>{l.name}</SelectItem>)}</SelectContent>
-                    </Select>
-                    {manualFormErrors.lecturer_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.lecturer_id}</p>}
+                  {/* ======================= LECTURER SECTION (MODIFIED) ======================= */}
+                  {/* خانة الاختيار لتفعيل وضع المحاضر الخارجي */}
+                  <div className="col-span-3 flex items-center space-x-2 rtl:space-x-reverse pt-4">
+                      <Checkbox
+                          id="external-lecturer-toggle"
+                          checked={isExternalLecturer}
+                          onCheckedChange={(checked: boolean) => {
+                              setIsExternalLecturer(checked);
+                              // عند إلغاء التفعيل، أعد تعيين الكلية الخارجية والمحاضر
+                              if (!checked) {
+                                  setExternalCollegeId("");
+                                  setManualForm({ ...manualForm, lecturer_id: "" });
+                              }
+                          }}
+                      />
+                      <label
+                          htmlFor="external-lecturer-toggle"
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                      >
+                          اختيار محاضر من كلية أخرى
+                      </label>
                   </div>
+              
+                  {/* حقل اختيار كلية المحاضر (يظهر فقط إذا تم تفعيل الخيار أعلاه) */}
+                  {isExternalLecturer && (
+                      <div>
+                          <Label>كلية المحاضر</Label>
+                          <Select
+                              value={String(externalCollegeId)}
+                              onValueChange={(v) => {
+                                  setExternalCollegeId(v);
+                                  // أفرغ اختيار المحاضر عند تغيير الكلية
+                                  setManualForm({ ...manualForm, lecturer_id: "" });
+                              }}
+                          >
+                              <SelectTrigger>
+                                  <SelectValue placeholder="اختر كلية المحاضر" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                  {/* قائمة `colleges` لديك تحتوي على كل الكليات */}
+                                  {colleges.map(c => 
+                                      <SelectItem key={c.college_id} value={String(c.college_id)}>
+                                          {c.name}
+                                      </SelectItem>
+                                  )}
+                              </SelectContent>
+                          </Select>
+                      </div>
+                  )}
+              
+                  {/* حقل اختيار المحاضر (مُعدّل) */}
+                  <div>
+                      <Label>المحاضر</Label>
+                      <Select 
+                          value={String(manualForm.lecturer_id)} 
+                          onValueChange={(v) => setManualForm({ ...manualForm, lecturer_id: v ? Number(v) : "" })}
+                          // يتم تعطيل الحقل إذا كان الوضع "خارجي" ولم يتم اختيار كلية بعد
+                          disabled={isExternalLecturer && !externalCollegeId}
+                      >
+                          <SelectTrigger>
+                              <SelectValue placeholder={
+                                  isExternalLecturer && !externalCollegeId 
+                                  ? "اختر كلية المحاضر أولاً" 
+                                  : "اختر محاضراً"
+                              } />
+                          </SelectTrigger>
+                          <SelectContent>
+                              {/* القائمة أصبحت الآن `availableLecturers` الديناميكية */}
+                              {availableLecturers.map(l => <SelectItem key={l.lecturer_id} value={String(l.lecturer_id)}>{l.name}</SelectItem>)}
+                          </SelectContent>
+                      </Select>
+                      {manualFormErrors.lecturer_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.lecturer_id}</p>}
+                  </div>
+                  {/* ===================== END OF LECTURER SECTION ===================== */}
                   {/* Classroom */}
                   <div>
                     <Label>القاعة</Label>
@@ -797,8 +1059,8 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     <Select value={String(manualForm.lecture_type)} onValueChange={(v) => setManualForm({ ...manualForm, lecture_type: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر النوع" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="0">محاضرة</SelectItem>
-                        <SelectItem value="1">عملي</SelectItem>
+                        <SelectItem value="0">أساسية</SelectItem>
+                        <SelectItem value="1">تعويضي</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -843,85 +1105,158 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
           {/* ======================================= */}
           {/* === VIEW TAB (FINAL WITH MODAL) === */}
           {/* ======================================= */}
-          <TabsContent value="view" className="space-y-6">
+          <TabsContent value="view" className="space-y-4">
+            {/* --- لوحة التحكم بالتاريخ --- */}
             <Card>
               <CardHeader>
-                <CardTitle>عرض الجلسات المجدولة</CardTitle>
-                <CardDescription className="flex items-center gap-2">
-                  جميع الجلسات التي تم إنشاؤها ولم تتم مصادقتها بعد.
-                  <Button onClick={fetchSessionsGrid} variant="ghost" size="icon" className="h-6 w-6">
-                    <Loader2 className={`h-4 w-4 ${isGridLoading ? 'animate-spin' : ''}`} />
-                  </Button>
-                </CardDescription>
+                <div className="flex flex-wrap justify-between items-center gap-4">
+                  <div>
+                    <CardTitle>عرض الجلسات الأسبوعي</CardTitle>
+                    <CardDescription><br/>
+                      {format(startOfWeek(viewDate, { weekStartsOn: 6 }), 'd MMMM yyyy', { locale: ar })} - {format(endOfWeek(viewDate, { weekStartsOn: 6 }), 'd MMMM yyyy', { locale: ar })}
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => setViewDate(subDays(viewDate, 7))} variant="outline">
+                      الأسبوع السابق
+                    </Button>
+                    <Button onClick={() => setViewDate(new Date())} variant="secondary">
+                      الحالي
+                    </Button>
+                    <Button onClick={() => setViewDate(addDays(viewDate, 7))} variant="outline">
+                      الأسبوع التالي
+                    </Button>
+                    <Button onClick={() => fetchSessionsGrid(viewDate)} variant="ghost" size="icon" className="h-9 w-9">
+                      <RefreshCw className={`h-4 w-4 ${isGridLoading ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
             </Card>
             
+            {/* --- عرض الجدول --- */}
             <Card className="backdrop-blur-sm overflow-x-auto relative">
               <CardContent className="pt-6">
                 {isGridLoading ? (
                   <div className="flex justify-center items-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
-                ) : sessionsGrid.length === 0 ? (
-                  <div className="text-center py-20 text-muted-foreground">لا توجد جلسات مجدولة حاليًا.</div>
                 ) : (
                   <div className="min-w-[1200px]">
-                    <div className="grid grid-cols-8 gap-2">
-                      <div className="font-bold text-center p-4 bg-card rounded-lg">الوقت</div>
-                      {["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"].map(day => (
-                        <div key={day} className="font-bold text-center p-4 bg-card rounded-lg">{day}</div>
-                      ))}
-                    </div>
-                    
-                    {periods.sort((a,b) => (a.start_time || "").localeCompare(b.start_time || "")).map((period) => {
-                      const timeLabel = `${fmtHHMM(period.start_time)}-${fmtHHMM(period.end_time)}`;
+                    {(() => {
+                      const weekStart = startOfWeek(viewDate, { weekStartsOn: 6 });
+                      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
+            
                       return (
-                        <div key={period.period_id} className="grid grid-cols-8 gap-2 mt-2 items-start">
-                          <div className="text-center p-4 bg-card/50 rounded-lg flex items-center justify-center h-full"><Clock className="w-4 h-4 ml-2" />{timeLabel}</div>
+                        <>
+                          {/* رأس الجدول */}
+                          <div className="grid grid-cols-8 gap-2">
+                            <div className="font-bold text-center p-2 bg-card rounded-lg flex items-center justify-center">الوقت</div>
+                            {weekDays.map(day => (
+                              <div key={day.toString()} className="font-bold text-center p-2 bg-card rounded-lg">
+                                <div>{format(day, 'eeee', { locale: ar })}</div>
+                                <div className="text-sm font-normal text-muted-foreground">{format(day, 'd/M')}</div>
+                              </div>
+                            ))}
+                          </div>
                           
-                          {["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"].map(day => {
-                            // ✅ 1. جلب جميع الجلسات في هذه الخانة
-                            const sessionsInSlot = sessionsGrid.filter(s => normalizeDayName(s.day) === normalizeDayName(day) && s.time === timeLabel);
-                            
+                          {/* جسم الجدول */}
+                          {periods.sort((a, b) => (a.start_time || "").localeCompare(b.start_time || "")).map((period) => {
+                            const timeLabel = `${fmtHHMM(period.start_time)}-${fmtHHMM(period.end_time)}`;
                             return (
-                              <div key={day} className="min-h-[120px] p-1">
-                                {sessionsInSlot.length === 0 ? (
-                                  // الحالة أ: لا توجد جلسات
-                                  <div className="h-full border border-dashed border-border/30 rounded-lg bg-transparent"></div>
-                                ) : sessionsInSlot.length === 1 ? (
-                                  // الحالة ب: توجد جلسة واحدة فقط
-                                  <Card className="h-full border bg-background/80">
-                                    <CardContent className="p-2 text-right text-xs flex flex-col justify-between h-full">
-                                      <div>
-                                        <div className="flex justify-between items-start">
-                                          <span className="font-bold">{sessionsInSlot[0].code}</span>
-                                          <Badge variant="outline">مجدولة</Badge>
+                              <div key={period.period_id} className="grid grid-cols-8 gap-2 mt-2 items-start">
+                                <div className="text-center p-2 bg-card/50 rounded-lg flex items-center justify-center h-full text-sm">
+                                  <Clock className="w-4 h-4 ml-2" />{timeLabel}
+                                </div>
+                                
+                                {weekDays.map(currentDay => {
+                                  const currentDayString = format(currentDay, 'yyyy-MM-dd');
+                                  // ✅ --- إصلاح فلترة التاريخ هنا --- ✅
+                                  const sessionsInSlot = sessionsGrid.filter(s => 
+                                    s.date?.slice(0, 10) === currentDayString && 
+                                    s.time === timeLabel
+                                  );
+                                  
+                                  // --- ✅ --- تعريف مكون البطاقة هنا لتجنب أخطاء JSX --- ✅ ---
+                                  const SessionCard = ({ session }: { session: any }) => {
+                                    const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
+                                    
+                                    let cardClass = "bg-background/80";
+                                    let badgeText = "مجدولة";
+                                    let badgeVariant: "outline" | "secondary" | "destructive" | "default" = "outline";                                        
+            
+                                    if (isPast) {
+                                        if (session.status === 1) { // تم التحضير
+                                            cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
+                                            badgeText = "مكتملة";
+                                            badgeVariant = "secondary";
+                                        } else { // لم يتم التحضير
+                                            cardClass = "bg-red-100/50 dark:bg-red-900/30 border-red-500/50";
+                                            badgeText = "فاتت";
+                                            badgeVariant = "destructive";
+                                        }
+                                    }                                        
+            
+                                    return (
+                                        <Card className={cn("h-full border shadow-sm hover:shadow-md transition-shadow", cardClass)}>
+                                            <CardContent className="p-2 text-right text-xs flex flex-col justify-between h-full">
+                                                <div>
+                                                    <div className="flex justify-between items-start">
+                                                        <span className="font-bold text-primary">{session.code || 'N/A'}</span>
+                                                        <Badge variant={badgeVariant}>{badgeText}</Badge>
+                                                    </div>
+                                                    <p className="mt-1 font-semibold leading-tight">{session.course || 'مقرر غير محدد'}</p>
+                                                </div>
+                                                <div className="mt-2 pt-1 border-t border-dashed">
+                                                    <p className="text-muted-foreground mt-1 flex items-center justify-end gap-1">
+                                                        <span>{session.instructor || 'محاضر غير محدد'}</span>
+                                                        <User className="w-3 h-3" />
+                                                    </p>
+                                                    <p className="text-muted-foreground flex items-center justify-end gap-1">
+                                                        <span>{session.room || 'قاعة غير محددة'}</span>
+                                                        <MapPin className="w-3 h-3" />
+                                                    </p>
+                                                </div>
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                  };
+                                  
+                                  return (
+                                    <div key={currentDayString} className="min-h-[120px] p-1 space-y-1">
+                                      {sessionsInSlot.length === 0 ? (
+                                        <div className="h-full border border-dashed border-border/30 rounded-lg bg-transparent flex items-center justify-center text-center p-2">
+                                          <span className="text-xs text-muted-foreground/50">لا توجد جلسات</span>
                                         </div>
-                                        <p className="mt-1 font-semibold">{sessionsInSlot[0].course}</p>
-                                      </div>
-                                      <div>
-                                        <p className="text-muted-foreground mt-1 flex items-center justify-end gap-1"><span>{sessionsInSlot[0].instructor}</span><User className="w-3 h-3" /></p>
-                                        <p className="text-muted-foreground flex items-center justify-end gap-1"><span>{sessionsInSlot[0].room}</span><MapPin className="w-3 h-3" /></p>
-                                      </div>
-                                    </CardContent>
-                                  </Card>
-                                ) : (
-                                  // ✅ الحالة ج: توجد أكثر من جلسة
-                                  <Card
-                                    className="h-full border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
-                                    onClick={() => openSlotModal(sessionsInSlot, day, timeLabel)}
-                                  >
-                                    <CardContent className="p-2">
-                                      <div className="font-bold text-lg text-primary">{sessionsInSlot.length}</div>
-                                      <p className="text-sm text-primary/80">جلسات</p>
-                                      <p className="text-xs text-muted-foreground mt-2">انقر لعرض التفاصيل</p>
-                                    </CardContent>
-                                  </Card>
-                                )}
+                                      ) : sessionsInSlot.length === 1 ? (
+                                        // استخدام المكون الذي عرفناه للتو
+                                        <SessionCard session={sessionsInSlot[0]} />
+                                      ) : (
+                                        <Card
+                                          className="h-full border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
+                                          onClick={() => openSlotModal(sessionsInSlot, format(currentDay, 'eeee', { locale: ar }), timeLabel)}
+                                        >
+                                          <CardContent className="p-2">
+                                            <div className="font-bold text-lg text-primary">{sessionsInSlot.length}</div>
+                                            <p className="text-sm text-primary/80">جلسات</p>
+                                            <p className="text-xs text-muted-foreground mt-2">انقر للعرض</p>
+                                          </CardContent>
+                                        </Card>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             );
                           })}
-                        </div>
+                          
+                          {sessionsGrid.length === 0 && !isGridLoading && (
+                              <div className="text-center py-20 text-muted-foreground">
+                                  <p className="font-bold text-lg">أسبوع هادئ!</p>
+                                  <p>لا توجد جلسات مجدولة لهذا الأسبوع.</p>
+                              </div>
+                          )}
+                        </>
                       );
-                    })}
+                    })()}
                   </div>
                 )}
               </CardContent>
@@ -930,112 +1265,210 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
         </Tabs>
 
         {/* ✅ --- المودال الجديد لعرض الجلسات المتعددة --- ✅ */}
-        <Dialog open={isSlotModalOpen} onOpenChange={setIsSlotModalOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>الجلسات المجدولة لـ {modalSlotInfo.day} - {modalSlotInfo.time}</DialogTitle>
-            <DialogDescription>
-              جميع الجلسات المجدولة في هذا الوقت.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[60vh] overflow-y-auto p-4 space-y-4">
-            {modalSessions.map(session => (
-              <Card key={session.id} className="border bg-background">
-                <CardContent className="p-4 text-right">
-                    <div className="flex justify-between items-start mb-2">
-                      <p className="font-bold text-lg">{session.course} <span className="text-sm font-normal text-muted-foreground">({session.code})</span></p>
-                      <Badge variant="outline">مجدولة</Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                        <p className="flex items-center justify-end gap-2"><span>{session.instructor}</span><User className="w-4 h-4 text-muted-foreground" /></p>
-                        <p className="flex items-center justify-end gap-2"><span>{session.room}</span><MapPin className="w-4 h-4 text-muted-foreground" /></p>
-                    </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </DialogContent>
+        {/* ✅ --- مودال عرض الجلسات المتعددة (مع بحث وتلوين) --- ✅ */}
+        <Dialog 
+          open={isSlotModalOpen} 
+          onOpenChange={(isOpen) => {
+            setIsSlotModalOpen(isOpen);
+            // إعادة تعيين البحث عند إغلاق المودال
+            if (!isOpen) {
+              setModalSearchTerm("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>الجلسات المجدولة لـ {modalSlotInfo.day} - {modalSlotInfo.time}</DialogTitle>
+              <DialogDescription>
+                جميع الجلسات المجدولة في هذا الوقت.
+              </DialogDescription>
+            </DialogHeader>
+        
+            {/* --- حقل البحث الجديد --- */}
+            <div className="relative pt-2">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground rtl:right-3 rtl:left-auto" />
+                <Input
+                    placeholder="ابحث باسم المقرر, المحاضر, القاعة..."
+                    value={modalSearchTerm}
+                    onChange={(e) => setModalSearchTerm(e.target.value)}
+                    className="pl-10 rtl:pr-10"
+                />
+            </div>
+        
+            {/* --- عرض الجلسات المفلترة مع التلوين --- */}
+            <div className="max-h-[50vh] overflow-y-auto p-1 -m-1 space-y-4">
+              {(() => {
+                // فلترة الجلسات بناءً على نص البحث
+                const filteredSessions = modalSessions.filter(session => {
+                    if (!modalSearchTerm) return true;
+                    const searchTerm = modalSearchTerm.toLowerCase();
+                    return (
+                      session.course?.toLowerCase().includes(searchTerm) ||
+                      session.instructor?.toLowerCase().includes(searchTerm) ||
+                      session.room?.toLowerCase().includes(searchTerm)
+                    );
+                });
+        
+                // رسالة في حال عدم وجود نتائج للبحث
+                if (filteredSessions.length === 0 && modalSearchTerm) {
+                    return (
+                        <div className="text-center py-10 text-muted-foreground">
+                          لا توجد نتائج تطابق بحثك.
+                        </div>
+                    );
+                }
+        
+                return filteredSessions.map(session => {
+                  // --- منطق تحديد الألوان (نفس منطق الجدول الرئيسي) ---
+                  const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
+                  
+                  let cardClass = "bg-background";
+                  let badgeText = "مجدولة";
+                  let badgeVariant: "outline" | "secondary" | "destructive" | "default" = "outline";
+        
+                  if (isPast) {
+                      if (session.status === 1) { // تم التحضير
+                          cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
+                          badgeText = "مكتملة";
+                          badgeVariant = "secondary";
+                      } else { // لم يتم التحضير
+                          cardClass = "bg-red-100/50 dark:bg-red-900/30 border-red-500/50";
+                          badgeText = "فاتت";
+                          badgeVariant = "destructive";
+                      }
+                  }
+        
+                  return (
+                    <Card key={session.id} className={cn("border transition-colors", cardClass)}>
+                      <CardContent className="p-4 text-right">
+                          <div className="flex justify-between items-start mb-2">
+                            <p className="font-bold text-lg">{session.course} <span className="text-sm font-normal text-muted-foreground">({session.code})</span></p>
+                            <Badge variant={badgeVariant}>{badgeText}</Badge>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                              <p className="flex items-center justify-end gap-2"><span>{session.instructor}</span><User className="w-4 h-4 text-muted-foreground" /></p>
+                              <p className="flex items-center justify-end gap-2"><span>{session.room}</span><MapPin className="w-4 h-4 text-muted-foreground" /></p>
+                          </div>
+                      </CardContent>
+                    </Card>
+                  );
+                });
+              })()}
+            </div>
+          </DialogContent>
         </Dialog>
   
-              {/* === مودال إنشاء الجلسات (مع تقييد اليوم) === */}
-      <Dialog open={isSessionModalOpen} onOpenChange={setIsSessionModalOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>إنشاء جلسة محاضرة جديدة</DialogTitle>
-            <DialogDescription>
-              اختر محاضرة وسيتم عرض التواريخ المتاحة لها فقط.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="lecture-select">اختر المحاضرة</Label>
-              <Select
-                onValueChange={(value) => {
-                  const selected = schedulableLectures.find(lec => String(lec.timetable_id) === value);
-                  setSelectedLectureForSession(selected || null);
-                  setSessionDate(""); // تفريغ التاريخ عند تغيير المحاضرة
-                  
-                  // ✅ توليد التواريخ المتاحة عند اختيار محاضرة
-                  const dates = generateAvailableDates(selected);
-                  // console.log("Generated Dates for Session:", dates);
-                  setAvailableSessionDates(dates);
-                }}
-                value={selectedLectureForSession ? String(selectedLectureForSession.timetable_id) : ""}
-              >
-                <SelectTrigger id="lecture-select">
-                  <SelectValue placeholder="اختر محاضرة لجدولتها..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {schedulableLectures.map((lec) => (
-                    <SelectItem key={lec.timetable_id} value={String(lec.timetable_id)}>
-                      {lec.course?.course_name} - ({lec.group?.group_name}) - {lec.day?.day_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {selectedLectureForSession && (
+        {/* === مودال إنشاء الجلسات (مع تقييد اليوم) === */}
+        <Dialog open={isSessionModalOpen} onOpenChange={setIsSessionModalOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>إنشاء جلسة محاضرة جديدة</DialogTitle>
+              <DialogDescription>
+                اختر محاضرة من القائمة لإنشاء جلسة فعلية لها.
+              </DialogDescription>
+            </DialogHeader>
+        
+            <div className="space-y-4 py-4">
+              {/* 1. حقل اختيار المحاضرة */}
               <div className="space-y-2">
-                <Label htmlFor="session-date-select">تاريخ الجلسة</Label>
+                <Label htmlFor="lecture-select">اختر المحاضرة</Label>
                 <Select
-                  value={sessionDate}
-                  onValueChange={setSessionDate}
-                  disabled={availableSessionDates.length === 0}
+                  onValueChange={(value) => {
+                    const selected = schedulableLectures.find(lec => String(lec.timetable_id) === value);
+                    setSelectedLectureForSession(selected || null);
+                    // ✅ لم نعد نحتاج لحساب التواريخ هنا، فقط أعد تعيين الحقول
+                    setSessionDate(""); 
+                    setCreateAllSessions(false); 
+                    // ✅ تم تحديث `availableSessionDates` مباشرة من بيانات المحاضرة
+                    setAvailableSessionDates(selected?.available_dates || []);
+                  }}
+                  value={selectedLectureForSession ? String(selectedLectureForSession.timetable_id) : ""}
                 >
-                  <SelectTrigger id="session-date-select">
-                    <SelectValue placeholder="اختر تاريخًا من التواريخ المتاحة..." />
+                  <SelectTrigger id="lecture-select">
+                    <SelectValue placeholder="اختر محاضرة لجدولتها..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableSessionDates.length > 0 ? (
-                      availableSessionDates.map(date => (
-                        <SelectItem key={date} value={date}>
-                          {date}
-                        </SelectItem>
-                      ))
+                    {schedulableLectures.length > 0 ? (
+                        schedulableLectures.map((lec) => (
+                            <SelectItem key={lec.timetable_id} value={String(lec.timetable_id)}>
+                              {/* ✅ عرض عدد الجلسات المتاحة بجانب كل محاضرة */}
+                              {lec.course?.course_name} - ({lec.group?.group_name}) - ({lec.available_dates?.length || 0} متاحة)
+                            </SelectItem>
+                        ))
                     ) : (
-                      <div className="p-4 text-center text-sm text-muted-foreground">
-                        لا توجد تواريخ متاحة في هذا النطاق.
-                      </div>
+                        // ✅ --- رسالة جديدة عندما لا تكون هناك محاضرات قابلة للجدولة --- ✅
+                        <div className="p-4 text-center text-sm text-muted-foreground">
+                            تم إنشاء جميع الجلسات الممكنة.
+                        </div>
                     )}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  تم عرض التواريخ التي توافق يوم "{selectedLectureForSession.day.name}" فقط.
-                </p>
               </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSessionModalOpen(false)}>إلغاء</Button>
-            <Button onClick={handleCreateSession} disabled={isCreatingSession || !sessionDate}>
-              {isCreatingSession && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              إنشاء الجلسة
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        
+              {/* هذا الجزء يظهر فقط بعد اختيار محاضرة */}
+              {selectedLectureForSession && (
+                <>
+                  {/* 2. خانة الاختيار لإنشاء جميع الجلسات */}
+                  <div className="flex items-center space-x-2 rtl:space-x-reverse pt-2 border-t border-border/20 mt-4">
+                      <Checkbox
+                          id="create-all-sessions-toggle"
+                          checked={createAllSessions}
+                          onCheckedChange={(checked: boolean) => setCreateAllSessions(checked)}
+                          disabled={availableSessionDates.length === 0}
+                      />
+                      <label
+                          htmlFor="create-all-sessions-toggle"
+                          className="text-sm font-medium leading-none cursor-pointer"
+                      >
+                          إنشاء جميع الجلسات المتاحة ({availableSessionDates.length} جلسة)
+                      </label>
+                  </div>
+        
+                  {/* 3. حقل اختيار التاريخ (لم يتغير) */}
+                  {!createAllSessions && (
+                    <div className="space-y-2">
+                      <Label htmlFor="session-date-select">اختر تاريخ الجلسة</Label>
+                      <Select
+                        value={sessionDate}
+                        onValueChange={setSessionDate}
+                        disabled={availableSessionDates.length === 0}
+                      >
+                        <SelectTrigger id="session-date-select">
+                          <SelectValue placeholder="اختر تاريخًا من التواريخ المتاحة..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* القائمة الآن تأتي مباشرة من `availableSessionDates` المفلترة */}
+                          {availableSessionDates.map(date => (
+                            <SelectItem key={date} value={date}>
+                              {date}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+        
+            <DialogFooter>
+              {/* (لا تغيير هنا، دالة handleCreateSession والزر كما هما) */}
+              <Button variant="outline" onClick={() => setIsSessionModalOpen(false)}>إلغاء</Button>
+              <Button 
+                onClick={handleCreateSession} 
+                disabled={
+                    isCreatingSession || 
+                    !selectedLectureForSession ||
+                    (!createAllSessions && !sessionDate) || 
+                    (createAllSessions && availableSessionDates.length === 0)
+                }
+              >
+                {isCreatingSession && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {createAllSessions ? "إنشاء جميع الجلسات" : "إنشاء الجلسة"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
     </div>
   );
 }

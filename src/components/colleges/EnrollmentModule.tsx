@@ -341,7 +341,7 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="groups" className="w-full">
+      <Tabs defaultValue="groups" className="w-full" dir="rtl">
         <TabsList className="grid w-full grid-cols-1 bg-card/50 backdrop-blur-sm">
           {/* <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">استيراد الطلاب</TabsTrigger> */}
           <TabsTrigger value="groups" className="data-[state=active]:bg-primary/10">إدارة المجموعات</TabsTrigger>

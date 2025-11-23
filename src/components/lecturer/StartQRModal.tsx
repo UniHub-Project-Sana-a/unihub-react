@@ -26,9 +26,10 @@ interface StartQRModalProps {
   onSubmit: (settings: QRFormSettings) => void;
   lectureId: string | null;
   classroomInfo: ClassroomInfo | null;
+  expectedCount: number;
 }
 
-export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo }: StartQRModalProps) {
+export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo, expectedCount  }: StartQRModalProps) {
   // الحالات الداخلية للمودال
   const [intervalSeconds, setIntervalSeconds] = useState(10);
   const [validMinutes, setValidMinutes] = useState(1);
@@ -40,19 +41,28 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (open && classroomInfo) {
-      // تحويل القيم إلى أرقام بشكل آمن
-      const lat = classroomInfo.latitude !== null ? Number(classroomInfo.latitude) : null;
-      const lon = classroomInfo.longitude !== null ? Number(classroomInfo.longitude) : null;
-      const dist = classroomInfo.allowed_distance !== null ? Number(classroomInfo.allowed_distance) : 50;
-      
-      setLatitude(isNaN(lat) ? null : lat);
-      setLongitude(isNaN(lon) ? null : lon);
-      setAllowedDistance(isNaN(dist) ? 50 : dist);
-      
-      setErrors({}); // إعادة تعيين الأخطاء عند الفتح
+    if (open) {
+      // 1. تعيين العدد المتوقع للطلاب (إذا توفر)
+      if (expectedCount && expectedCount > 0) {
+        setMaxScans(expectedCount);
+      }
+
+      // 2. تعيين بيانات الموقع من معلومات القاعة
+      if (classroomInfo) {
+        // تحويل القيم إلى أرقام بشكل آمن
+        const lat = classroomInfo.latitude !== null ? Number(classroomInfo.latitude) : null;
+        const lon = classroomInfo.longitude !== null ? Number(classroomInfo.longitude) : null;
+        const dist = classroomInfo.allowed_distance !== null ? Number(classroomInfo.allowed_distance) : 50;
+        
+        setLatitude(isNaN(lat) ? null : lat);
+        setLongitude(isNaN(lon) ? null : lon);
+        setAllowedDistance(isNaN(dist) ? 50 : dist);
+      }
+
+      // 3. إعادة تعيين الأخطاء عند الفتح
+      setErrors({}); 
     }
-  }, [open, classroomInfo]);
+  }, [open, classroomInfo, expectedCount]);
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -101,7 +111,13 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
 
           <div className="space-y-2">
             <Label htmlFor="maxScans">عدد الطلاب المتوقع</Label>
-            <Input id="maxScans" type="number" min={1} value={maxScans} onChange={(e) => setMaxScans(Number(e.target.value))} />
+            <Input 
+                id="maxScans" 
+                type="number" 
+                min={1} 
+                value={maxScans} 
+                onChange={(e) => setMaxScans(Number(e.target.value))} 
+            />
           </div>
           
           <div className="space-y-2">

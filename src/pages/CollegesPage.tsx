@@ -62,7 +62,7 @@ export default function CollegesPage() {
     if (!me || !userTypes || userTypes.length === 0) {
       return null;
     }
-    return userTypes.find(t => t.user_type_id === me.user_type_id) || null;
+    return userTypes.find(t => t.user_type_id === (me as any).user_type_id) || null;
   }, [me, userTypes]); // يعتمد على me و userTypes
   
   const myUserTypeCode = myUserType?.user_type_code;
@@ -255,13 +255,13 @@ export default function CollegesPage() {
                 <TabsTrigger value="periods">الفترات</TabsTrigger>
               </TabsList>
 
-              {/* <TabsContent value="colleges-dashboard">
+              <TabsContent value="colleges-dashboard">
                 <Suspense fallback={<ModuleSkeleton title="لوحة التحكم " />}>
                   {activeTab === "colleges-dashboard" && (
                     <CollegesDashboardModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
-              </TabsContent> */}
+              </TabsContent>
 
               <TabsContent value="academic-titles">
                 <Suspense fallback={<ModuleSkeleton title="الدرجات الأكاديمية" />}>

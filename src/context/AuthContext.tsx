@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useMemo  } from "react";
 // افترض أن setAuthToken و api مستوردان بشكل صحيح
 import { api, setAuthToken } from "@/lib/api"; 
 
@@ -28,13 +28,28 @@ interface AuthContextType {
   isLoading: boolean;
   login: (token: string, remember: boolean) => Promise<void>; // أصبحت async وقابلة للانتظار
   logout: () => void;
+  myUserType: UserType | null;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [userTypes, setUserTypes] = useState<UserType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+   const fetchTypes = async () => {
+    try {
+      // نستخدم رابط الـ public lookup إذا كان متاحاً، أو المحمي
+      const res = await api.get('/v1/lookups/user-types');
+      const types = res.data.data || res.data;
+      if (Array.isArray(types)) {
+        setUserTypes(types);
+      }
+    } catch (error) {
+      console.error("Failed to fetch user types lookup:", error);
+    }
+  };
 
   // دالة لجلب المستخدم وتحديث الحالة (تُستخدم في useEffect و login)
   const fetchAndSetUser = async (token: string) => {
@@ -43,6 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const response = await api.get('/v1/auth/me');
       const userData = response.data?.data ?? response.data;
       setUser(userData.user ?? userData);
+      await fetchTypes();
       return true; // نجاح
     } catch (error) {
       console.error("Failed to fetch user:", error);
@@ -52,16 +68,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  useEffect(() => {
+    useEffect(() => {
     const initializeAuth = async () => {
       const token = sessionStorage.getItem('access_token') || localStorage.getItem('access_token');
       
+      // 1. جلب المستخدم
       if (token) {
-        // لا نحتاج لـ setIsLoading(true) هنا لأنها تبدأ بـ true
         await fetchAndSetUser(token);
       }
+
       
-      // توقف التحميل بعد انتهاء المحاولة الأولية
+      
+      // 3. إيقاف التحميل
       setIsLoading(false);
     };
 
@@ -105,7 +123,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     sessionStorage.removeItem('access_token');
   };
 
-  const value = { user, isLoading, login, logout };
+  const myUserType = useMemo(() => {
+    if (!user || !userTypes || userTypes.length === 0) return null;
+    return userTypes.find(t => t.user_type_id === (user as any).user_type_id) || null;
+  }, [user, userTypes]);
+
+  const value = { user, isLoading, login, logout, myUserType };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

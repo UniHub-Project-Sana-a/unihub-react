@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Lock, User, KeyRound } from 'lucide-react';
+import { Eye, EyeOff, Lock, User, KeyRound, ShieldCheck  } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter  } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import logoFull from "@/assets/logo-full.png";
@@ -31,6 +31,20 @@ export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+    useEffect(() => {
+    // استرجاع الإيميل
+    const savedEmail = localStorage.getItem('rememberedUser');
+    // استرجاع حالة الـ Checkbox
+    const savedState = localStorage.getItem('rememberMeState');
+
+    if (savedEmail) {
+      setEmail(savedEmail);
+    }
+    
+    if (savedState === 'true') {
+      setRememberMe(true);
+    }
+  }, []);
 
   const getDeviceDetails = async (): Promise<{ mac_address: string; device_name: string; os_type: string }> => {
     // ... (نفس دالة getDeviceDetails، لا تغيير)
@@ -172,9 +186,14 @@ export default function LoginPage() {
 
     // 5. إدارة "تذكرني"
     if (rememberMe) {
+      // نحفظ الإيميل فقط لتعبئة الحقل لاحقاً
       localStorage.setItem('rememberedUser', email);
+      // نحفظ حالة التذكر لتفعيل الـ Checkbox تلقائياً
+      localStorage.setItem('rememberMeState', 'true');
     } else {
+      // إذا ألغى الخيار، نحذف البيانات المحفوظة
       localStorage.removeItem('rememberedUser');
+      localStorage.removeItem('rememberMeState');
     }
     
     // 6. إيقاف التحميل في مكون الصفحة
@@ -283,13 +302,13 @@ export default function LoginPage() {
                       </button>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 space-x-reverse">
                     <Checkbox
                       id="remember"
-                      checked={rememberMe}
-                      onCheckedChange={(checked) => setRememberMe(checked as boolean)}
+                      checked={rememberMe} // القيمة
+                      onCheckedChange={(checked) => setRememberMe(checked as boolean)} // التحديث
                     />
-                    <Label htmlFor="remember" className="text-sm font-normal">تذكرني</Label>
+                    <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">تذكرني</Label>
                   </div>
                   <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
@@ -301,6 +320,19 @@ export default function LoginPage() {
                   </Button>
                 </div>
               </CardContent>
+
+              {/* ✅ الإضافة الجديدة: زر تفعيل الاتصال الآمن */}
+              <CardFooter className="border-t pt-4 pb-4 bg-muted/30 flex justify-center">
+                <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-muted-foreground hover:text-primary gap-2 text-xs"
+                    onClick={() => navigate('/install-cert')}
+                >
+                    <ShieldCheck className="w-4 h-4" />
+                    هل تواجه مشكلة في الاتصال الآمن؟ ثبت الشهادة
+                </Button>
+              </CardFooter>
             </>
           )}
         </Card>

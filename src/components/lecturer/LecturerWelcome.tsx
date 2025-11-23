@@ -6,11 +6,13 @@ import { setAuthToken, api } from "@/lib/api";
 import { useState } from "react";
 interface LecturerWelcomeProps {
   name: string;
+  academicTitle?: string;
 }
 
-export function LecturerWelcome({ name }: LecturerWelcomeProps) {
+export function LecturerWelcome({ name, academicTitle }: LecturerWelcomeProps) {
   const { logout } = useAuth(); // <-- الحصول على دالة logout
   const [loggingOut, setLoggingOut] = useState(false);
+
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -36,7 +38,7 @@ export function LecturerWelcome({ name }: LecturerWelcomeProps) {
           </div>
           <div>
             <h1 className="text-3xl font-bold text-foreground">
-              أهلاً بك، {name}
+              أهلاً بك، {academicTitle && `${academicTitle} / `}{name}
             </h1>
             <p className="text-muted-foreground mt-1">
               إدارة الحضور والمحاضرات
