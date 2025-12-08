@@ -37,7 +37,7 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
           variant="ghost"
           size="icon"
           onClick={onMenuToggle}
-          className="hover:bg-accent lg:hidden"
+          className="hover:bg-accent" // تم حذف lg:hidden
           aria-label="Toggle Menu"
         >
           <Menu className="w-5 h-5" />

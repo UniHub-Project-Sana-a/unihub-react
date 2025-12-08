@@ -458,30 +458,44 @@ export default function DepartmentsModule({ collegeId }: DepartmentsModuleProps)
     setIsCourseFormOpen(true);
   };
 
-  const handleSubmitCourse = async (e: any) => {
+    const handleSubmitCourse = async (e: any) => {
     e.preventDefault();
-    if (!selectedTerm) return;
+    // التحقق من وجود جميع البيانات الهرمية المطلوبة
+    if (!selectedDepartment || !selectedProgram || !selectedLevel || !selectedTerm) {
+      toast({ title: "خطأ", description: "يجب اختيار المسار الكامل (القسم > البرنامج > المستوى > الفصل) قبل إضافة مادة.", variant: "destructive" });
+      return;
+    }
+
     try {
       const payload = {
-        semester_id: selectedTerm.id,
+        // 1. البيانات الأساسية للمادة
         course_code: courseFormData.courseCode,
         course_name: courseFormData.courseName,
         credit_hours: Number(courseFormData.creditHours),
         is_elective: courseFormData.isElective,
-        department_id: courseFormData.departmentId ? Number(courseFormData.departmentId) : null,
         notes: courseFormData.notes || null,
+        semester_id: selectedTerm.id,
+
+        // 2. بيانات الربط الهرمي (لتحسين التقارير)
+        college_id: Number(collegeId), // من الـ Props
+        department_id: selectedDepartment.department_id, // من الـ State
+        program_id: selectedProgram.id, // من الـ State
+        level_id: selectedLevel.id, // من الـ State
       };
+
       if (editingCourse) {
         await api.put(`/v1/courses/${editingCourse.id}`, payload);
-        toast({ title: "نجاح", description: "تم تعديل المادة" });
+        toast({ title: "نجاح", description: "تم تعديل المادة وتحديث بيانات الربط" });
       } else {
         await api.post("/v1/courses", payload);
-        toast({ title: "نجاح", description: "تم إنشاء المادة" });
+        toast({ title: "نجاح", description: "تم إنشاء المادة بنجاح" });
       }
+      
       setIsCourseFormOpen(false);
       await fetchCourses(selectedTerm.id);
     } catch (error: any) {
       const msg = error?.response?.data?.message || "فشل حفظ المادة";
+      console.error(error); // للمساعدة في تتبع الأخطاء
       toast({ title: "خطأ", description: msg, variant: "destructive" });
     }
   };
@@ -882,24 +896,6 @@ export default function DepartmentsModule({ collegeId }: DepartmentsModuleProps)
                                   />
                                   <Label>اختيارية؟</Label>
                                 </div>
-                                {/* <div>
-                                  <Label>القسم (اختياري)</Label>
-                                  <Select
-                                    value={courseFormData.departmentId}
-                                    onValueChange={(value) => setCourseFormData({ ...courseFormData, departmentId: value })}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="اختر قسم" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {departments.map((dept) => (
-                                        <SelectItem key={dept.department_id} value={String(dept.department_id)}>
-                                          {dept.department_name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div> */}
                                 <div>
                                   <Label>ملاحظات</Label>
                                   <Textarea

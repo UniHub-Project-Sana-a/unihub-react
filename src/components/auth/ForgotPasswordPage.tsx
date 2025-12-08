@@ -1,6 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom"; // 1. استيراد useNavigate
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,48 +9,43 @@ import logoFull from "@/assets/logo-full.png";
 
 const ForgotPasswordPage = () => {
   const [email, setEmail] = useState("");
-  const [isSubmitted, setIsSubmitted] = useState(false);
-
-  // جديد: عرض الرمز القادم من الـ API + التحميل + الأخطاء
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const navigate = useNavigate(); // 2. تعريف الهوك
+
+    const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
 
     setError(null);
-    setIsSubmitted(false);
-    setToken(null);
     setIsLoading(true);
 
     try {
       const res = await axios.post(
-        "http://127.0.0.1:8000/api/v1/auth/forgot-password",
+        "http://127.0.0.1:8000/api/v1/auth/forgot-password", // تأكد من الرابط
         { email },
         { headers: { Accept: "application/json" } }
       );
+      
       setIsSubmitted(true);
 
-      // في بيئة التطوير قد يعيد الـ API token لسهولة الاختبار
-      if (res.data?.token) setToken(res.data.token);
+      // ✅ الآن الباك إند سيرسل التوكن، فسيتحقق الشرط ويتم التوجيه
+      if (res.data?.token) {
+        // توجيه مباشر وسريع
+        navigate(`/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(res.data.token)}`);
+      } else {
+        // في حالة لم يرجع التوكن (مثلاً إيميل غير موجود)
+        setError("لم يتم إرجاع رمز التحقق، تأكد من صحة البريد الإلكتروني.");
+      }
+
     } catch (err: any) {
       const msg = err?.response?.data?.message || "حدث خطأ أثناء إرسال طلب الاسترجاع.";
       setError(msg);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleCopy = async () => {
-    if (!token) return;
-    try {
-      await navigator.clipboard.writeText(token);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch {}
   };
 
   return (
@@ -91,37 +86,19 @@ const ForgotPasswordPage = () => {
               </Button>
             </form>
           ) : (
-            <div className="space-y-4">
-              <div className="p-4 bg-accent/20 border border-accent rounded-lg text-center">
-                <p className="text-foreground font-medium">
-                  إذا كان هذا الحساب موجودًا، سيتم إرسال رابط/رمز إعادة التعيين إلى بريدك الإلكتروني.
+            <div className="space-y-4 text-center">
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-green-800 font-medium">
+                  تم إرسال الطلب بنجاح!
+                </p>
+                <p className="text-sm text-green-700 mt-2">
+                  جاري تحويلك لصفحة تعيين كلمة المرور...
                 </p>
               </div>
-
-              {/* عرض الرمز المُرجع من الـ API لسهولة الاختبار قبل تفعيل SMTP */}
-              {token && (
-                <div className="p-3 border rounded-md bg-muted/30 space-y-3">
-                  <p className="text-sm">الرمز (token) لاستخدامه في صفحة إعادة التعيين:</p>
-                  <div className="flex items-center gap-2">
-                    <Input readOnly value={token} className="font-mono text-xs" />
-                    <Button type="button" variant="secondary" onClick={handleCopy}>
-                      {copied ? "تم النسخ" : "نسخ"}
-                    </Button>
-                  </div>
-                  <Button
-                    asChild
-                    className="w-full"
-                  >
-                    <Link to={`/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`}>
-                      الانتقال لتعيين كلمة المرور
-                    </Link>
-                  </Button>
-                </div>
-              )}
-
-              <p className="text-sm text-muted-foreground text-center">
-                يرجى التحقق من بريدك الإلكتروني واتباع التعليمات لإعادة تعيين كلمة المرور.
-              </p>
+              {/* Spinner loader */}
+              <div className="flex justify-center mt-4">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+              </div>
             </div>
           )}
 

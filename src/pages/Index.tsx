@@ -9,5 +9,4 @@ const Index = () => {
     </AdminLayout>
   );
 };
-
 export default Index;

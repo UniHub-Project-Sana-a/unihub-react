@@ -263,6 +263,9 @@ export default function LecturerPage() {
             records={attendanceRecords}
             lectureTitle={selectedSession.title}
             groupName={selectedSession.groupName}
+            lecturerName={lecturerName} // ✅ تم إضافته: اسم المحاضر من الـ state الموجودة في الصفحة
+            classroomName={selectedSession.classroomName} // ✅ تم إضافته: موجود بالفعل في كائن selectedSession
+            buildingName={selectedSession.buildingName}   // ✅ تم إضافته: موجود بالفعل في كائن selectedSession
             groupId={selectedSession.groupId} 
             timetableId={selectedSession.timetableId}
             sessionId={selectedSession.id}

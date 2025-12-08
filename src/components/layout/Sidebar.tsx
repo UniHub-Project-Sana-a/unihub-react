@@ -1,15 +1,12 @@
-
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { 
-  Home, Users, Calendar, GraduationCap, FileText, 
-  BarChart3, Settings, ChevronDown, 
-  Clock, DollarSign, Database, BookOpen, UserCog,
-  ClipboardList, Shield, Plug, History, Upload, Eye, 
-  Link as LinkIcon, RefreshCw, Activity, TrendingUp
+  Home, Users, GraduationCap, Settings, ChevronDown, 
+  // ... باقي الأيقونات
 } from "lucide-react";
 import logoSidebar from "@/assets/logo-sidebar.png";
+import logoMini from "@/assets/logo-mini.png";
 
 interface SidebarProps {
   isOpen: boolean;
@@ -39,90 +36,9 @@ const menuItems = [
     badge: null,
     subItems: [
       { title: "جميع المستخدمين", href: "/users" },
-      // { title: "الأدوار والصلاحيات", href: "/users/roles" },
       { title: "التحكم في الوصول", href: "/users/access-control" }
     ]
   },
-  // {
-  //   title: "الجدول الزمني",
-  //   icon: Calendar,
-  //   href: "/timetable",
-  //   badge: null,
-  //   subItems: [
-  //     { title: "استيراد الجدول", href: "/timetable" },
-  //     { title: "عرض الجدول", href: "/timetable" },
-  //     { title: "ربط المقررات", href: "/timetable/course-mapping" }
-  //   ]
-  // },
-  // {
-  //   title: "تسجيل الطلاب",
-  //   icon: ClipboardList,
-  //   href: "/enrollment/import-students",
-  //   badge: null,
-  //   subItems: [
-  //     { title: "استيراد الطلاب", href: "/enrollment/import" },
-  //     { title: "إدارة المجموعات", href: "/enrollment/groups" },
-  //     { title: "تعيين المقررات", href: "/enrollment" }
-  //   ]
-  // },
-  // {
-  //   title: "إدارة الأعذار",
-  //   icon: Clock,
-  //   href: "/excuse/pending-requests",
-  //   badge: null,
-  //   subItems: [
-  //     { title: "الطلبات المعلّقة", href: "/excuses" },
-  //     { title: "تسويات الرواتب", href: "/excuses/pending" }
-  //   ]
-  // },
-  // {
-  //   title: "التقارير",
-  //   icon: BarChart3,
-  //   href: "/reports",
-  //   badge: null,
-  //   subItems: [
-  //     { title: "التقارير المالية", href: "/reports" },
-  //     { title: "عبء التدريس", href: "/reports/teaching" },
-  //     { title: "الحضور والغياب", href: "/reports/attendance" },
-  //     { title: "نظرة عامة على الدرجات", href: "/reports/grades-overview" }
-  //   ]
-  // },
-  // {
-  //   title: "التكامل",
-  //   icon: Plug,
-  //   href: "/integration/mobile-sync",
-  //   badge: null,
-  //   subItems: [
-  //     { title: "مزامنة الجوال", href: "/integration/mobile" },
-  //     { title: "حالة واجهة البرمجة (API)", href: "/integration/api-status" },
-  //     { title: "المراقبة الفورية", href: "/integration/real-time" }
-  //   ]
-  // },
-  // {
-  //   title: "إدارة المقررات",
-  //   icon: BookOpen,
-  //   href: "/course-management",
-  //   badge: null,
-  //   subItems: [
-  //     { title: "عرض الأقسام", href: "/course-management" },
-  //     { title: "تقارير الدرجات", href: "/course-management/grade-reports" },
-  //     { title: "تصدير البيانات", href: "/course-management/export" }
-  //   ]
-  // },
-  // {
-  //   title: "أعضاء الهيئة الأكاديمية",
-  //   icon: UserCog,
-  //   href: "/academic-staff",
-  //   badge: null,
-  //   subItems: undefined
-  // },
-  // {
-  //   title: "سجل التدقيق",
-  //   icon: History,
-  //   href: "/auditlog",
-  //   badge: null,
-  //   subItems: undefined
-  // },
   {
     title: "الإعدادات",
     icon: Settings,
@@ -136,7 +52,17 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
   const location = useLocation();
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
+  // حالة القائمة المنكمشة (فقط في الديسك توب وعندما تكون مغلقة)
+  const isCollapsed = !isMobile && !isOpen;
+
   const toggleExpanded = (title: string) => {
+    if (isCollapsed) {
+      onToggle();
+      setTimeout(() => {
+        setExpandedItems(prev => [...prev, title]);
+      }, 150);
+      return;
+    }
     setExpandedItems(prev => 
       prev.includes(title) 
         ? prev.filter(item => item !== title)
@@ -145,91 +71,151 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
   };
 
   return (
-    <div className={cn(
-      "fixed right-0 top-0 h-full bg-sidebar shadow-2xl z-40 transition-all duration-300 border-l border-sidebar-border flex flex-col",
-      isOpen ? "w-64" : isMobile ? "w-0 overflow-hidden" : "w-16",
-      isMobile && "z-50"
-    )}>
-      {/* Logo */}
-      <div className="h-20 flex items-center justify-center px-[25px] border-b border-sidebar-border bg-sidebar flex-shrink-0">
-        <img src={logoSidebar} alt="UniHub" className="w-full h-auto object-contain" />
+    <aside 
+      className={cn(
+        "fixed top-0 right-0 h-full bg-sidebar shadow-xl z-40 transition-all duration-300 ease-in-out border-l border-sidebar-border flex flex-col",
+        // منطق العرض:
+        // موبايل: إما 64 (مفتوح) أو 0 (مخفي)
+        // ديسك توب: إما 64 (مفتوح) أو أيقونات فقط (منكمش)
+        isMobile 
+          ? (isOpen ? "w-64 translate-x-0" : "w-64 translate-x-full") // للموبايل نستخدم translate للإخفاء السلس
+          : (isOpen ? "w-64" : "w-[4.5rem]"), 
+        isMobile && "z-50"
+      )}
+    >
+            {/* Logo Area */}
+      <div className={cn(
+        // أبقينا ارتفاع الصندوق h-20 كما طلبت (لم نكبر الصندوق)
+        "h-20 flex items-center border-b border-sidebar-border bg-sidebar/50 backdrop-blur-sm flex-shrink-0 transition-all duration-300 overflow-hidden",
+        
+        // إزالة الـ Padding تماماً (px-0) لنسمح للصورة أن تأخذ راحتها في المساحة
+        "justify-center px-0"
+      )}>
+        {isCollapsed ? (
+          <img 
+            src={logoMini} 
+            alt="UniHub Mini" 
+            // الشعار الصغير:
+            // w-12 h-12 (48px)
+            // هذا حجم كبير ومناسب جداً للسايدبار المنكمش
+            className="w-full h-59 object-contain animate-in fade-in zoom-in duration-300"
+          />
+        ) : (
+          <img 
+            src={logoSidebar} 
+            alt="UniHub" 
+            // الشعار الكبير:
+            // h-16 (64px) من أصل h-20 (80px) المتاحة في الصندوق
+            // هذا يعني أن الصورة ستملأ الصندوق بالكامل تقريباً مع هامش بسيط جداً
+            className="h-21 w-full object-contain animate-in fade-in slide-in-from-right-4 duration-300" 
+          />
+        )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-sidebar-accent scrollbar-track-transparent hover:scrollbar-thumb-sidebar-accent/80 pt-4 sm:pt-6 px-2 sm:px-3 pb-6">
-        <div className="space-y-1 sm:space-y-2">
-          {menuItems.map((item) => (
-            <div key={item.title} className="mb-1 sm:mb-2">
-              <div
-                className={cn(
-                  "flex items-center justify-between px-2 sm:px-3 py-2 sm:py-3 rounded-xl text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-all duration-200 cursor-pointer group",
-                  location.pathname === item.href && "bg-sidebar-accent text-sidebar-accent-foreground shadow-md",
-                  (!isOpen && !isMobile) && "justify-center",
-                  "text-sm sm:text-base"
-                )}
-                onClick={() => {
-                  if (item.subItems) {
-                    toggleExpanded(item.title);
-                  } else if (isMobile) {
-                    onToggle();
-                  }
-                }}
-              >
-                <Link 
-                  to={item.href} 
-                  className="flex items-center space-x-reverse space-x-2 sm:space-x-3 flex-1 min-w-0"
-                  onClick={(e) => {
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none py-4 px-3">
+        <div className="space-y-2">
+          {menuItems.map((item) => {
+            const isActive = location.pathname === item.href || item.subItems?.some(sub => sub.href === location.pathname);
+            
+            return (
+              <div key={item.title} className="relative group">
+                {/* Main Item */}
+                <div
+                  className={cn(
+                    "flex items-center py-2.5 rounded-lg cursor-pointer transition-all duration-200 group relative select-none",
+                    isActive 
+                      ? "bg-primary text-primary-foreground shadow-md" 
+                      : "text-sidebar-foreground hover:bg-gray-100 hover:text-gray-900",
+                    isCollapsed ? "justify-center px-0" : "justify-between px-3"
+                  )}
+                  onClick={() => {
                     if (item.subItems) {
-                      e.preventDefault();
+                      toggleExpanded(item.title);
                     } else if (isMobile) {
                       onToggle();
                     }
                   }}
                 >
-                  <item.icon className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-                  {(isOpen || isMobile) && (
-                    <>
-                      <span className="font-medium truncate">{item.title}</span>
-                      {item.badge && (
-                        <span className="bg-destructive/10 text-destructive text-xs px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full flex-shrink-0">
-                          {item.badge}
-                        </span>
-                      )}
-                    </>
-                  )}
-                </Link>
-                {(isOpen || isMobile) && item.subItems && (
-                  <ChevronDown 
+                  <Link 
+                    to={item.href} 
                     className={cn(
-                      "w-3 h-3 sm:w-4 sm:h-4 transition-transform duration-200 flex-shrink-0",
-                      expandedItems.includes(item.title) && "rotate-180"
-                    )} 
-                  />
+                      "flex items-center min-w-0",
+                      !isCollapsed && "space-x-reverse space-x-3 flex-1" 
+                    )}
+                    onClick={(e) => {
+                      if (item.subItems) e.preventDefault();
+                      else if (isMobile) onToggle();
+                    }}
+                  >
+                    <item.icon 
+                      className={cn(
+                        "flex-shrink-0 transition-all duration-300",
+                        isCollapsed ? "w-6 h-6" : "w-5 h-5"
+                      )} 
+                    />
+                    
+                    {!isCollapsed && (
+                      <div className="flex items-center justify-between flex-1 overflow-hidden mr-3">
+                        <span className="font-semibold truncate text-sm">{item.title}</span>
+                        {item.badge && (
+                          <span className="bg-destructive text-destructive-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </Link>
+
+                  {!isCollapsed && item.subItems && (
+                    <ChevronDown 
+                      className={cn(
+                        "w-4 h-4 transition-transform duration-200 opacity-70",
+                        expandedItems.includes(item.title) && "rotate-180"
+                      )} 
+                    />
+                  )}
+
+                  {/* Tooltip on Hover (Collapsed Mode) */}
+                  {isCollapsed && (
+                    <div className="absolute right-14 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-md shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap z-50">
+                      {item.title}
+                      <div className="absolute top-1/2 -right-1 -translate-y-1/2 border-4 border-transparent border-l-gray-900"></div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sub Items Dropdown - تحسين الألوان هنا */}
+                {!isCollapsed && item.subItems && expandedItems.includes(item.title) && (
+                  <div className="mr-4 mt-1 border-r-2 border-gray-200 pr-2 space-y-1 animate-in slide-in-from-top-2 duration-200">
+                    {item.subItems.map((subItem) => (
+                      <Link
+                        key={subItem.href}
+                        to={subItem.href}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-all duration-200 font-medium",
+                          // 🔥 تحسين التباين: ألوان أغمق وأوضح 🔥
+                          location.pathname === subItem.href 
+                            ? "text-primary bg-primary/10 border border-primary/20 shadow-sm" // الحالة النشطة
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-100" // الحالة العادية
+                        )}
+                        onClick={() => isMobile && onToggle()}
+                      >
+                        {/* نقطة صغيرة لتمييز القوائم */}
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full transition-colors",
+                          location.pathname === subItem.href ? "bg-primary" : "bg-gray-400"
+                        )} />
+                        <span className="truncate">{subItem.title}</span>
+                      </Link>
+                    ))}
+                  </div>
                 )}
               </div>
-
-              {/* Sub Items */}
-              {(isOpen || isMobile) && item.subItems && expandedItems.includes(item.title) && (
-                <div className="mr-4 sm:mr-6 mt-1 sm:mt-2 space-y-1">
-                  {item.subItems.map((subItem) => (
-                    <Link
-                      key={subItem.href}
-                      to={subItem.href}
-                      className={cn(
-                        "block px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm text-sidebar-foreground/80 hover:text-sidebar-accent-foreground hover:bg-sidebar-accent rounded-lg transition-colors duration-200",
-                        location.pathname === subItem.href && "text-sidebar-accent-foreground bg-sidebar-accent"
-                      )}
-                      onClick={() => isMobile && onToggle()}
-                    >
-                      <span className="truncate">{subItem.title}</span>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </nav>
-    </div>
+    </aside>
   );
 }

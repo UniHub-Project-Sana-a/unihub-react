@@ -102,10 +102,6 @@ const ResetPasswordPage = () => {
               <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="token">رمز إعادة التعيين (token)</Label>
-              <Input id="token" type="text" value={token} onChange={(e) => setToken(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="newPassword">كلمة المرور الجديدة</Label>
               <div className="relative">
                 <Input id="newPassword" type={showPassword ? "text" : "password"} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />

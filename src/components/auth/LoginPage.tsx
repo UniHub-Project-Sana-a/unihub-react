@@ -31,7 +31,8 @@ export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-    useEffect(() => {
+
+  useEffect(() => {
     // استرجاع الإيميل
     const savedEmail = localStorage.getItem('rememberedUser');
     // استرجاع حالة الـ Checkbox
@@ -47,7 +48,6 @@ export default function LoginPage() {
   }, []);
 
   const getDeviceDetails = async (): Promise<{ mac_address: string; device_name: string; os_type: string }> => {
-    // ... (نفس دالة getDeviceDetails، لا تغيير)
     const detectOS = () => (navigator as any).userAgentData?.platform || navigator.platform || 'Unknown OS';
     const detectBrowser = () => {
       const ua = navigator.userAgent;
@@ -94,9 +94,29 @@ export default function LoginPage() {
         ...deviceDetails,
       });
   
-      // إذا كان الجهاز غير معروف، سيطلب الخادم OTP
+      // 🔥🔥🔥 1. التحقق من فرض تغيير كلمة المرور (الجديد) 🔥🔥🔥
+      if (res.data?.require_password_change) {
+         const tempToken = res.data.access_token;
+         
+         // نحفظ التوكن في الهيدر وفي التخزين لنتمكن من استدعاء API تغيير الباسورد لاحقاً
+         api.defaults.headers.common.Authorization = `Bearer ${tempToken}`;
+         localStorage.setItem('token', tempToken); 
+
+         // توجيه المستخدم لصفحة تغيير كلمة المرور
+         navigate('/change-password', { 
+           state: { 
+             message: res.data.message,
+             mustChange: true // علامة لنعرف أنه إجبار
+           } 
+         });
+         
+         setIsLoading(false);
+         return; // نوقف الدالة هنا
+      }
+
+      // 2. التحقق من OTP (إذا كان الجهاز غير معروف)
       if (res.data?.otp_required) {
-        setVerificationData(res.data); // خزّن البيانات المؤقتة (مثل user_id, device_name)
+        setVerificationData(res.data);
         setShowOtpForm(true);
         setIsLoading(false);
         return;
@@ -105,12 +125,17 @@ export default function LoginPage() {
       const token = res.data?.access_token;
       if (!token) throw new Error('No token returned from server');
       
-      // إذا لم يكن OTP مطلوباً، أكمل كالسابق
+      // 3. إكمال الدخول الطبيعي
       await finalizeLogin(token);
 
     } catch (err: any) {
-      const msg = err?.response?.data?.message || 'بيانات الدخول غير صحيحة أو حدث خطأ بالخادم.';
-      setError(msg);
+      // التعامل مع رسالة الخطأ الخاصة بمنع الطلاب
+      if (err?.response?.data?.error_code === 'STUDENT_LOGIN_FORBIDDEN') {
+        setError(err.response.data.message);
+      } else {
+        const msg = err?.response?.data?.message || 'بيانات الدخول غير صحيحة أو حدث خطأ بالخادم.';
+        setError(msg);
+      }
       setIsLoading(false);
     }
   };
@@ -121,14 +146,12 @@ export default function LoginPage() {
     setIsLoading(true);
   
     try {
-      // تأكد من أن verificationData ليس null
       if (!verificationData || !verificationData.verification_id) {
         throw new Error("بيانات التحقق غير متوفرة. الرجاء المحاولة مرة أخرى.");
       }
   
-      // أرسل OTP والبيانات المؤقتة بشكل صريح
       const res = await api.post('/v1/auth/verify-otp', {
-        verification_id: verificationData.verification_id, // أرسل الـ ID
+        verification_id: verificationData.verification_id,
         otp_code: otp,
       });
   
@@ -146,67 +169,64 @@ export default function LoginPage() {
   };
 
   const finalizeLogin = async (token: string) => {
-    // 1. إعداد التوكن للمكالمات التالية
     api.defaults.headers.common.Authorization = `Bearer ${token}`;
   
+    // تحديد الوجهة الافتراضية
     let target = '/';
     
-    // 2. جلب بيانات المستخدم لتحديد مسار التوجيه (Target) قبل تحديث السياق
     try {
       const meRes = await api.get('/v1/auth/me');
       const meRaw = meRes.data?.data ?? meRes.data ?? {};
       const me = meRaw.user ?? meRaw;
       
-      const userTypeCode = me?.user_type?.user_type_code || me?.user_type_code || null;
-      
-      if (userTypeCode === 'lecturer') {
+      const role = me?.user_type?.user_type_code || me?.user_type_code || '';
+      const collegeId = me?.college_id;
+
+      // 🛑 1. المشرف العام (رئاسة الجامعة) -> لوحة التحكم الرئيسية
+      if (role === 'presidency' || role === 'admin') {
+        target = '/';
+      } 
+      // 🛑 2. المحاضر -> واجهة المحاضر الخاصة
+      else if (role === 'lecturer') {
         target = '/lecturer';
+      }
+      // 🛑 3. باقي الطاقم الإداري (عميد، سكرتارية، رئيس قسم...) -> لوحة تحكم كليتهم
+      else if (collegeId) {
+        // أي دور آخر غير المذكورين أعلاه ولديه college_id سيذهب لكليته
+        target = `/colleges/${collegeId}/dashboard`;
+      }
+      else {
+        // حالة احتياطية (طالب أو خطأ في البيانات)
+        target = '/login';
       }
       
     } catch (meError) {
-      console.error("Failed to fetch user details for target determination:", meError);
-      // نستمر بـ '/' كمسار افتراضي
+      console.error("Failed to fetch user details:", meError);
     }
     
-    // 3. تحديث حالة المصادقة (Auth Context) - هذه هي الخطوة التي تجعل RequireAuth ينتظر
     try {
-        // دالة login الآن ستبدأ setIsLoading(true) وتنتظر جلب المستخدم
         await login(token, rememberMe); 
     } catch(e) {
-        console.error("Failed to update Auth Context after token acquisition:", e);
-        setError("فشل في المصادقة بعد التوثيق. الرجاء المحاولة مجدداً.");
-        setIsLoading(false); // إيقاف التحميل في مكون الصفحة
+        setIsLoading(false);
         return; 
     }
 
-
-    // 4. التوجيه النهائي (الآن AuthContext مُحدَّث، ولن يتم إعادة التوجيه لـ /login)
+    // إذا كان هناك رابط سابق محفوظ (from) نستخدمه، وإلا نذهب للـ target المحسوب
     const from = new URLSearchParams(location.search).get("from") || location.state?.from?.pathname || target;
+    
     navigate(from, { replace: true });
 
-    // 5. إدارة "تذكرني"
+    // ... (باقي كود حفظ التذكر كما هو)
     if (rememberMe) {
-      // نحفظ الإيميل فقط لتعبئة الحقل لاحقاً
       localStorage.setItem('rememberedUser', email);
-      // نحفظ حالة التذكر لتفعيل الـ Checkbox تلقائياً
       localStorage.setItem('rememberMeState', 'true');
     } else {
-      // إذا ألغى الخيار، نحذف البيانات المحفوظة
       localStorage.removeItem('rememberedUser');
       localStorage.removeItem('rememberMeState');
     }
     
-    // 6. إيقاف التحميل في مكون الصفحة
     setIsLoading(false); 
   };
-
-  useEffect(() => {
-    const rememberedUser = localStorage.getItem('rememberedUser');
-    if (rememberedUser) {
-      setEmail(rememberedUser);
-      setRememberMe(true);
-    }
-  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/10 flex items-center justify-center p-4">
@@ -305,8 +325,8 @@ export default function LoginPage() {
                   <div className="flex items-center space-x-2 space-x-reverse">
                     <Checkbox
                       id="remember"
-                      checked={rememberMe} // القيمة
-                      onCheckedChange={(checked) => setRememberMe(checked as boolean)} // التحديث
+                      checked={rememberMe} 
+                      onCheckedChange={(checked) => setRememberMe(checked as boolean)} 
                     />
                     <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">تذكرني</Label>
                   </div>
@@ -321,7 +341,6 @@ export default function LoginPage() {
                 </div>
               </CardContent>
 
-              {/* ✅ الإضافة الجديدة: زر تفعيل الاتصال الآمن */}
               <CardFooter className="border-t pt-4 pb-4 bg-muted/30 flex justify-center">
                 <Button 
                     variant="ghost" 
