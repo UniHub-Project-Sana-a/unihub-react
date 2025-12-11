@@ -44,7 +44,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter
+        <BrowserRouter basename="/react-app"
          future={{
             v7_startTransition: true,
             v7_relativeSplatPath: true,
