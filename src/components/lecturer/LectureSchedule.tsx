@@ -1,11 +1,20 @@
+import React, { useState, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, Users, QrCode, CheckCircle, BatteryCharging, Loader2, MapPin, Building, HeartHandshake, RefreshCw  } from "lucide-react";
-import { LectureSession } from "@/pages/LecturerPage"; // استيراد النوع الجديد
+import { 
+  Calendar, Clock, Users, QrCode, CheckCircle, 
+  BatteryCharging, Loader2, MapPin, Building, 
+  HeartHandshake, RefreshCw, Printer 
+} from "lucide-react";
+import { LectureSession } from "@/pages/LecturerPage";
 import { format, startOfWeek, endOfWeek, addDays, subDays, isToday } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { cn } from "@/lib/utils";
+import { useReactToPrint } from "react-to-print";
+import { AttendanceReportSheet, ReportStudent } from "@/components/reports/AttendanceReportSheet";
+import { api } from "@/lib/api";
+import { useToast } from "@/hooks/use-toast";
 
 interface LectureScheduleProps {
   sessions: LectureSession[];
@@ -14,19 +23,156 @@ interface LectureScheduleProps {
   viewDate: Date;
   setViewDate: (date: Date) => void;
   onRefresh: () => void;
+  lecturerName: string; 
 }
 
-export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setViewDate, onRefresh }: LectureScheduleProps) {
+export function LectureSchedule({ 
+    sessions, 
+    onStartQR, 
+    isLoading, 
+    viewDate, 
+    setViewDate, 
+    onRefresh, 
+    lecturerName 
+}: LectureScheduleProps) {
     
-  // تجميع الجلسات حسب التاريخ
+  const { toast } = useToast();
+  const printComponentRef = useRef<HTMLDivElement>(null);
+
+  const [isPrintingId, setIsPrintingId] = useState<string | null>(null);
+  
+  // ✅ تعديل الـ State ليحمل وقتين
+  const [printData, setPrintData] = useState<{
+    session: LectureSession | null;
+    students: ReportStudent[];
+    presentCount: number;
+    absentCount: number;
+    printTime: string;   // وقت الطباعة
+  }>({
+    session: null,
+    students: [],
+    presentCount: 0,
+    absentCount: 0,
+    printTime: ""
+  });
+
+  const handlePrint = useReactToPrint({
+    contentRef: printComponentRef,
+    documentTitle: printData.session 
+        ? `Attendance_${printData.session.title}_${printData.session.date}` 
+        : "Attendance_Report",
+    onAfterPrint: () => {
+        setIsPrintingId(null);
+        setPrintData(prev => ({ ...prev, session: null }));
+    }
+  });
+
+    // --- دالة تجهيز البيانات والطباعة ---
+  const prepareAndPrint = async (session: LectureSession) => {
+    setIsPrintingId(session.id);
+    
+    try {
+        // ------------------------------------------------------------------
+        // الخطوة 1: جلب قائمة جميع طلاب المجموعة
+        // ------------------------------------------------------------------
+        const groupRes = await api.get(`/v1/student-groups/${session.groupId}/students`);
+        const allStudents = groupRes.data.data || groupRes.data || [];
+
+        // ------------------------------------------------------------------
+        // الخطوة 2: تجهيز باراميترات البحث عن سجلات الحضور
+        // ------------------------------------------------------------------
+        const params: any = {
+            per_page: 1000 
+        };
+
+        if (session.sessionCode) {
+            params.session_code = session.sessionCode;
+        } else {
+            params.timetable_id = session.timetableId;
+            params.attendance_date = session.date;
+        }
+
+        // ------------------------------------------------------------------
+        // الخطوة 3: جلب سجلات الحضور من السيرفر
+        // ------------------------------------------------------------------
+        const attendanceRes = await api.get('/v1/student-attendance', { params });
+        const attendanceRecords = attendanceRes.data.data || attendanceRes.data || [];
+
+        // ------------------------------------------------------------------
+        // الخطوة 4: المطابقة ودمج البيانات (Mapping)
+        // ------------------------------------------------------------------
+        const finalReportStudents: ReportStudent[] = allStudents.map((student: any) => {
+            
+            const sID = String(student.student_id);
+            const record = attendanceRecords.find((r: any) => String(r.student_id) === sID);
+            
+            // الطالب حاضر فقط إذا وجد السجل والحالة = 1
+            const isPresent = record && Number(record.status) === 1;
+
+            return {
+                name: student.user?.full_name || student.name || "طالب",
+                id: String(student.user?.academic_number || student.academic_number),
+                status: isPresent ? 'present' : 'absent',
+                method: isPresent ? (record.method || 'QR') : '-', 
+            };
+        });
+
+        // التحقق من وجود بيانات
+        if (finalReportStudents.length === 0) {
+            toast({ title: "تنبيه", description: "لا يوجد طلاب في هذه المجموعة.", variant: "destructive" });
+            setIsPrintingId(null);
+            return;
+        }
+
+        // ------------------------------------------------------------------
+        // الخطوة 5: حساب الإحصائيات والترتيب
+        // ------------------------------------------------------------------
+        const presentCount = finalReportStudents.filter(s => s.status === 'present').length;
+        const absentCount = finalReportStudents.length - presentCount;
+
+        const sortedStudents = finalReportStudents.sort((a, b) => {
+            if (a.status === 'present' && b.status === 'absent') return -1;
+            if (a.status === 'absent' && b.status === 'present') return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+        // ------------------------------------------------------------------
+        // الخطوة 6: حفظ البيانات وتفعيل الطباعة (مبسط)
+        // ------------------------------------------------------------------
+        setPrintData({
+            session: session,
+            students: sortedStudents,
+            presentCount,
+            absentCount,
+            // وقت الطباعة الحالي بصيغة (08:30 ص)
+            printTime: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
+        });
+
+        // تأخير بسيط لضمان تحديث الـ DOM قبل فتح نافذة الطباعة
+        setTimeout(() => {
+            handlePrint();
+        }, 300);
+
+    } catch (error) {
+        console.error("Error fetching report data", error);
+        toast({ 
+            title: "خطأ", 
+            description: "فشل جلب بيانات التقرير.", 
+            variant: "destructive" 
+        });
+        setIsPrintingId(null);
+    }
+  };
+
+
+  // --- تجميع الجلسات حسب التاريخ (كما هو) ---
   const sessionsByDate = sessions.reduce((acc, session) => {
-    const date = session.date.slice(0, 10); // 'YYYY-MM-DD'
+    const date = session.date.slice(0, 10);
     if (!acc[date]) acc[date] = [];
     acc[date].push(session);
     return acc;
   }, {} as Record<string, LectureSession[]>);
 
-  // حساب أيام الأسبوع المعروض
   const weekStart = startOfWeek(viewDate, { weekStartsOn: 6 });
   const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
 
@@ -40,7 +186,6 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
 
   return (
     <Card className="p-4 md:p-6 backdrop-blur-sm bg-card/50">
-      {/* لوحة التحكم بالأسبوع */}
       <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <div>
             <h2 className="text-2xl font-bold flex items-center gap-2">
@@ -61,7 +206,6 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
         </div>
       </div>
   
-      {/* عرض أيام الأسبوع والجلسات (مع تقسيم العرض) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-8">
         {weekDays.map((day) => {
           const dayString = format(day, 'yyyy-MM-dd');
@@ -74,10 +218,7 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
           return (
             <div 
               key={dayString}
-              className={cn(
-                  // إذا كان اليوم هو الجمعة، اجعله يمتد على عمودين
-                  isFriday && 'lg:col-span-2'
-              )}
+              className={cn(isFriday && 'lg:col-span-2')}
             >
               <h3 className="text-xl font-semibold mb-3 border-b pb-2 flex justify-between">
                 <span>{dayName}</span>
@@ -90,9 +231,7 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
                     const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
                     let cardClass = "";
                     let badgeText = "مجدولة";
-                    if (session.isCurrent) {
-                        badgeText = "جارية الآن";
-                    }
+                    if (session.isCurrent) badgeText = "جارية الآن";
   
                     if (isPast) {
                         if (session.status !== 0) {
@@ -125,20 +264,43 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
                             </div>
                           </div>
                           
-                          <div className="shrink-0 w-full sm:w-auto flex flex-col items-end">
+                          <div className="shrink-0 w-full sm:w-auto flex flex-col items-end gap-2">
+                            
                             {session.isAttended ? (
-                              // 1. حالة المحاضرة المكتملة (كما هي)
-                              <Button disabled variant="secondary" className="w-full sm:w-auto gap-2 cursor-not-allowed">
-                                <CheckCircle className="w-4 h-4" /> {badgeText}
-                              </Button>
+                              <div className="flex gap-2 w-full sm:w-auto">
+                                <Button disabled variant="secondary" className="flex-1 gap-2 cursor-not-allowed">
+                                    <CheckCircle className="w-4 h-4" /> {badgeText}
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="bg-background"
+                                    title="طباعة كشف الحضور" 
+                                    onClick={() => prepareAndPrint(session)}
+                                    disabled={isPrintingId !== null}
+                                >
+                                    {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                                </Button>
+                              </div>
+                            
                             ) : isPast ? (
-                              // ✅ 2. التعديل الجديد: حالة "فاتت"
-                              // قمنا بإضافة شرط isPast لعرض زر خاص باللون الأحمر ومعطل
-                              <Button disabled variant="outline" className="w-full sm:w-auto gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
-                                <Clock className="w-4 h-4" /> فاتت
-                              </Button>
+                              <div className="flex gap-2 w-full sm:w-auto">
+                                <Button disabled variant="outline" className="flex-1 gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
+                                    <Clock className="w-4 h-4" /> فاتت
+                                </Button>
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="border-destructive/30 hover:bg-destructive/10 hover:text-destructive bg-background"
+                                    title="طباعة كشف الغياب"
+                                    onClick={() => prepareAndPrint(session)}
+                                    disabled={isPrintingId !== null}
+                                >
+                                    {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                                </Button>
+                              </div>
+
                             ) : (
-                              // 3. حالة المحاضرة القادمة أو الحالية (زر البدء)
                               <Button 
                                 onClick={() => onStartQR(session)} 
                                 disabled={!session.isCurrent}
@@ -148,9 +310,8 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
                               </Button>
                             )}
 
-                            {/* إخفاء النص المساعد إذا كانت المحاضرة قد فاتت */}
                             {!session.isCurrent && !session.isAttended && !isPast && (
-                                <p className="text-xs text-muted-foreground mt-2">يبدأ التحضير مع وقت المحاضرة</p>
+                                <p className="text-xs text-muted-foreground">يبدأ التحضير مع وقت المحاضرة</p>
                             )}
                           </div>
                         </div>
@@ -159,15 +320,12 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
                   })}
                 </div>
               ) : (
-                // عرض رسالة مخصصة بناءً على اليوم
                 isFriday ? (
                   <Card className="border-dashed bg-teal-500/5 dark:bg-teal-500/10 border-teal-500/30">
                     <CardContent className="p-6 text-center">
                       <HeartHandshake className="w-10 h-10 mx-auto text-teal-500 mb-3" />
                       <p className="font-bold text-lg">جمعة مباركة</p>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        "خَيْرُ يَوْمٍ طَلَعَتْ عَلَيْهِ الشَّمْسُ يَوْمُ الْجُمُعَةِ"
-                      </p>
+                      <p className="text-sm text-muted-foreground mt-2">"خَيْرُ يَوْمٍ طَلَعَتْ عَلَيْهِ الشَّمْسُ يَوْمُ الْجُمُعَةِ"</p>
                     </CardContent>
                   </Card>
                 ) : (
@@ -184,6 +342,29 @@ export function LectureSchedule({ sessions, onStartQR, isLoading, viewDate, setV
           );
         })}
       </div>
+
+      <div style={{ display: "none" }}>
+        {printData.session && (
+            <AttendanceReportSheet 
+                ref={printComponentRef}
+                lectureTitle={printData.session.title}
+                groupName={printData.session.groupName}
+                lecturerName={lecturerName}
+                classroomName={printData.session.classroomName}
+                buildingName={printData.session.buildingName}
+                date={printData.session.date.slice(0, 10)} 
+                
+                // ✅ نمرر الوقت والعنوان المناسب
+                time={printData.printTime}
+                timeLabel="وقت الطباعة"
+                
+                studentsList={printData.students}
+                presentCount={printData.presentCount}
+                absentCount={printData.absentCount}
+            />
+        )}
+      </div>
+
     </Card>
   );
 }

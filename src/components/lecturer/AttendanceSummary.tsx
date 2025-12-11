@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef} from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,8 @@ import { AttendanceRecord } from "@/pages/LecturerPage";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AttendanceReportSheet, ReportStudent } from "@/components/reports/AttendanceReportSheet";
+import { useReactToPrint } from "react-to-print";
 
 interface StudentData {
   academic_number: string;
@@ -42,6 +44,9 @@ export function AttendanceSummary({
   onFinalized
 }: AttendanceSummaryProps) {
   const { toast } = useToast();
+
+   // ✅ 1. إنشاء Ref خاص بالطباعة
+  const componentRef = useRef<HTMLDivElement>(null);
 
   // --- Helper: Normalize Data ---
   const normalizeRecord = (r: any): AttendanceRecord => {
@@ -131,7 +136,14 @@ export function AttendanceSummary({
     }));
 
     // دمج وترتيب أبجدي
-    return [...presentList, ...absentList].sort((a, b) => a.name.localeCompare(b.name));
+     return [...presentList, ...absentList].sort((a, b) => {
+      // 1. الترتيب حسب الحالة (حاضر قبل غائب)
+      if (a.status === 'present' && b.status === 'absent') return -1;
+      if (a.status === 'absent' && b.status === 'present') return 1;
+
+      // 2. إذا تساوت الحالة، يتم الترتيب أبجدياً حسب الاسم
+      return a.name.localeCompare(b.name);
+    });
   }, [presentRecords, absentStudents]);
 
   const displayedList = useMemo(() => {
@@ -145,6 +157,23 @@ export function AttendanceSummary({
     const lowerTerm = searchTerm.toLowerCase();
     return list.filter(item => item.studentName.toLowerCase().includes(lowerTerm) || String(item.studentId).includes(lowerTerm));
   }, [filter, presentRecords, absentStudents, searchTerm]);
+
+    // ✅ تحويل البيانات لمكون التقرير
+  const reportData: ReportStudent[] = useMemo(() => {
+    return printableList.map(p => ({
+      name: p.name,
+      id: String(p.id),
+      status: p.status as 'present' | 'absent',
+      method: p.method
+    }));
+  }, [printableList]);
+
+  // ✅ 2. إعداد دالة الطباعة باستخدام react-to-print
+  const handlePrint = useReactToPrint({
+    contentRef: componentRef, // يستخدم contentRef بدلاً من content في الإصدارات الحديثة
+    documentTitle: `Attendance_${lectureTitle}_${new Date().toLocaleDateString('en-CA')}`,
+    onAfterPrint: () => console.log("Printed successfully"),
+  });
 
   // --- Actions ---
   const handleToggleStatus = (studentId: string, currentStatus: 'present' | 'absent') => {
@@ -190,23 +219,21 @@ export function AttendanceSummary({
     }
   };
 
-  // دالة الطباعة
-    const handlePrint = () => {
-    // حفظ العنوان الأصلي
-    const originalTitle = document.title;
+    // حساب وقت الجلسة بناءً على أول عملية تحضير
+  const sessionTime = useMemo(() => {
+    // 1. استخراج الأوقات الصحيحة (استبعاد "يدوي" و "-")
+    const scanTimes = presentRecords
+      .map(r => r.scanTime)
+      .filter(t => t && t !== '-' && t !== 'يدوي')
+      .sort(); // ترتيب تصاعدي لأخذ أقدم وقت
+
+    if (scanTimes.length > 0) {
+      return scanTimes[0]; // إرجاع وقت أول طالب حضر
+    }
     
-    // تغيير العنوان لاسم النظام فقط (ليظهر نظيفاً في الـ PDF)
-    document.title = "UniHub";
-    
-    // تنفيذ أمر الطباعة
-    window.print();
-    
-    // إعادة العنوان الأصلي بعد إغلاق نافذة الطباعة (يحدث فوراً لأن window.print توقف التنفيذ في بعض المتصفحات فقط)
-    // لضمان عودته، يمكن وضعه في timeout قصير
-    setTimeout(() => {
-      document.title = originalTitle;
-    }, 100);
-  };
+    // 2. إذا لم يوجد أي طالب QR (كلهم يدوي أو غياب)، نرجع الوقت الحالي كاحتياط
+    return new Date().toLocaleTimeString('ar-SA', {hour:'2-digit', minute:'2-digit'});
+  }, [presentRecords]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -251,9 +278,13 @@ export function AttendanceSummary({
                 </div>
                 
                 {/* زر الطباعة + التاريخ */}
+                 {/* ✅ الزر المعدل للطباعة */}
                 <div className="w-full md:w-auto flex items-center justify-end gap-3">
-                  {/* زر الطباعة */}
-                  <Button variant="outline" onClick={handlePrint} className="gap-2 h-12 border-primary/20 hover:bg-primary/5 hover:text-primary">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => handlePrint && handlePrint()} 
+                    className="gap-2 h-12 border-primary/20 hover:bg-primary/5 hover:text-primary"
+                  >
                     <Printer className="w-4 h-4" />
                     <span className="hidden sm:inline">طباعة الكشف</span>
                   </Button>
@@ -397,79 +428,23 @@ export function AttendanceSummary({
       </div>
 
       {/* ===================================================================================== */}
-      {/* 2. تصميم الطباعة (يظهر فقط عند الطباعة) */}
+      {/* 3. استدعاء مكون الطباعة (مخفي من الـ DOM ولكنه متاح لـ react-to-print) */}
       {/* ===================================================================================== */}
-      <div className="hidden print:block p-8 bg-white text-black" dir="rtl">
-        
-        {/* الترويسة الرسمية للطباعة */}
-        <div className="border-b-2 border-black pb-6 mb-6">
-           <div className="flex justify-between items-start">
-              <div className="text-right">
-                  <h1 className="text-2xl font-bold mb-2">كشف حضور وغياب الطلاب</h1>
-                  <p className="text-sm mb-1"><strong>المادة:</strong> {lectureTitle}</p>
-                  <p className="text-sm mb-1"><strong>المجموعة:</strong> {groupName}</p>
-              </div>
-              <div className="text-left">
-                  <p className="text-sm mb-1"><strong>التاريخ:</strong> {new Date().toLocaleDateString('en-CA')}</p>
-                  <p className="text-sm mb-1"><strong>الوقت:</strong> {new Date().toLocaleTimeString('ar-SA', {hour:'2-digit', minute:'2-digit'})}</p>
-                  {/* <p className="text-sm mb-1"><strong>رقم الجلسة:</strong> {sessionId}</p> */}
-              </div>
-           </div>
-           <div className="mt-4 flex justify-between items-center bg-gray-100 p-2 border border-gray-300 rounded">
-              <p className="text-sm"><strong>المحاضر:</strong> {lecturerName}</p>
-              <p className="text-sm"><strong>القاعة:</strong> {classroomName} - {buildingName}</p>
-           </div>
-           {/* إحصائيات سريعة */}
-           <div className="mt-2 flex gap-6 text-sm">
-              <span><strong>إجمالي الطلاب:</strong> {printableList.length}</span>
-              <span><strong>حضور:</strong> {presentRecords.length}</span>
-              <span><strong>غياب:</strong> {absentStudents.length}</span>
-           </div>
-        </div>
-
-        {/* جدول الطباعة */}
-        <table className="w-full border-collapse text-sm text-right">
-            <thead>
-                <tr className="bg-gray-100">
-                    <th className="border border-black px-2 py-1 w-10 text-center">#</th>
-                    <th className="border border-black px-2 py-1">اسم الطالب</th>
-                    <th className="border border-black px-2 py-1 w-32">الرقم الجامعي</th>
-                    <th className="border border-black px-2 py-1 w-24 text-center">الحالة</th>
-                    <th className="border border-black px-2 py-1 w-24 text-center">الطريقة</th>
-                </tr>
-            </thead>
-            <tbody>
-                {printableList.map((student, index) => (
-                    <tr key={student.id}>
-                        <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
-                        <td className="border border-black px-2 py-1">{student.name}</td>
-                        <td className="border border-black px-2 py-1 font-mono dir-ltr">{student.id}</td>
-                        <td className="border border-black px-2 py-1 text-center">
-                            {student.status === 'present' ? 'حاضر' : 'غائب'}
-                        </td>
-                        <td className="border border-black px-2 py-1 text-center text-xs">
-                             {student.status === 'present' ? (student.method === 'QR' ? 'QR Code' : 'يدوي') : '-'}
-                        </td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-
-        {/* التذييل والتوقيع */}
-        <div className="mt-12 flex justify-between items-center">
-             <div className="text-center w-1/3">
-                 <p className="mb-8 font-bold">توقيع المحاضر</p>
-                 <div className="border-b border-black border-dashed w-full"></div>
-             </div>
-             <div className="text-center w-1/3">
-                 <p className="mb-8 font-bold">اعتماد القسم</p>
-                 <div className="border-b border-black border-dashed w-full"></div>
-             </div>
-        </div>
-        
-        <div className="mt-8 text-center text-xs text-gray-500">
-            تم استخراج هذا الكشف إلكترونياً من النظام الأكاديمي UniHub
-        </div>
+      <div style={{ display: "none" }}>
+        <AttendanceReportSheet 
+            ref={componentRef}
+            lectureTitle={lectureTitle}
+            groupName={groupName}
+            lecturerName={lecturerName}
+            classroomName={classroomName}
+            buildingName={buildingName}
+            date={new Date().toLocaleDateString('en-CA')}
+            time={sessionTime}
+            timeLabel="وقت التحضير"
+            studentsList={reportData}
+            presentCount={presentRecords.length}
+            absentCount={absentStudents.length}
+        />
       </div>
 
     </div>

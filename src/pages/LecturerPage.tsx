@@ -38,10 +38,11 @@ export interface LectureSession {
   isAttended: boolean;
   status: number;
   classroom: ClassroomInfo;
-  classroomName: string; // ⬅️ أضف هذا
-  buildingName: string;  // ⬅️ أضف هذا
+  classroomName: string; 
+  buildingName: string;  
   departmentName: string;
   expectedStudents: number;
+  sessionCode?: string;
 }
 export interface AttendanceRecord {
   studentName: string;
@@ -84,7 +85,7 @@ export default function LecturerPage() {
       const lecturerData = (lecturerRes.data && Array.isArray(lecturerRes.data)) ? lecturerRes.data[0] : lecturerRes.data;
 
       if (!lecturerData?.lecturer_id) {
-        setSessions([]); // ✅ استخدام setSessions
+        setSessions([]); 
         setIsLoadingSchedule(false);
         setLecturerTitle(undefined);
         return;
@@ -119,22 +120,19 @@ export default function LecturerPage() {
         const isSessionToday = isToday(new Date(session.session_date));
         const isCurrentTime = currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes;
         
-        // ✅ التعديل هنا: جلب عدد طلاب المجموعة
-        // ملاحظة: يفترض أن الباك إند يرسل students_count داخل كائن group
         const groupStudentCount = session.timetable?.group?.students_count;
-
-        // الأولوية الآن لعدد طلاب المجموعة، ثم سعة القاعة، ثم 50
         const capacity = groupStudentCount || session.actual_classroom?.capacity || session.timetable?.classroom?.capacity || 50;
 
         return {
           id: String(session.session_id), 
           timetableId: String(session.timetable_id),
+          sessionCode: session.session_code,
           title: session.timetable?.course?.course_name || 'مادة غير محددة',
           groupName: session.timetable?.group?.group_name || 'مجموعة غير محددة',
           groupId: String(session.timetable?.group?.group_id),
           date: session.session_date.slice(0, 10),
           
-          expectedStudents: capacity, // ✅ سيأخذ الآن عدد الطلاب إذا توفر
+          expectedStudents: capacity, 
           
           time: `${startTimeStr} - ${endTimeStr}`,
           isCurrent: isSessionToday && isCurrentTime,
@@ -151,11 +149,11 @@ export default function LecturerPage() {
           },
         };
       });
-      setSessions(formattedSessions); // ✅ استخدام setSessions
+      setSessions(formattedSessions); 
 
     } catch (error: any) {
       toast({ title: "خطأ", description: "فشل تحميل جدول الجلسات.", variant: "destructive"});
-      setSessions([]); // ✅ استخدام setSessions
+      setSessions([]); 
     } finally {
       setIsLoadingSchedule(false);
     }
@@ -182,7 +180,7 @@ export default function LecturerPage() {
     try {
       const payload = {
         timetable_id: Number(selectedSession.timetableId),
-        session_id: Number(selectedSession.id), // قد تحتاج لإرسال هذا أيضاً
+        session_id: Number(selectedSession.id),
         interval_seconds: settings.intervalSeconds,
         valid_minutes: settings.validMinutes,
         latitude: settings.latitude,
@@ -235,6 +233,7 @@ export default function LecturerPage() {
                 viewDate={viewDate}
                 setViewDate={setViewDate}
                 onRefresh={() => fetchLecturerInfoAndSchedule(viewDate)}
+                lecturerName={lecturerName} // ✅ تم التصحيح هنا
             />
             {isStartingSession && (
                 <div className="flex flex-col items-center justify-center p-10">
@@ -251,7 +250,7 @@ export default function LecturerPage() {
             settings={qrSettings}
             lectureTitle={selectedSession.title}
             groupName={selectedSession.groupName}
-            lectureId={selectedSession.timetableId} // قد يكون هذا هو المطلوب
+            lectureId={selectedSession.timetableId} 
             initialQR={activeQR}
             onEndSession={handleEndSession}
           />
@@ -263,9 +262,9 @@ export default function LecturerPage() {
             records={attendanceRecords}
             lectureTitle={selectedSession.title}
             groupName={selectedSession.groupName}
-            lecturerName={lecturerName} // ✅ تم إضافته: اسم المحاضر من الـ state الموجودة في الصفحة
-            classroomName={selectedSession.classroomName} // ✅ تم إضافته: موجود بالفعل في كائن selectedSession
-            buildingName={selectedSession.buildingName}   // ✅ تم إضافته: موجود بالفعل في كائن selectedSession
+            lecturerName={lecturerName}
+            classroomName={selectedSession.classroomName}
+            buildingName={selectedSession.buildingName}
             groupId={selectedSession.groupId} 
             timetableId={selectedSession.timetableId}
             sessionId={selectedSession.id}
