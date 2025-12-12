@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Link2, FilePlus, Loader2, Users, UserPlus, AlertTriangle, CheckCircle2, Search, Download, Upload, Grid3x3, Shuffle, Trash2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,7 +20,7 @@ type ApiProgram = { program_id: number; program_name: string; };
 type ApiLevel = { level_id: number; level_number: number; };
 type ApiSemester = { semester_id: number; term_number: number; };
 type ApiCourse = { course_id: number; course_code: string; course_name: string; };
-type StudentVM = { id: string; name: string; gender: string; studentDbId: number; };
+type StudentVM = { id: string; name: string; gender: string; studentDbId: number; userId: number;};
 type GroupVM = { id: number; name: string; studentsCount: number; maxSize: number; };
 
 interface EnrollmentModuleProps {
@@ -30,6 +30,12 @@ interface EnrollmentModuleProps {
 export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   const { toast } = useToast();
   const csvInputRef = useRef<HTMLInputElement>(null);
+
+    // --- States for Edit Student Dialog ---
+  const [isEditStudentOpen, setIsEditStudentOpen] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<any>(null); // يحمل بيانات الفورم
+  const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
 
   // --- States for Path & Stepper ---
   const [departments, setDepartments] = useState<ApiDepartment[]>([]);
@@ -67,6 +73,17 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   ];
   const steps = [{ num: 1, label: "القسم" }, { num: 2, label: "البرنامج" }, { num: 3, label: "المستوى" }, { num: 4, label: "الترم" }, { num: 5, label: "المقرر" }, { num: 6, label: "المعاينة" }];
 
+  // --- States for Add Manual Student ---
+  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false);
+  const [isAddingStudent, setIsAddingStudent] = useState(false);
+  const [newStudentData, setNewStudentData] = useState({
+    full_name: "",
+    academic_number: "",
+    email: "",
+    phone: "",
+    gender: "1" // 1: Male, 2: Female
+  });
+
   // --- Fetchers ---
   const fetchDepartments = async () => { try { const res = await api.get("/v1/departments", { params: { college_id: collegeId } }); setDepartments(res.data?.data ?? res.data); } catch { /* ... */ }};
   const fetchPrograms = async (deptId: string) => { try { const res = await api.get("/v1/programs", { params: { department_id: deptId } }); setPrograms(res.data?.data ?? res.data); } catch { /* ... */ }};
@@ -87,8 +104,177 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     try {
       const res = await api.get(`/v1/student-groups/${groupId}/students`);
       const raw: any[] = res.data?.data ?? res.data;
-      setGroupMembers(raw.map((s) => ({ id: String(s.user?.academic_number || s.student_id), name: s.user?.full_name || `طالب ${s.student_id}`, gender: s.user?.gender === 1 ? "ذكر" : "أنثى", studentDbId: s.student_id })));
-    } catch { toast({ title: "خطأ", description: "فشل تحميل طلاب المجموعة" }); }
+
+      setGroupMembers(raw.map((s) => ({
+        id: String(s.user?.academic_number || s.student_id),
+        name: s.user?.full_name || `طالب ${s.student_id}`,
+        gender: (s.user?.gender === 1 || s.gender === 1) ? "ذكر" : "أنثى",
+        studentDbId: s.student_id,
+        // حفظ الرقم الجامعي لنستخدمه في البحث
+        academicNumber: s.user?.academic_number || s.academic_number, 
+        // محاولة حفظ الـ ID لو توفر (حالياً هو null)
+        userId: s.user_id ?? s.user?.user_id ?? s.user?.id 
+      })));
+    } catch { 
+      toast({ title: "خطأ", description: "فشل تحميل طلاب المجموعة" }); 
+    }
+  };
+
+  // 2. تعديل دالة النقر لإضافة الحماية
+    const handleStudentClick = async (student: any) => {
+    try {
+      setIsLoadingDetails(true);
+      
+      let targetUserId = student.userId;
+      let userData = null;
+
+      // 1. إذا لم يكن لدينا ID، نبحث بالرقم الجامعي
+      if (!targetUserId) {
+        
+        if (!student.academicNumber || student.academicNumber === "غير معروف") {
+             toast({ title: "بيانات ناقصة", description: "لا يوجد رقم جامعي لهذا الطالب للبحث عنه.", variant: "destructive" });
+             setIsLoadingDetails(false);
+             return;
+        }
+
+        try {
+            const searchRes = await api.get('/v1/users', { 
+                params: { academic_number: student.academicNumber } 
+            });
+            
+            const searchData = searchRes.data?.data ?? searchRes.data;
+            
+            if (Array.isArray(searchData) && searchData.length > 0) {
+                // ✅ التعديل: تحسين منطق المطابقة (تحويل لنص + إزالة المسافات)
+                const searchNum = String(student.academicNumber).trim();
+
+                // محاولة 1: بحث دقيق بعد التنظيف
+                let match = searchData.find((u: any) => String(u.academic_number).trim() === searchNum);
+                
+                // محاولة 2: إذا لم نجد وكان هناك نتيجة واحدة فقط، نعتمدها
+                if (!match && searchData.length === 1) {
+                    console.warn(`⚠️ اعتماد النتيجة الوحيدة رغم اختلاف التنسيق: ${searchData[0].academic_number} != ${searchNum}`);
+                    match = searchData[0];
+                }
+
+                if (match) {
+                    targetUserId = match.user_id;
+                    userData = match;
+                } else {
+                    console.error("⚠️ فشل المطابقة التامة", { searched: searchNum, found: searchData });
+                }
+
+            } else if (searchData?.user_id) {
+                targetUserId = searchData.user_id;
+                userData = searchData;
+            }
+        } catch (searchErr) {
+            console.error("فشل البحث عن المستخدم", searchErr);
+        }
+      }
+
+      // 2. التحقق النهائي
+      if (!targetUserId || !userData) {
+        toast({ 
+            title: "عفواً", 
+            description: `لم يتم العثور على حساب مستخدم مطابق للرقم الجامعي (${student.academicNumber}).`, 
+            variant: "destructive" 
+        });
+        setIsLoadingDetails(false);
+        return;
+      }
+
+      // 3. فتح المودال
+      setIsEditStudentOpen(true);
+
+      // جلب التفاصيل الكاملة إذا لزم الأمر
+      if (!userData.email || !userData.phone) {
+          const res = await api.get(`/v1/users/${targetUserId}`);
+          userData = res.data?.data ?? res.data;
+      }
+
+      setEditingStudent({
+        user_id: userData.user_id,
+        full_name: userData.full_name,
+        email: userData.email,
+        phone: userData.phone,
+        academic_number: userData.academic_number,
+        gender: String(userData.gender), 
+      });
+
+    } catch (err) {
+      console.error(err);
+      toast({ title: "خطأ", description: "حدث خطأ أثناء جلب بيانات الطالب", variant: "destructive" });
+      setIsEditStudentOpen(false);
+    } finally {
+      setIsLoadingDetails(false);
+    }
+  };
+
+  // --- Handler: Add Single Student ---
+    // --- Handler: Add Single Student (via CSV Simulation) ---
+  const handleAddSingleStudent = async () => {
+    if (!selectedGroup) return;
+    
+    // التحقق من البيانات
+    if (!newStudentData.full_name || !newStudentData.academic_number) {
+        toast({ title: "بيانات ناقصة", description: "يرجى إدخال الاسم والرقم الجامعي", variant: "destructive" });
+        return;
+    }
+
+    try {
+      setIsAddingStudent(true);
+
+      // 1. تجهيز محتوى CSV لطالب واحد
+      // الترويسة يجب أن تطابق ما يتوقعه السيرفر
+      const headers = "academic_number,full_name,email,phone,gender";
+      const genderLabel = newStudentData.gender === "1" ? "ذكر" : "أنثى"; // أو 1/2 حسب ما يقبله ملف الـ CSV في الباك
+      // ملاحظة: نرسل القيم مفصولة بفواصل
+      const row = `${newStudentData.academic_number},${newStudentData.full_name},${newStudentData.email},${newStudentData.phone},${genderLabel}`;
+      const csvContent = "\uFEFF" + headers + "\n" + row; // \uFEFF لدعم الترميز العربي
+
+      // 2. إنشاء ملف وهمي في الذاكرة
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const file = new File([blob], "manual_single_student.csv", { type: 'text/csv' });
+
+      // 3. تجهيز الفورم داتا
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("group_id", String(selectedGroup.id));
+      formData.append("allow_null_phone", "1");
+
+      // 4. الإرسال لنفس رابط استيراد الـ CSV الذي يعمل
+      const res = await api.post("/v1/student-groups/import-csv", formData);
+
+      // 5. التحقق من النتيجة
+      const d = res.data ?? {};
+      const totalSuccess = (Number(d.created_users ?? 0) + Number(d.created_students ?? 0) + Number(d.attached_to_group ?? 0));
+
+      if (totalSuccess > 0) {
+        toast({ title: "نجاح", description: "تم إضافة الطالب للمجموعة بنجاح" });
+        // تنظيف الحقول وإغلاق النافذة
+        setNewStudentData({ full_name: "", academic_number: "", email: "", phone: "", gender: "1" });
+        setIsAddStudentOpen(false);
+        // تحديث القائمة
+        fetchGroupMembers(selectedGroup.id);
+        fetchGroups();
+      } else {
+        // حالة التكرار أو الفشل
+        const skipped = Number(d.skipped_conflicts ?? 0);
+        if (skipped > 0) {
+            toast({ title: "تنبيه", description: "هذا الطالب موجود بالفعل في النظام أو المجموعة.", variant: "destructive" });
+        } else {
+             toast({ title: "فشل", description: "لم يتم إضافة الطالب، تحقق من البيانات.", variant: "destructive" });
+        }
+      }
+
+    } catch (err: any) {
+      console.error(err);
+      const msg = err?.response?.data?.message || "فشل إضافة الطالب";
+      toast({ title: "خطأ", description: msg, variant: "destructive" });
+    } finally {
+      setIsAddingStudent(false);
+    }
   };
 
   // --- Effects ---
@@ -339,6 +525,37 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     }
   };
 
+  // دالة حفظ التعديلات
+  const handleSaveStudentChanges = async () => {
+    if (!editingStudent) return;
+    try {
+      setIsSavingStudent(true);
+      
+      // إرسال التحديث لجدول Users
+      await api.put(`/v1/users/${editingStudent.user_id}`, {
+        full_name: editingStudent.full_name,
+        email: editingStudent.email,
+        phone: editingStudent.phone,
+        academic_number: editingStudent.academic_number,
+        gender: Number(editingStudent.gender),
+        // password: ... (لا نرسلها إلا إذا تم تغييرها)
+        user_type_id: 2 // Assuming 2 is student, or fetch from existing
+      });
+
+      toast({ title: "نجاح", description: "تم تحديث بيانات الطالب" });
+      setIsEditStudentOpen(false);
+      
+      // تحديث القائمة
+      if (selectedGroup) fetchGroupMembers(selectedGroup.id);
+
+    } catch (err: any) {
+        const msg = err?.response?.data?.message || "فشل تحديث البيانات";
+        toast({ title: "خطأ", description: msg, variant: "destructive" });
+    } finally {
+      setIsSavingStudent(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Tabs defaultValue="groups" className="w-full" dir="rtl">
@@ -425,7 +642,17 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
             <CardHeader><CardTitle>2. إدارة المجموعات</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
-                <Input placeholder="اسم المجموعة الجديدة..." value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} disabled={!selectedSemesterId} />
+                <Input 
+                  placeholder="اسم المجموعة الجديدة..." 
+                  value={newGroupName} 
+                  onChange={(e) => setNewGroupName(e.target.value)} 
+                  disabled={!selectedSemesterId} 
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleCreateGroup();
+                    }
+                  }}
+                />
                 <Button onClick={handleCreateGroup} disabled={isCreatingGroup || !selectedSemesterId}>
                   {isCreatingGroup && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} إنشاء
                 </Button>
@@ -449,35 +676,64 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
             <Card>
               <CardHeader><CardTitle>3. طلاب المجموعة: {selectedGroup.name}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-4 border rounded-lg flex items-center gap-4">
-                  <Label>ضم طلاب لهذه المجموعة:</Label>
+                <div className="p-4 border rounded-lg flex flex-wrap items-center gap-4 bg-muted/20">
+                  <Label className="text-base font-semibold ml-2">أدوات الإضافة:</Label>
+                  
+                  {/* زر إضافة طالب يدوياً */}
+                  <Button onClick={() => setIsAddStudentOpen(true)}>
+                    <UserPlus className="w-4 h-4 ml-2" /> إضافة طالب يدوياً
+                  </Button>
+
+                  {/* فاصل عمودي */}
+                  <div className="h-8 w-px bg-border mx-2 hidden md:block"></div>
+
+                  {/* زر استيراد CSV */}
                   <Button variant="outline" onClick={() => csvInputRef.current?.click()} disabled={isImporting}>
-                    {isImporting && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}<Upload className="w-4 h-4 ml-2" /> استيراد CSV
+                    {isImporting && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                    <Upload className="w-4 h-4 ml-2" /> استيراد CSV
                   </Button>
                   <input ref={csvInputRef} type="file" className="hidden" accept=".csv" onChange={handleCsvChange} />
-                  <Button variant="outline" onClick={() => setIsApiDialogOpen(true)}><Link2 className="w-4 h-4 ml-2" /> استيراد من API</Button>
+                  
+                  {/* زر استيراد API (يمكنك إلغاء تعليقه لاحقاً) */}
+                  {/* <input ref={csvInputRef} type="file" className="hidden" accept=".csv" onChange={handleCsvChange} />
+                  <Button variant="outline" onClick={() => setIsApiDialogOpen(true)}><Link2 className="w-4 h-4 ml-2" /> استيراد من API</Button> */}
                 </div>
+                {/* شبكة عرض الطلاب */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
                   {groupMembers.map(student => (
-                    <Card key={student.id}>
-                      <CardContent className="p-3 text-center relative">
-                        <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6" onClick={() => handleRemoveStudentFromGroup(student.studentDbId)}>
+                    <Card 
+                      key={student.id} 
+                      className="cursor-pointer hover:border-primary transition-colors relative group"
+                      onClick={() => handleStudentClick(student)} // <--- فتح المودال عند الضغط
+                    >
+                      <CardContent className="p-3 text-center">
+                        {/* زر الحذف مع stopPropagation لمنع فتح المودال عند الحذف */}
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" 
+                          onClick={(e) => {
+                            e.stopPropagation(); 
+                            handleRemoveStudentFromGroup(student.studentDbId);
+                          }}
+                        >
                           <Trash2 className="w-4 h-4 text-destructive" />
                         </Button>
+                        
                         <Users className="w-8 h-8 mx-auto mb-2 text-primary" />
-                        <div className="font-medium text-sm">{student.name}</div>
+                        <div className="font-medium text-sm truncate" title={student.name}>{student.name}</div>
                         <div className="text-xs text-muted-foreground">{student.id}</div>
                         <Badge variant="outline" className="mt-2 text-xs">{student.gender}</Badge>
                       </CardContent>
                     </Card>
                   ))}
-                  {groupMembers.length === 0 && <p className="text-muted-foreground col-span-full">لا يوجد طلاب في هذه المجموعة بعد. يمكنك ضمهم عبر أدوات الاستيراد.</p>}
+                  {groupMembers.length === 0 && <p className="text-muted-foreground col-span-full">لا يوجد طلاب في هذه المجموعة بعد.</p>}
                 </div>
               </CardContent>
             </Card>
           )}
 
-          <Dialog open={isApiDialogOpen} onOpenChange={setIsApiDialogOpen}>
+          {/* <Dialog open={isApiDialogOpen} onOpenChange={setIsApiDialogOpen}>
             <DialogContent>
                 <DialogHeader><DialogTitle>استيراد من API</DialogTitle></DialogHeader>
                 <div className="space-y-2"><Label>رابط API</Label><Input value={apiImportUrl} onChange={(e) => setApiImportUrl(e.target.value)} /></div>
@@ -487,6 +743,160 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                         {isImporting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} استيراد
                     </Button>
                 </div>
+            </DialogContent>
+          </Dialog> */}
+          {/* --- Dialog تعديل الطالب --- */}
+          <Dialog open={isEditStudentOpen} onOpenChange={setIsEditStudentOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>تعديل بيانات الطالب</DialogTitle>
+                <DialogDescription>
+                  قم بتعديل البيانات الشخصية والأكاديمية للطالب أدناه.
+                </DialogDescription>
+              </DialogHeader>
+              
+              {isLoadingDetails ? (
+                <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>
+              ) : editingStudent ? (
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveStudentChanges();
+                  }}
+                  className="grid gap-4 py-4"
+                >
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>الاسم الكامل</Label>
+                      <Input 
+                        value={editingStudent.full_name} 
+                        onChange={(e) => setEditingStudent({...editingStudent, full_name: e.target.value})} 
+                        autoFocus 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>الرقم الجامعي</Label>
+                      <Input 
+                        value={editingStudent.academic_number} 
+                        onChange={(e) => setEditingStudent({...editingStudent, academic_number: e.target.value})} 
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>البريد الإلكتروني</Label>
+                    <Input 
+                      value={editingStudent.email} 
+                      onChange={(e) => setEditingStudent({...editingStudent, email: e.target.value})} 
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                      <Label>رقم الهاتف</Label>
+                      <Input 
+                          value={editingStudent.phone || ''} 
+                          onChange={(e) => setEditingStudent({...editingStudent, phone: e.target.value})} 
+                      />
+                      </div>
+                      <div className="space-y-2">
+                          <Label>الجنس</Label>
+                          <Select 
+                              value={String(editingStudent.gender)} 
+                              onValueChange={(val) => setEditingStudent({...editingStudent, gender: val})}
+                          >
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                  <SelectItem value="1">ذكر</SelectItem>
+                                  <SelectItem value="2">أنثى</SelectItem>
+                              </SelectContent>
+                          </Select>
+                      </div>
+                  </div>
+                  <div className="flex justify-end gap-2 mt-4">
+                    <Button type="button" variant="outline" onClick={() => setIsEditStudentOpen(false)}>إلغاء</Button>
+                    <Button type="submit" disabled={isSavingStudent}>
+                      {isSavingStudent && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ التغييرات
+                    </Button>
+                  </div>
+                </form>
+              ) : null}
+            </DialogContent>
+          </Dialog>
+
+          {/* --- Dialog إضافة طالب جديد --- */}
+          <Dialog open={isAddStudentOpen} onOpenChange={setIsAddStudentOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>إضافة طالب جديد للمجموعة</DialogTitle>
+                <DialogDescription>
+                  أدخل بيانات الطالب الجديد ليتم إنشاء حسابه وإضافته لهذه المجموعة فوراً.
+                </DialogDescription>
+              </DialogHeader>
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAddSingleStudent();
+                }} 
+                className="grid gap-4 py-4"
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>الاسم الكامل <span className="text-destructive">*</span></Label>
+                    <Input 
+                      required
+                      placeholder="مثال: محمد أحمد"
+                      value={newStudentData.full_name} 
+                      onChange={(e) => setNewStudentData({...newStudentData, full_name: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>الرقم الجامعي <span className="text-destructive">*</span></Label>
+                    <Input 
+                      required
+                      placeholder="مثال: 44100232"
+                      value={newStudentData.academic_number} 
+                      onChange={(e) => setNewStudentData({...newStudentData, academic_number: e.target.value})} 
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>البريد الإلكتروني</Label>
+                  <Input 
+                    type="email"
+                    placeholder="student@university.edu"
+                    value={newStudentData.email} 
+                    onChange={(e) => setNewStudentData({...newStudentData, email: e.target.value})} 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>رقم الهاتف</Label>
+                    <Input 
+                      placeholder="05xxxxxxxx"
+                      value={newStudentData.phone} 
+                      onChange={(e) => setNewStudentData({...newStudentData, phone: e.target.value})} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>الجنس</Label>
+                    <Select 
+                      value={newStudentData.gender} 
+                      onValueChange={(val) => setNewStudentData({...newStudentData, gender: val})}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">ذكر</SelectItem>
+                        <SelectItem value="2">أنثى</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button type="button" variant="outline" onClick={() => setIsAddStudentOpen(false)}>إلغاء</Button>
+                  <Button type="submit" disabled={isAddingStudent}>
+                    {isAddingStudent && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} إضافة الطالب
+                  </Button>
+                </div>
+              </form>
             </DialogContent>
           </Dialog>
         </TabsContent>

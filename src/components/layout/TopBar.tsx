@@ -27,7 +27,7 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     setAuthToken(undefined);
     localStorage.removeItem("access_token");
     // لا نحذف active_college_id
-    window.location.href = "/login";
+    window.location.href = "/react-app/login";
   };
 
   return (

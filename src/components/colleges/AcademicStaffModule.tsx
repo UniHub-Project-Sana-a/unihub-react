@@ -828,44 +828,45 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>الاسم الكامل</TableHead>
-                <TableHead>الرقم الوظيفي</TableHead>
-                <TableHead>رقم الشؤون</TableHead>
-                <TableHead>الدرجة</TableHead>
-                <TableHead>القسم</TableHead>
-                <TableHead>الحالة</TableHead>
-                <TableHead>أجر الساعة</TableHead>
-                <TableHead>الإجراءات</TableHead>
+                <TableHead className="text-right">الاسم الكامل</TableHead>
+                <TableHead className="text-right">الرقم الوظيفي</TableHead>
+                <TableHead className="text-right">رقم الشؤون</TableHead>
+                <TableHead className="text-right">الدرجة</TableHead>
+                <TableHead className="text-right">القسم</TableHead>
+                <TableHead className="text-right">الحالة</TableHead>
+                <TableHead className="text-right">أجر الساعة</TableHead>
+                <TableHead className="text-center">الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {collegeStaff.map((staff) => (
-                <TableRow key={staff.id}>
-                  <TableCell className="font-medium">{staff.fullName}</TableCell>
-                  <TableCell>{staff.staffNumber}</TableCell>
-                  <TableCell>{staff.academicAffairsNumber || "-"}</TableCell>
-                  <TableCell>{staff.academicRank}</TableCell>
-                  <TableCell>{departmentsMap.get(staff.departmentId || "") || "-"}</TableCell>
-                  <TableCell>{staff.employmentType}</TableCell>
-                  <TableCell>{staff.lectureRate}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => handleEditStaff(staff)}>
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => handleDeleteStaff(staff.id)}>
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {collegeStaff.length === 0 && (
+              {collegeStaff.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center h-24 text-muted-foreground">
                     لا توجد بيانات
                   </TableCell>
                 </TableRow>
+              ) : (
+                collegeStaff.map((staff) => (
+                  <TableRow key={staff.id}>
+                    <TableCell className="text-right font-medium">{staff.fullName}</TableCell>
+                    <TableCell className="text-right">{staff.staffNumber}</TableCell>
+                    <TableCell className="text-right">{staff.academicAffairsNumber || "-"}</TableCell>
+                    <TableCell className="text-right">{staff.academicRank}</TableCell>
+                    <TableCell className="text-right">{departmentsMap.get(staff.departmentId || "") || "-"}</TableCell>
+                    <TableCell className="text-right">{staff.employmentType}</TableCell>
+                    <TableCell className="text-right">{staff.lectureRate}</TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex justify-center gap-2">
+                        <Button size="sm" variant="outline" onClick={() => handleEditStaff(staff)}>
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleDeleteStaff(staff.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
               )}
             </TableBody>
           </Table>

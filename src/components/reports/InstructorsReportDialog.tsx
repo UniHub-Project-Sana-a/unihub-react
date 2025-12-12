@@ -1,9 +1,13 @@
 import { useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Printer, DollarSign, FileText } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
+
+// ✅ 1. استيراد الصورة من داخل المشروع (تأكد أنك نقلت الصورة إلى src/assets/)
+// إذا كان اسم المجلد مختلفاً لديك، عدل المسار هنا
+import reportBg from "@/assets/report-bg.png"; 
 
 interface InstructorData {
   id: number;
@@ -43,7 +47,6 @@ export function InstructorsReportDialog({
 }: InstructorsReportDialogProps) {
   
   const printRef = useRef<HTMLDivElement>(null);
-  const bgImage = "/images/report-bg.png"; 
 
   const handlePrint = useReactToPrint({
     // @ts-ignore
@@ -66,8 +69,13 @@ export function InstructorsReportDialog({
                 {mode === 'financial' ? <DollarSign className="w-6 h-6" /> : <FileText className="w-6 h-6" />}
                 {mode === 'financial' ? 'تقرير المستحقات المالية' : 'تقرير الأداء الأكاديمي'}
               </DialogTitle>
+              
+              <DialogDescription>
+                معاينة التقرير. تأكد من تفعيل "Background graphics" في إعدادات الطباعة لظهور الخلفية.
+              </DialogDescription>
+
               <p className="text-muted-foreground mt-1 text-sm">
-                معاينة قبل الطباعة | عدد المحاضرين: {instructors.length}
+                عدد المحاضرين: {instructors.length} | القسم: {departmentName}
               </p>
             </div>
             <div className="flex gap-2">
@@ -90,7 +98,6 @@ export function InstructorsReportDialog({
           >
             <style type="text/css" media="print">
               {`
-                /* 1. تصفير الهوامش لتمكين الخلفية الكاملة */
                 @page { 
                   size: A4 portrait; 
                   margin: 0mm; 
@@ -101,40 +108,36 @@ export function InstructorsReportDialog({
                   print-color-adjust: exact !important; 
                 }
 
-                /* 2. الخلفية الثابتة */
                 .print-watermark-container {
                   position: fixed;
                   top: 0;
                   left: 0;
                   width: 210mm;
                   height: 297mm;
-                  z-index: -10;
+                  z-index: -10; 
                   overflow: hidden;
                 }
+                
                 .print-watermark-img {
                   width: 100%;
                   height: 100%;
-                  object-fit: fill;
+                  object-fit: cover; 
                 }
 
-                /* 3. حاوية المحتوى */
                 .print-content-wrapper {
                   position: relative;
                   z-index: 5;
                   width: 100%;
                   direction: rtl;
                   font-family: 'Tajawal', 'Cairo', sans-serif;
-                  
-                  /* هوامش جانبية فقط */
-                  padding-left: 50px;    
-                  padding-right: 50px;   
+                  padding-left: 15mm;    
+                  padding-right: 15mm;   
                 }
 
-                /* 4. مسافات الحجز (Spacer Rows) */
-                .header-space { height: 160px; } /* مسافة للترويسة */
-                .footer-space { height: 100px; } /* مسافة للتذييل */
+                /* مسافات الحجز للهيدر والفوتر المتوافقة مع الصورة */
+                .header-space { height: 160px; } 
+                .footer-space { height: 100px; } 
 
-                /* تكرار الرأس والتذييل */
                 thead { display: table-header-group; }
                 tfoot { display: table-footer-group; }
                 tr { page-break-inside: avoid; }
@@ -147,9 +150,9 @@ export function InstructorsReportDialog({
               `}
             </style>
 
-            {/* الخلفية الثابتة */}
+            {/* ✅ استخدام المتغير المستورد يضمن المسار الصحيح */}
             <div className="print-watermark-container hidden print:block">
-              <img src={bgImage} className="print-watermark-img" alt="Letterhead" />
+              <img src={reportBg} className="print-watermark-img" alt="" />
             </div>
 
             <div className="print-container">
@@ -158,12 +161,12 @@ export function InstructorsReportDialog({
                 {/* الجدول الرئيسي الكبير */}
                 <table style={{ width: '100%', border: 'none' }}>
                   
-                  {/* مساحة الترويسة (Spacer) */}
+                  {/* مساحة الترويسة */}
                   <thead className="hidden print:table-header-group">
                     <tr><td className="header-space" colSpan={10}>&nbsp;</td></tr>
                   </thead>
 
-                  {/* مساحة التذييل (Spacer) */}
+                  {/* مساحة التذييل */}
                   <tfoot className="hidden print:table-footer-group">
                     <tr><td className="footer-space" colSpan={10}>&nbsp;</td></tr>
                   </tfoot>
@@ -192,16 +195,14 @@ export function InstructorsReportDialog({
                           </div>
                         </div>
 
-                                                {/* جدول البيانات الفعلي */}
+                        {/* جدول البيانات */}
                         <div className="border rounded-lg overflow-hidden print:border-black/20 bg-white/95">
                           <Table className="border-collapse w-full text-right text-sm">
                             <TableHeader>
                               <TableRow className="bg-muted/50 print:bg-gray-200 print:text-black">
                                 <TableHead className="text-center border print:border-black font-bold text-black w-[40px]">#</TableHead>
                                 <TableHead className="text-center border print:border-black font-bold text-black">الاسم</TableHead>
-                                {/* <TableHead className="text-center border print:border-black font-bold text-black w-[80px]">الرتبة</TableHead> */}
                                 <TableHead className="text-center border print:border-black font-bold text-black">القسم</TableHead>
-                                
                                 <TableHead className="text-center border print:border-black font-bold text-black bg-blue-50/30 w-[60px]">الساعات</TableHead>
                                 
                                 {mode === 'financial' && (
@@ -232,48 +233,34 @@ export function InstructorsReportDialog({
                                 <TableRow key={inst.id} className="print:break-inside-avoid">
                                   <TableCell className="text-center border print:border-black/20">{idx + 1}</TableCell>
                                   <TableCell className="border print:border-black/20 font-medium">{inst.name}</TableCell>
-                                  {/* <TableCell className="text-center border print:border-black/20 text-xs">{inst.academic_rank}</TableCell> */}
                                   <TableCell className="text-center border print:border-black/20 text-xs">{inst.department}</TableCell>
-                                  
                                   <TableCell className="text-center border print:border-black/20 font-bold font-mono">
                                     {inst.total_hours || 0}
                                   </TableCell>
                                   
-                                  {/* أعمدة الوضع المالي */}
                                   {mode === 'financial' && (
                                     <>
                                       <TableCell className="text-center border print:border-black/20 font-mono text-xs">
                                         {(inst.hourly_price || 0).toLocaleString()}
                                       </TableCell>
-                                      
-                                      {/* الأساسي */}
                                       <TableCell className="text-center border print:border-black/20 font-mono font-semibold">
                                         {(inst.base_amount || 0).toLocaleString()}
                                       </TableCell>
-
-                                      {/* إضافي (مكافآت) */}
                                       <TableCell className="text-center border print:border-black/20 font-mono text-xs text-green-700">
                                         {(inst.total_bonuses || 0) > 0 ? `+${(inst.total_bonuses || 0).toLocaleString()}` : '-'}
                                       </TableCell>
-
-                                      {/* استقطاع (خصم + ضرائب) */}
                                       <TableCell className="text-center border print:border-black/20 font-mono text-xs text-red-700">
                                         {((inst.total_deductions || 0) + (inst.tax_amount || 0)) > 0 
                                           ? `-${((inst.total_deductions || 0) + (inst.tax_amount || 0)).toLocaleString()}` 
                                           : '-'}
                                       </TableCell>
-
-                                      {/* الصافي النهائي */}
                                       <TableCell className="text-center border print:border-black/20 font-bold text-green-800 bg-green-50/10 text-lg">
                                         {(inst.total_amount || 0).toLocaleString()}
                                       </TableCell>
-                                      
-                                      {/* مكان التوقيع */}
                                       <TableCell className="text-center border print:border-black/20"></TableCell>
                                     </>
                                   )}
 
-                                  {/* أعمدة وضع الأداء */}
                                   {mode === 'performance' && (
                                     <>
                                       <TableCell className="text-center border print:border-black/20">{inst.approved}</TableCell>
@@ -286,19 +273,16 @@ export function InstructorsReportDialog({
                                 </TableRow>
                               ))}
                               
-                              {/* سطر الإجمالي (للمالية فقط) */}
                               {mode === 'financial' && (
                                 <TableRow className="bg-muted/30 print:bg-gray-100 font-bold print:break-inside-avoid">
                                   <TableCell colSpan={4} className="text-center border print:border-black text-lg">الإجمالي الكلي</TableCell>
                                   <TableCell className="text-center border print:border-black font-mono text-lg">
                                     {totalHoursSum || 0}
                                   </TableCell>
-                                  <TableCell className="border print:border-black" colSpan={3}></TableCell> {/* دمجنا الخلايا الفارغة */}
-                                  
+                                  <TableCell className="border print:border-black" colSpan={3}></TableCell>
                                   <TableCell className="text-center border print:border-black text-lg font-mono bg-green-100/50">
                                     {(totalAmountSum || 0).toLocaleString()} ر.ي
                                   </TableCell>
-                                  
                                   <TableCell className="border print:border-black"></TableCell>
                                 </TableRow>
                               )}
@@ -306,7 +290,7 @@ export function InstructorsReportDialog({
                           </Table>
                         </div>
 
-                        {/* التذييل (التوقيعات) */}
+                        {/* التذييل */}
                         <div className="hidden print:flex mt-16 justify-between px-10 text-sm font-bold page-break-inside-avoid">
                             {mode === 'financial' ? (
                                 <>

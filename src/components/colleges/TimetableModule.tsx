@@ -92,6 +92,97 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [mockConflicts, setMockConflicts] = useState<any[]>([]);
   const [mockImportLog, setMockImportLog] = useState<any[]>([]);
 
+  // ===================== الجزاء الخاص بالتعديل الجلسات والجدول بداية  ======================
+    // --- ✅ حالات مودال تعديل الجلسة ---
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isEditLoading, setIsEditLoading] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  
+  // المتغير الذي يحمل بيانات الجلسة المراد تعديلها
+  const [editingSession, setEditingSession] = useState<any>(null);
+
+  // --- ✅ دالة جلب تفاصيل الجلسة وفتح المودال ---
+    const handleSessionClick = async (sessionId: number) => {
+    try {
+      setIsEditLoading(true);
+      setIsEditModalOpen(true);
+
+      const res = await api.get(`/v1/lecture-sessions/${sessionId}`);
+      const data = res.data?.data || res.data;
+
+      setEditingSession({
+        session_id: data.session_id,
+        timetable_id: data.timetable_id,
+        
+        // ✅ التصحيح هنا: نأخذ أول 10 حروف فقط (YYYY-MM-DD)
+        session_date: data.session_date ? String(data.session_date).split('T')[0] : "",
+        
+        status: String(data.status),
+        actual_classroom_id: data.actual_classroom_id ? String(data.actual_classroom_id) : String(data.timetable?.classroom_id),
+        
+        // ... (باقي الحقول كما هي)
+        start_time: data.start_time ? data.start_time.slice(0, 5) : "",
+        end_time: data.end_time ? data.end_time.slice(0, 5) : "",
+
+        original_course_name: data.timetable?.course?.course_name,
+        original_group_name: data.timetable?.group?.group_name,
+        original_lecturer_name: data.timetable?.lecturer?.user?.full_name,
+        original_start_time: data.timetable?.start_time,
+        original_end_time: data.timetable?.end_time,
+        original_room_id: data.timetable?.classroom_id // نحتاجه لمقارنة القاعة الأصلية
+      });
+
+    } catch (error) {
+      toast({ title: "خطأ", description: "فشل جلب تفاصيل الجلسة", variant: "destructive" });
+      setIsEditModalOpen(false);
+    } finally {
+      setIsEditLoading(false);
+    }
+  };
+
+  // --- ✅ دالة حفظ التعديلات ---
+  const handleSaveChanges = async () => {
+    if (!editingSession) return;
+    setIsSavingEdit(true);
+    try {
+        const payload = {
+            session_date: editingSession.session_date,
+            status: Number(editingSession.status),
+            actual_classroom_id: Number(editingSession.actual_classroom_id),
+            // يمكن إضافة start_time و end_time إذا كان الباك-إند يسمح بتعديل وقت الجلسة الفردية
+            // actual_lecturer_id: Number(editingSession.actual_lecturer_id),
+            start_time: editingSession.start_time,
+            end_time: editingSession.end_time,
+        };
+
+        await api.put(`/v1/lecture-sessions/${editingSession.session_id}`, payload);
+        
+        toast({ title: "نجاح", description: "تم تحديث بيانات الجلسة" });
+        setIsEditModalOpen(false);
+        fetchSessionsGrid(viewDate); // تحديث الشبكة
+
+    } catch (error: any) {
+        toast({ title: "خطأ", description: error.response?.data?.message || "فشل التحديث", variant: "destructive" });
+    } finally {
+        setIsSavingEdit(false);
+    }
+  };
+
+  // --- ✅ دالة حذف الجلسة ---
+  const handleDeleteSession = async () => {
+      if (!confirm("هل أنت متأكد من حذف هذه الجلسة نهائياً؟")) return;
+      
+      try {
+          await api.delete(`/v1/lecture-sessions/${editingSession.session_id}`);
+          toast({ title: "تم الحذف", description: "تم حذف الجلسة بنجاح" });
+          setIsEditModalOpen(false);
+          fetchSessionsGrid(viewDate); // تحديث الشبكة
+      } catch (error) {
+          toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+      }
+  };
+  // ===================== الجزاء الخاص بالتعديل الجلسات والجدول نهاية =====================
+
   // ===================== تحميل بيانات القوائم المنسدلة للنموذج =====================
   const [courses, setCourses] = useState<Course[]>([]);
   const [lecturers, setLecturers] = useState<Lecturer[]>([]);
@@ -269,30 +360,60 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   
   // عند تغيير المستوى في النموذج
   useEffect(() => {
+    // إذا لم يتم اختيار المستوى، نفرغ القوائم
     if (!manualForm.level_id) {
-      setCourses([]); setGroups([]); setManualForm(f => ({ ...f, course_id: "", group_id: "" }));
+      setCourses([]); 
+      setGroups([]); 
+      setManualForm(f => ({ ...f, course_id: "", group_id: "" }));
       return;
     }
+
     (async () => {
-      const [coursesRes, groupsRes] = await Promise.all([
-        apiJson(`/v1/courses?level_id=${manualForm.level_id}`),
-        apiJson(`/v1/student-groups?level_id=${manualForm.level_id}`),
-      ]);
-      const coursesData = coursesRes?.data || coursesRes || [];
-      setCourses(coursesData.map(course => ({
-          course_id: course.course_id,
-          name: course.course_name,      // <-- هنا يتم تحويل course_name إلى name
-          code: course.course_code,      // <-- وهنا يتم تحويل course_code إلى code
-          department_id: course.department_id,
-          semester_id: course.semester_id,
-      })));
-      const groupsData = groupsRes?.data || groupsRes || [];
-      setGroups(groupsData.map(group => ({
-          group_id: group.group_id,
-          name: group.group_name // <-- هنا يتم تحويل group_name إلى name
-      })));
+      try {
+        // 1. تجهيز فلاتر المواد (لضمان جلب مواد القسم والبرنامج المحدد فقط)
+        const courseParams = new URLSearchParams();
+        courseParams.append('college_id', String(collegeIdNum));
+        if (manualForm.department_id) courseParams.append('department_id', String(manualForm.department_id));
+        if (manualForm.program_id) courseParams.append('program_id', String(manualForm.program_id));
+        courseParams.append('level_id', String(manualForm.level_id));
+
+        // 2. تجهيز فلاتر المجموعات
+        const groupParams = new URLSearchParams();
+        groupParams.append('college_id', String(collegeIdNum));
+        if (manualForm.department_id) groupParams.append('department_id', String(manualForm.department_id));
+        groupParams.append('level_id', String(manualForm.level_id));
+
+        // 3. جلب البيانات
+        const [coursesRes, groupsRes] = await Promise.all([
+          apiJson(`/v1/courses?${courseParams.toString()}`),
+          apiJson(`/v1/student-groups?${groupParams.toString()}`),
+        ]);
+
+        // 4. معالجة بيانات المواد
+        const coursesData = coursesRes?.data || coursesRes || [];
+        setCourses(coursesData.map((course: any) => ({
+            course_id: course.course_id,
+            name: course.course_name,
+            code: course.course_code,
+            department_id: course.department_id,
+            semester_id: course.semester_id,
+        })));
+
+        // 5. معالجة بيانات المجموعات
+        const groupsData = groupsRes?.data || groupsRes || [];
+        setGroups(groupsData.map((group: any) => ({
+            group_id: group.group_id,
+            name: group.group_name
+        })));
+
+      } catch (error) {
+        console.error("Failed to fetch courses/groups", error);
+        toast({ title: "خطأ", description: "فشل تحديث قائمة المواد والمجموعات", variant: "destructive" });
+      }
     })();
-  }, [manualForm.level_id]);
+    
+    // أضفنا department_id و program_id للمصفوفة لضمان التحديث عند تغيرهم
+  }, [manualForm.level_id, manualForm.department_id, manualForm.program_id]); 
 
 
   const validateManualForm = (): boolean => {
@@ -1006,7 +1127,14 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     <Label>القاعة</Label>
                     <Select value={String(manualForm.classroom_id)} onValueChange={(v) => setManualForm({ ...manualForm, classroom_id: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر قاعة" /></SelectTrigger>
-                      <SelectContent>{classrooms.map(r => <SelectItem key={r.classroom_id} value={String(r.classroom_id)}>{r.name} {r.capacity ? `(${r.capacity})` : ""}</SelectItem>)}</SelectContent>
+                      <SelectContent>
+                        {classrooms.map((r: any) => (
+                            <SelectItem key={r.classroom_id} value={String(r.classroom_id)}>
+                                {/* ✅ التنسيق: اسم القاعة - (السعة: 50) */}
+                                {r.classroom_name || r.name} {r.capacity ? `- (السعة: ${r.capacity})` : ""}
+                            </SelectItem>
+                        ))}
+                      </SelectContent>
                     </Select>
                     {manualFormErrors.classroom_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.classroom_id}</p>}
                   </div>
@@ -1111,7 +1239,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
               <CardHeader>
                 <div className="flex flex-wrap justify-between items-center gap-4">
                   <div>
-                    <CardTitle>عرض الجلسات الأسبوعي</CardTitle>
+                    <CardTitle>عرض المحاضرات الأسبوعي</CardTitle>
                     <CardDescription><br/>
                       {format(startOfWeek(viewDate, { weekStartsOn: 6 }), 'd MMMM yyyy', { locale: ar })} - {format(endOfWeek(viewDate, { weekStartsOn: 6 }), 'd MMMM yyyy', { locale: ar })}
                     </CardDescription>
@@ -1196,27 +1324,31 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                                     }                                        
             
                                     return (
-                                        <Card className={cn("h-full border shadow-sm hover:shadow-md transition-shadow", cardClass)}>
-                                            <CardContent className="p-2 text-right text-xs flex flex-col justify-between h-full">
-                                                <div>
-                                                    <div className="flex justify-between items-start">
-                                                        <span className="font-bold text-primary">{session.code || 'N/A'}</span>
-                                                        <Badge variant={badgeVariant}>{badgeText}</Badge>
-                                                    </div>
-                                                    <p className="mt-1 font-semibold leading-tight">{session.course || 'مقرر غير محدد'}</p>
-                                                </div>
-                                                <div className="mt-2 pt-1 border-t border-dashed">
-                                                    <p className="text-muted-foreground mt-1 flex items-center justify-end gap-1">
-                                                        <span>{session.instructor || 'محاضر غير محدد'}</span>
-                                                        <User className="w-3 h-3" />
-                                                    </p>
-                                                    <p className="text-muted-foreground flex items-center justify-end gap-1">
-                                                        <span>{session.room || 'قاعة غير محددة'}</span>
-                                                        <MapPin className="w-3 h-3" />
-                                                    </p>
-                                                </div>
-                                            </CardContent>
-                                        </Card>
+                                      <Card 
+                                          // ✅ تم الإضافة: استدعاء دالة التعديل عند الضغط
+                                          onClick={() => handleSessionClick(session.id)}
+                                          className={cn("h-full border shadow-sm hover:shadow-md transition-shadow cursor-pointer group", cardClass)}
+                                      >
+                                          <CardContent className="p-2 text-right text-xs flex flex-col justify-between h-full">
+                                              <div>
+                                                  <div className="flex justify-between items-start">
+                                                      <span className="font-bold text-primary group-hover:underline">{session.code || 'N/A'}</span>
+                                                      <Badge variant={badgeVariant}>{badgeText}</Badge>
+                                                  </div>
+                                                  <p className="mt-1 font-semibold leading-tight">{session.course || 'مقرر غير محدد'}</p>
+                                              </div>
+                                              <div className="mt-2 pt-1 border-t border-dashed">
+                                                  <p className="text-muted-foreground mt-1 flex items-center justify-end gap-1">
+                                                      <span>{session.instructor || 'محاضر غير محدد'}</span>
+                                                      <User className="w-3 h-3" />
+                                                  </p>
+                                                  <p className="text-muted-foreground flex items-center justify-end gap-1">
+                                                      <span>{session.room || 'قاعة غير محددة'}</span>
+                                                      <MapPin className="w-3 h-3" />
+                                                  </p>
+                                              </div>
+                                          </CardContent>
+                                      </Card>
                                     );
                                   };
                                   
@@ -1339,7 +1471,12 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                   }
         
                   return (
-                    <Card key={session.id} className={cn("border transition-colors", cardClass)}>
+                    <Card 
+                        key={session.id} 
+                        // ✅ إضافة حدث النقر وتغيير شكل المؤشر
+                        onClick={() => handleSessionClick(session.id)}
+                        className={cn("border transition-colors cursor-pointer hover:shadow-md", cardClass)}
+                    >
                       <CardContent className="p-4 text-right">
                           <div className="flex justify-between items-start mb-2">
                             <p className="font-bold text-lg">{session.course} <span className="text-sm font-normal text-muted-foreground">({session.code})</span></p>
@@ -1466,6 +1603,162 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                 {isCreatingSession && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {createAllSessions ? "إنشاء جميع الجلسات" : "إنشاء الجلسة"}
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ✅ --- مودال تفاصيل وتعديل الجلسة --- ✅ */}
+        <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>تفاصيل الجلسة</DialogTitle>
+              <DialogDescription>
+                تعديل بيانات الجلسة الفعلية. (التعديل هنا يؤثر على هذه الجلسة فقط)
+              </DialogDescription>
+            </DialogHeader>
+
+            {isEditLoading ? (
+               <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 animate-spin" /></div>
+            ) : editingSession ? (
+                             <div className="space-y-4 py-4">
+                  {/* معلومات ثابتة في الأعلى */}
+                  <div className="flex justify-between items-center bg-muted/30 p-3 rounded-lg border mb-4">
+                     <div>
+                        <Label className="text-xs text-muted-foreground">المقرر</Label>
+                        <p className="font-bold text-sm">{editingSession.original_course_name}</p>
+                     </div>
+                     <div>
+                        <Label className="text-xs text-muted-foreground">المجموعة</Label>
+                        <p className="font-bold text-sm">{editingSession.original_group_name}</p>
+                     </div>
+                     <div>
+                        <Label className="text-xs text-muted-foreground">المحاضر الأصلي</Label>
+                        <p className="text-sm">{editingSession.original_lecturer_name}</p>
+                     </div>
+                  </div>
+
+                  {/* نموذج التعديل الكامل */}
+                  <div className="grid grid-cols-2 gap-4">
+                      {/* الصف الأول: التاريخ والحالة */}
+                      <div className="space-y-2">
+                          <Label>تاريخ الجلسة</Label>
+                          <Input 
+                             type="date" 
+                             value={editingSession.session_date}
+                             onChange={(e) => setEditingSession({...editingSession, session_date: e.target.value})}
+                          />
+                      </div>
+                      
+                      {/* <div className="space-y-2">
+                          <Label>حالة الجلسة</Label>
+                          <Select 
+                             value={editingSession.status}
+                             onValueChange={(v) => setEditingSession({...editingSession, status: v})}
+                          >
+                             <SelectTrigger><SelectValue /></SelectTrigger>
+                             <SelectContent>
+                                <SelectItem value="0">مجدولة / لم تبدأ</SelectItem>
+                                <SelectItem value="1">مكتملة (تم التحضير)</SelectItem>
+                             </SelectContent>
+                          </Select>
+                      </div> */}
+
+                      {/* الصف الثاني: اختيار الفترة الزمنية */}
+                      <div className="space-y-2 col-span-2">
+                          <Label>توقيت الجلسة (الفترة)</Label>
+                          <Select
+                             // نحاول تحديد الفترة تلقائياً إذا كانت تطابق الوقت الحالي للجلسة
+                             value={periods.find(p => 
+                                p.start_time?.slice(0,5) === editingSession.start_time?.slice(0,5) && 
+                                p.end_time?.slice(0,5) === editingSession.end_time?.slice(0,5)
+                             )?.period_id?.toString() || ""}
+                             
+                             onValueChange={(val) => {
+                                const selectedPeriod = periods.find(p => String(p.period_id) === val);
+                                if (selectedPeriod) {
+                                    setEditingSession({
+                                        ...editingSession,
+                                        start_time: selectedPeriod.start_time,
+                                        end_time: selectedPeriod.end_time
+                                    });
+                                }
+                             }}
+                          >
+                             <SelectTrigger>
+                                <SelectValue placeholder="اختر فترة زمنية..." />
+                             </SelectTrigger>
+                             <SelectContent>
+                                {periods.map(p => (
+                                    <SelectItem key={p.period_id} value={String(p.period_id)}>
+                                        {/* عرض الوقت بتنسيق جميل */}
+                                        {fmtHHMM(p.start_time)} - {fmtHHMM(p.end_time)}
+                                        {/* علامة توضح الفترة الأصلية */}
+                                        {p.start_time?.slice(0,5) === editingSession.original_start_time?.slice(0,5) ? " (الوقت الأصلي)" : ""}
+                                    </SelectItem>
+                                ))}
+                             </SelectContent>
+                          </Select>
+                          
+                          {/* عرض الوقت المختار للتأكيد */}
+                          <p className="text-xs text-muted-foreground mt-1">
+                             الوقت المحدد: <span dir="ltr">{editingSession.start_time ? fmtHHMM(editingSession.start_time) : "--:--"} - {editingSession.end_time ? fmtHHMM(editingSession.end_time) : "--:--"}</span>
+                          </p>
+                      </div>
+
+                      {/* الصف الثالث: المحاضر (البديل) والقاعة */}
+                      {/* <div className="space-y-2 col-span-2">
+                          <Label>المحاضر (لهذه الجلسة فقط)</Label>
+                          <Select 
+                             value={editingSession.actual_lecturer_id}
+                             onValueChange={(v) => setEditingSession({...editingSession, actual_lecturer_id: v})}
+                          >
+                             <SelectTrigger><SelectValue placeholder="اختر محاضراً" /></SelectTrigger>
+                             <SelectContent>
+                                {lecturers.map(l => (
+                                    <SelectItem key={l.lecturer_id} value={String(l.lecturer_id)}>
+                                        {l.name}
+                                    </SelectItem>
+                                ))}
+                             </SelectContent>
+                          </Select>
+                      </div> */}
+
+                      <div className="space-y-2 col-span-2">
+                          <Label>القاعة الفعلية</Label>
+                          <Select 
+                             value={editingSession.actual_classroom_id}
+                             onValueChange={(v) => setEditingSession({...editingSession, actual_classroom_id: v})}
+                          >
+                             <SelectTrigger>
+                                <SelectValue placeholder="اختر القاعة" />
+                             </SelectTrigger>
+                             <SelectContent>
+                                {classrooms.map((c: any) => (
+                                    <SelectItem key={c.classroom_id} value={String(c.classroom_id)}>
+                                        {/* ✅ التصحيح هنا: استخدام classroom_name أو name */}
+                                        {c.classroom_name || c.name} - (السعة: {c.capacity || 'غير محدد'}) 
+                                    </SelectItem>
+                                ))}
+                             </SelectContent>
+                          </Select>
+                      </div>
+                  </div>
+               </div>
+            ) : null}
+
+            <DialogFooter className="flex justify-between sm:justify-between gap-2">
+                {/* زر الحذف */}
+                <Button variant="destructive" onClick={handleDeleteSession} disabled={isSavingEdit || isEditLoading}>
+                    <span className="sr-only">حذف</span> حذف الجلسة
+                </Button>
+                
+                <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>إلغاء</Button>
+                    <Button onClick={handleSaveChanges} disabled={isSavingEdit || isEditLoading}>
+                        {isSavingEdit && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                        حفظ التعديلات
+                    </Button>
+                </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

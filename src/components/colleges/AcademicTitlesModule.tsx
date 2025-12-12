@@ -233,35 +233,39 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>اسم الدرجة</TableHead>
-                <TableHead>الكود</TableHead>
-                <TableHead>أجر الساعة</TableHead>
-                <TableHead>أجر المحاضرة</TableHead>
-                <TableHead>الإجراءات</TableHead>
+                {/* ضبط المحاذاة لليمين للعناوين */}
+                <TableHead className="text-right w-[50px]">#</TableHead>
+                <TableHead className="text-right">اسم الدرجة</TableHead>
+                <TableHead className="text-right">الكود</TableHead>
+                <TableHead className="text-right">أجر الساعة</TableHead>
+                <TableHead className="text-right">أجر المحاضرة</TableHead>
+                {/* الإجراءات في الوسط */}
+                <TableHead className="text-center">الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6}>جاري التحميل...</TableCell>
+                  <TableCell colSpan={6} className="text-center h-24">جاري التحميل...</TableCell>
                 </TableRow>
               ) : titles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                     لا توجد درجات أكاديمية لهذه الكلية
                   </TableCell>
                 </TableRow>
               ) : (
                 titles.map((t, i) => (
                   <TableRow key={t.id}>
-                    <TableCell>{i + 1}</TableCell>
-                    <TableCell className="font-medium">{t.name}</TableCell>
-                    <TableCell>{t.code}</TableCell>
-                    <TableCell>{t.hourlyPrice}</TableCell>
-                    <TableCell>{t.lecturePrice}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
+                    {/* ضبط المحاذاة لليمين للخلايا */}
+                    <TableCell className="text-right font-medium">{i + 1}</TableCell>
+                    <TableCell className="text-right font-medium">{t.name}</TableCell>
+                    <TableCell className="text-right">{t.code}</TableCell>
+                    <TableCell className="text-right">{t.hourlyPrice}</TableCell>
+                    <TableCell className="text-right">{t.lecturePrice}</TableCell>
+                    {/* توسيط الإجراءات */}
+                    <TableCell className="text-center">
+                      <div className="flex justify-center gap-2">
                         <Button size="sm" variant="outline" onClick={() => openEdit(t)}>
                           <Pencil className="w-4 h-4" />
                         </Button>

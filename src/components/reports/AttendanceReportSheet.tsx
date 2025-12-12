@@ -1,6 +1,9 @@
 import React from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+// ✅ 1. استيراد الصورة
+import reportBg from "@/assets/report-bg.png"; 
+
 export interface ReportStudent {
   name: string;
   id: string;
@@ -40,7 +43,8 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
     absentCount 
   }, ref) => {
     
-    const bgImage = "/images/report-bg.png"; 
+    // ✅ تم إلغاء المسار النصي
+    // const bgImage = "/images/report-bg.png"; 
 
     return (
       <div 
@@ -49,7 +53,6 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
         dir="rtl"
       >
         <style type="text/css" media="print">
-          {/* ... نفس الـ CSS السابق تماماً ... */}
           {`
             @page { size: A4 portrait; margin: 0mm; }
             body { margin: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
@@ -68,9 +71,9 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
           `}
         </style>
 
-        {/* ... (نفس كود الخلفية والجدول الهيكلي) ... */}
+        {/* ✅ 2. استخدام الصورة المستوردة */}
         <div className="print-watermark-container hidden print:block">
-          <img src={bgImage} className="print-watermark-img" alt="Letterhead" />
+          <img src={reportBg} className="print-watermark-img" alt="Letterhead" />
         </div>
 
         <div className="print-container">
@@ -124,7 +127,6 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
                          </div>
                       </div>
 
-                      {/* ... (باقي كود الإحصائيات والجدول والتذييل كما هو) ... */}
                       <div className="mt-4 flex justify-center gap-8 text-sm bg-gray-50 border border-gray-200 rounded-md py-2 mx-10">
                         <span><strong>إجمالي الطلاب:</strong> {studentsList.length}</span>
                         <span className="text-green-700"><strong>حضور:</strong> {presentCount}</span>

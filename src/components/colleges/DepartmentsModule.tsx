@@ -574,43 +574,53 @@ export default function DepartmentsModule({ collegeId }: DepartmentsModuleProps)
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>اسم القسم</TableHead>
-                <TableHead>كود القسم</TableHead>
-                <TableHead>الإجراءات</TableHead>
+                <TableHead className="text-right w-[50px]">#</TableHead>
+                <TableHead className="text-right">اسم القسم</TableHead>
+                <TableHead className="text-right">كود القسم</TableHead>
+                <TableHead className="text-center">الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {departments.map((dept) => (
-                <TableRow
-                  key={dept.department_id}
-                  className={cn(
-                    "cursor-pointer hover:bg-muted/50",
-                    selectedDepartment?.department_id === dept.department_id && "bg-muted/70"
-                  )}
-                  onClick={() => setSelectedDepartment(dept)}
-                >
-                  <TableCell>{dept.department_id}</TableCell>
-                  <TableCell>{dept.department_name}</TableCell>
-                  <TableCell>{dept.department_code || "—"}</TableCell>
-                  <TableCell className="space-x-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); openDialog(dept); }}
-                    >
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); handleDelete(dept.department_id); }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+              {departments.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center h-24 text-muted-foreground">
+                    لا توجد أقسام مضافة لهذه الكلية
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : (
+                departments.map((dept) => (
+                  <TableRow
+                    key={dept.department_id}
+                    className={cn(
+                      "cursor-pointer hover:bg-muted/50",
+                      selectedDepartment?.department_id === dept.department_id && "bg-muted/70"
+                    )}
+                    onClick={() => setSelectedDepartment(dept)}
+                  >
+                    <TableCell className="text-right">{dept.department_id}</TableCell>
+                    <TableCell className="text-right font-medium">{dept.department_name}</TableCell>
+                    <TableCell className="text-right">{dept.department_code || "—"}</TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex justify-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); openDialog(dept); }}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); handleDelete(dept.department_id); }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>
@@ -663,43 +673,51 @@ export default function DepartmentsModule({ collegeId }: DepartmentsModuleProps)
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>اسم البرنامج</TableHead>
-                  <TableHead>الحالة</TableHead>
-                  <TableHead>الإجراءات</TableHead>
+                  <TableHead className="text-right">اسم البرنامج</TableHead>
+                  <TableHead className="text-right">الحالة</TableHead>
+                  <TableHead className="text-center">الإجراءات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {departmentPrograms.map((program) => (
-                  <TableRow
-                    key={program.id}
-                    className={cn(
-                      "cursor-pointer hover:bg-muted/50",
-                      selectedProgram?.id === program.id && "bg-muted/70"
-                    )}
-                    onClick={() => setSelectedProgram(program)}
-                  >
-                    <TableCell className="font-medium">{program.name}</TableCell>
-                    <TableCell>{program.is_active ? "مفعل" : "معطّل"}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => { e.stopPropagation(); handleEditProgram(program); }}
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => { e.stopPropagation(); handleDeleteProgram(program.id); }}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
+                {departmentPrograms.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center h-24 text-muted-foreground">
+                      لا توجد برامج مضافة لهذا القسم
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  departmentPrograms.map((program) => (
+                    <TableRow
+                      key={program.id}
+                      className={cn(
+                        "cursor-pointer hover:bg-muted/50",
+                        selectedProgram?.id === program.id && "bg-muted/70"
+                      )}
+                      onClick={() => setSelectedProgram(program)}
+                    >
+                      <TableCell className="text-right font-medium">{program.name}</TableCell>
+                      <TableCell className="text-right">{program.is_active ? "مفعل" : "معطّل"}</TableCell>
+                      <TableCell className="text-center">
+                        <div className="flex justify-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => { e.stopPropagation(); handleEditProgram(program); }}
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => { e.stopPropagation(); handleDeleteProgram(program.id); }}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
 
@@ -915,32 +933,38 @@ export default function DepartmentsModule({ collegeId }: DepartmentsModuleProps)
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead>كود المادة</TableHead>
-                              <TableHead>اسم المادة</TableHead>
-                              <TableHead>الساعات</TableHead>
-                              <TableHead>النوع</TableHead>
-                              <TableHead>الإجراءات</TableHead>
+                              <TableHead className="text-right">كود المادة</TableHead>
+                              <TableHead className="text-right">اسم المادة</TableHead>
+                              <TableHead className="text-right">الساعات</TableHead>
+                              <TableHead className="text-right">النوع</TableHead>
+                              <TableHead className="text-center">الإجراءات</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {termCourses.map((course) => (
-                              <TableRow key={course.id}>
-                                <TableCell>{course.course_code}</TableCell>
-                                <TableCell>{course.course_name}</TableCell>
-                                <TableCell>{course.credit_hours}</TableCell>
-                                <TableCell>{course.is_elective ? "اختيارية" : "إجبارية"}</TableCell>
-                                <TableCell>
-                                  <div className="flex gap-2">
-                                    <Button size="sm" variant="outline" onClick={() => handleEditCourse(course)}>
-                                      <Pencil className="w-4 h-4" />
-                                    </Button>
-                                    <Button size="sm" variant="outline" onClick={() => handleDeleteCourse(course.id)}>
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))}
+                            {termCourses.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">لا توجد مواد مسجلة لهذا الفصل</TableCell>
+                                </TableRow>
+                            ) : (
+                                termCourses.map((course) => (
+                                  <TableRow key={course.id}>
+                                    <TableCell className="text-right font-medium">{course.course_code}</TableCell>
+                                    <TableCell className="text-right">{course.course_name}</TableCell>
+                                    <TableCell className="text-right">{course.credit_hours}</TableCell>
+                                    <TableCell className="text-right">{course.is_elective ? "اختيارية" : "إجبارية"}</TableCell>
+                                    <TableCell className="text-center">
+                                      <div className="flex justify-center gap-2">
+                                        <Button size="sm" variant="outline" onClick={() => handleEditCourse(course)}>
+                                          <Pencil className="w-4 h-4" />
+                                        </Button>
+                                        <Button size="sm" variant="outline" onClick={() => handleDeleteCourse(course.id)}>
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                ))
+                            )}
                           </TableBody>
                         </Table>
                       </div>

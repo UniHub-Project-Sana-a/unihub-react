@@ -1,11 +1,14 @@
 import { useEffect, useState, useRef } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
 import { Loader2, Printer, FileText } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
+
+// ✅ 1. استيراد الصورة الصحيحة
+import reportBg from "@/assets/report-bg.png"; 
 
 interface GroupAttendanceDialogProps {
   isOpen: boolean;
@@ -44,7 +47,8 @@ export function GroupAttendanceDialog({
   const [loading, setLoading] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
   
-  const bgImage = "/images/report-bg.png";
+  // ✅ لم نعد بحاجة للمسار النصي الثابت
+  // const bgImage = "/images/report-bg.png";
 
   const handlePrint = useReactToPrint({
     // @ts-ignore
@@ -79,7 +83,7 @@ export function GroupAttendanceDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0 gap-0 bg-background">
         
-        {/* Header (للعرض فقط) */}
+        {/* Header */}
         <DialogHeader className="p-6 border-b shadow-sm bg-card z-10">
           <div className="flex justify-between items-center">
             <div>
@@ -87,6 +91,12 @@ export function GroupAttendanceDialog({
                 <FileText className="w-6 h-6" />
                 كشف تفصيلي للمجموعة: {groupName}
               </DialogTitle>
+              
+              {/* ✅ 2. إضافة الوصف لحل التحذير */}
+              <DialogDescription>
+                تقرير تفصيلي لحضور وغياب الطلاب في المقرر المحدد.
+              </DialogDescription>
+
               <p className="text-muted-foreground mt-1 text-sm">
                 المقرر: <span className="font-medium text-foreground">{courseName}</span> | 
                 السنة الدراسية: <span className="font-medium text-foreground">{academicYear === 'all' ? 'الكل' : academicYear}</span>
@@ -147,11 +157,12 @@ export function GroupAttendanceDialog({
                     width: 210mm;
                     height: 297mm;
                     z-index: -10;
+                    overflow: hidden;
                   }
                   .print-watermark-img {
                     width: 100%;
                     height: 100%;
-                    object-fit: fill;
+                    object-fit: cover; /* تغطية كاملة */
                   }
 
                   .print-container {
@@ -162,62 +173,57 @@ export function GroupAttendanceDialog({
                     z-index: 5;
                   }
 
-                  /* هوامش جانبية فقط للحاوية */
                   .print-content-wrapper {
-                    padding-left: 50px;    
-                    padding-right: 50px;   
+                    padding-left: 15mm;    
+                    padding-right: 15mm;   
                   }
 
-                  /* ✅ الحل السحري: تكرار مساحات فارغة في كل صفحة */
-                  .header-space { height: 160px; } /* ارتفاع الترويسة */
-                  .footer-space { height: 100px; } /* ارتفاع التذييل */
+                  .header-space { height: 160px; } 
+                  .footer-space { height: 100px; } 
 
-                  /* تكرار الرأس والتذييل الوهمي */
                   thead { display: table-header-group; }
                   tfoot { display: table-footer-group; }
                   tr { page-break-inside: avoid; }
                   
-                  table { background-color: transparent !important; width: 100%; } width: 100%; }
+                  table { background-color: transparent !important; width: 100%; }
                   th, td { text-align: right; }
                   th.text-center, td.text-center { text-align: center; }
                   
-                  /* إخفاء العناصر غير المرغوبة في الطباعة */
                   .no-print { display: none; }
                 `}
               </style>
 
-              {/* الخلفية الثابتة */}
+              {/* ✅ 3. استخدام الصورة المستوردة */}
               <div className="print-watermark-container hidden print:block">
-                <img src={bgImage} className="print-watermark-img" alt="Background" />
+                <img src={reportBg} className="print-watermark-img" alt="Background" />
               </div>
 
               {/* المحتوى */}
               <div className="print-container">
                 <div className="print-content-wrapper">
                   
-                  {/* ✅ استخدام جدول واحد كبير يشمل العنوان والمحتوى لضمان عمل الـ thead/tfoot spacer */}
                   <table style={{ width: '100%', border: 'none', background: 'transparent' }}>
                     
-                    {/* 1. مساحة الترويسة (تتكرر في كل صفحة) */}
+                    {/* مساحة الترويسة */}
                     <thead className="hidden print:table-header-group">
                       <tr>
                         <td className="header-space" colSpan={8}>&nbsp;</td>
                       </tr>
                     </thead>
 
-                    {/* 2. مساحة التذييل (تتكرر في كل صفحة) */}
+                    {/* مساحة التذييل */}
                     <tfoot className="hidden print:table-footer-group">
                       <tr>
                         <td className="footer-space" colSpan={8}>&nbsp;</td>
                       </tr>
                     </tfoot>
 
-                    {/* 3. جسم الصفحة (يحتوي العنوان والجدول الفعلي) */}
+                    {/* جسم الصفحة */}
                     <tbody>
                       <tr>
                         <td colSpan={8}>
                           
-                          {/* عنوان التقرير (يظهر مرة واحدة في البداية، لكنه داخل الـ body) */}
+                          {/* عنوان التقرير */}
                           <div className="hidden print:block text-center mb-6">
                             <h1 className="text-2xl font-bold text-black/90 mb-4 border-b-2 border-black/10 pb-2 inline-block px-8">
                               كشف حضور وغياب الطلاب
@@ -229,7 +235,7 @@ export function GroupAttendanceDialog({
                             </div>
                           </div>
 
-                          {/* جدول البيانات الفعلي (Nested Table) */}
+                          {/* جدول البيانات */}
                           <div className="overflow-hidden rounded-lg border print:border-black/20">
                             <Table className="border-collapse w-full text-right bg-white/95 text-sm">
                               <TableHeader>
@@ -272,7 +278,7 @@ export function GroupAttendanceDialog({
                             </Table>
                           </div>
 
-                          {/* التذييل (التوقيعات) - يظهر في نهاية المحتوى */}
+                          {/* التذييل */}
                           <div className="hidden print:flex mt-16 justify-between px-10 text-sm page-break-inside-avoid">
                               <div className="text-center">
                                   <p className="mb-10 font-bold text-black">توقيع المحاضر</p>

@@ -1394,6 +1394,10 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>إضافة تسوية مالية</DialogTitle>
+            {/* ✅ تمت إضافة الوصف لحل مشكلة التحذير */}
+            <DialogDescription>
+              يمكنك إضافة خصم أو مكافأة أو ضريبة لهذا الاستحقاق المالي.
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-2">
@@ -1501,4 +1505,4 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
       </Dialog>
     </div>
   );
-}
+}                

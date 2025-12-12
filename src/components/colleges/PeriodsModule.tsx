@@ -205,34 +205,40 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
       </Dialog>
 
       {/* Periods table */}
-      <Card>
+            <Card>
         <CardContent className="pt-6">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>#</TableHead>
-                <TableHead>اسم الفترة</TableHead>
-                <TableHead>البداية</TableHead>
-                <TableHead>النهاية</TableHead>
-                <TableHead>النوع</TableHead>
-                <TableHead>الإجراءات</TableHead>
+                {/* تم إضافة text-right لضمان المحاذاة لليمين */}
+                <TableHead className="text-right w-[50px]">#</TableHead>
+                <TableHead className="text-right">اسم الفترة</TableHead>
+                <TableHead className="text-right">البداية</TableHead>
+                <TableHead className="text-right">النهاية</TableHead>
+                <TableHead className="text-right">النوع</TableHead>
+                {/* الإجراءات عادة تكون أجمل في الوسط */}
+                <TableHead className="text-center">الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={6}>جاري التحميل...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center h-24">جاري التحميل...</TableCell></TableRow>
               ) : periods.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">لا توجد فترات لهذه الكلية</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">لا توجد فترات لهذه الكلية</TableCell></TableRow>
               ) : (
                 periods.map((p, idx) => (
                   <TableRow key={p.id}>
-                    <TableCell>{idx + 1}</TableCell>
-                    <TableCell className="font-medium">{p.name}</TableCell>
-                    <TableCell>{p.start}</TableCell>
-                    <TableCell>{p.end}</TableCell>
-                    <TableCell>{p.sessionType === "LECTURE" ? "محاضرة" : p.sessionType === "LAB" ? "معمل" : "حلقة"}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
+                    {/* تم إضافة text-right للخلايا لتطابق العناوين */}
+                    <TableCell className="text-right font-medium">{idx + 1}</TableCell>
+                    <TableCell className="text-right font-medium">{p.name}</TableCell>
+                    <TableCell className="text-right">{p.start}</TableCell>
+                    <TableCell className="text-right">{p.end}</TableCell>
+                    <TableCell className="text-right">
+                        {p.sessionType === "LECTURE" ? "محاضرة" : p.sessionType === "LAB" ? "معمل" : "حلقة"}
+                    </TableCell>
+                    {/* توسيط أزرار الإجراءات */}
+                    <TableCell className="text-center">
+                      <div className="flex justify-center gap-2">
                         <Button size="sm" variant="outline" onClick={() => openEdit(p)}><Pencil className="w-4 h-4" /></Button>
                         <Button size="sm" variant="outline" onClick={() => handleDelete(p.id)}><Trash2 className="w-4 h-4" /></Button>
                       </div>
