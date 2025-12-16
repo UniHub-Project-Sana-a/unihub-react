@@ -184,6 +184,67 @@ export function LectureSchedule({
       );
   }
 
+  // -----------------------------------------------------------
+  // 🌟 دالة ذكية للتحقق من الوقت (تتعامل مع كل صيغ البيانات)
+  // -----------------------------------------------------------
+  const checkTimeBuffer = (session: LectureSession) => {
+    const s = session as any;
+      
+      // 1. التحقق من تاريخ اليوم (يجب أن تكون المحاضرة اليوم)
+      // نستخدم مقارنة التواريخ المحلية لضمان الدقة
+      const now = new Date();
+      const sessDate = new Date(session.date);
+      const isSameDay = now.getDate() === sessDate.getDate() &&
+                        now.getMonth() === sessDate.getMonth() &&
+                        now.getFullYear() === sessDate.getFullYear();
+
+      if (!isSameDay) return false;
+
+      // 2. استخراج الساعات والدقائق
+      let startH = 0, startM = 0, endH = 0, endM = 0;
+      let foundTimes = false;
+
+      // أ) المحاولة الأولى: قراءة start_time المباشر
+      if (s.start_time && s.end_time) {
+          [startH, startM] = s.start_time.split(':').map(Number);
+          [endH, endM] = s.end_time.split(':').map(Number);
+          foundTimes = true;
+      } 
+      // ب) المحاولة الثانية: تحليل النص الموجود في session.time (مثال: "08:00 - 10:00")
+      else if (s.time && s.time.includes('-')) {
+          try {
+              const parts = s.time.split('-'); // ["08:00 ", " 10:00"]
+            if (parts.length === 2) {
+                const startPart = parts[0].trim(); // "08:00"
+                const endPart = parts[1].trim();   // "10:00"
+                
+                // دعم صيغة AM/PM إذا وجدت، أو 24 ساعة
+                // هنا نفترض الصيغة البسيطة HH:mm
+                [startH, startM] = startPart.replace(/[^\d:]/g, '').split(':').map(Number);
+                [endH, endM] = endPart.replace(/[^\d:]/g, '').split(':').map(Number);
+                
+                // تصحيح بسيط: إذا كانت الساعة 08 مساءً مكتوبة 08، قد تحتاج منطق AM/PM
+                // لكن غالباً الجداول الجامعية تستخدم 24 ساعة أو صباحاً افتراضياً
+                foundTimes = true;
+            }
+        } catch (e) {
+            console.error("Error parsing time string:", s.time);
+        }
+    }
+    if (!foundTimes) {
+        // إذا فشلنا في معرفة الوقت، نعود للحالة الافتراضية
+        return session.isCurrent;
+    }
+    // 3. الحسابات
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const startTotal = startH * 60 + startM;
+    const endTotal = endH * 60 + endM;
+    // 4. 🔥 طباعة للتصحيح (افتح Console المتصفح لترى هذا)
+    // console.log(`Checking ${session.title}: Now=${currentMinutes}, Start-10=${startTotal - 10}, End+10=${endTotal + 10}`);
+    // 5. النتيجة النهائية: هل نحن داخل النافذة؟
+    return currentMinutes >= (startTotal - 10) && currentMinutes <= (endTotal + 10);
+  };
+
   return (
     <Card className="p-4 md:p-6 backdrop-blur-sm bg-card/50">
       <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
@@ -227,12 +288,34 @@ export function LectureSchedule({
               {dailySessions.length > 0 ? (
                 <div className="space-y-4">
                   {dailySessions.map((session) => {
+  
+                    // 1. استدعاء دالة التحقق من الوقت
+                    const isWithinBuffer = checkTimeBuffer(session);
+                  
+                    // حساب إذا كانت الجلسة في الماضي (أيام سابقة)
+                    const isDatePast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
                     
-                    const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
+                    // حساب إذا كانت الجلسة اليوم ولكن انتهى وقتها + المهلة
+                    // (هذا يعتمد على أن الدالة تعيد false إذا انتهى الوقت والمهلة)
+                    const isTimePastToday = isToday(new Date(session.date)) && !isWithinBuffer && !session.isCurrent && (function() {
+                        // منطق إضافي بسيط لمعرفة هل الوقت "فات" فعلاً اليوم
+                        const s = session as any;
+                        const endTimeStr = s.end_time || s.endTime;
+                        if (!endTimeStr) return false;
+                        const [endH, endM] = endTimeStr.split(':').map(Number);
+                        const now = new Date();
+                        return (now.getHours() * 60 + now.getMinutes()) > (endH * 60 + endM + 10);
+                    })();
+                  
+                    // نعتبرها "فاتت" إذا كانت في يوم سابق أو انتهى وقتها اليوم
+                    const isPast = isDatePast || isTimePastToday;
+                  
                     let cardClass = "";
                     let badgeText = "مجدولة";
-                    if (session.isCurrent) badgeText = "جارية الآن";
-  
+                    
+                    // تحديد النصوص والألوان
+                    if (session.isCurrent || isWithinBuffer) badgeText = "جارية الآن";
+                  
                     if (isPast) {
                         if (session.status !== 0) {
                             cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
@@ -242,18 +325,20 @@ export function LectureSchedule({
                             badgeText = "فاتت";
                         }
                     }
-  
+                  
                     return (
                       <Card
                         key={session.id}
-                        className={`p-4 transition-all ${session.isCurrent ? "border-primary bg-primary/5" : "border-border bg-background/50"} ${cardClass}`}
+                        className={`p-4 transition-all ${session.isCurrent || isWithinBuffer ? "border-primary bg-primary/5" : "border-border bg-background/50"} ${cardClass}`}
                       >
                         <div className="flex items-center sm:items-start justify-between gap-4 flex-col sm:flex-row">
                           <div className="flex-1 space-y-2">
                             <div className="flex items-center gap-2">
                               <h4 className="text-lg font-semibold">{session.title}</h4>
-                              {session.isCurrent && <Badge className="animate-pulse">{badgeText}</Badge>}
-                              {session.isAttended && !session.isCurrent && <Badge variant={isPast && session.status !== 0 ? 'secondary' : 'outline'}>{badgeText}</Badge>}
+                              
+                              {/* الشارة (Badge) */}
+                              {(session.isCurrent || isWithinBuffer) && <Badge className="animate-pulse">{badgeText}</Badge>}
+                              {session.isAttended && !session.isCurrent && !isWithinBuffer && <Badge variant={isPast && session.status !== 0 ? 'secondary' : 'outline'}>{badgeText}</Badge>}
                             </div>
                             
                             <div className="flex flex-col gap-1 text-sm text-muted-foreground">
@@ -283,7 +368,8 @@ export function LectureSchedule({
                                 </Button>
                               </div>
                             
-                            ) : isPast ? (
+                            /* 🔥 الشرط المعدل: تظهر "فاتت" فقط إذا انتهى الوقت ولم نكن في فترة السماح */
+                            ) : (isPast && !isWithinBuffer) ? (
                               <div className="flex gap-2 w-full sm:w-auto">
                                 <Button disabled variant="outline" className="flex-1 gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
                                     <Clock className="w-4 h-4" /> فاتت
@@ -299,19 +385,20 @@ export function LectureSchedule({
                                     {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
                                 </Button>
                               </div>
-
+                  
                             ) : (
+                              /* 🔥 الزر الآن مفعل بناءً على isWithinBuffer */
                               <Button 
                                 onClick={() => onStartQR(session)} 
-                                disabled={!session.isCurrent}
+                                disabled={!isWithinBuffer}
                                 className="w-full sm:w-auto gap-2"
                               >
                                 <QrCode className="w-4 h-4" /> بدء الحضور
                               </Button>
                             )}
-
-                            {!session.isCurrent && !session.isAttended && !isPast && (
-                                <p className="text-xs text-muted-foreground">يبدأ التحضير مع وقت المحاضرة</p>
+                  
+                            {!isWithinBuffer && !session.isAttended && !isPast && (
+                                <p className="text-xs text-muted-foreground">متاح قبل 10د من البدء وحتى 10د بعد الانتهاء</p>
                             )}
                           </div>
                         </div>
