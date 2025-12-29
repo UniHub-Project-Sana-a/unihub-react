@@ -1,11 +1,11 @@
 // src/components/lecturer/QRFallbackView.tsx
 
-import { useState, useEffect, useCallback } from "react"; // استيراد useCallback
+import { useState, useEffect, useCallback } from "react"; 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import QRCode from "react-qr-code";
 import { api } from "@/lib/api";
-import { Loader2, Timer, Clock } from "lucide-react";
+import { Loader2, Timer, Clock, Plus } from "lucide-react"; // ✅ تمت إضافة أيقونة Plus
 import { useToast } from "@/hooks/use-toast";
 import { AttendanceRecord, ActiveQRInfo } from "@/pages/LecturerPage";
 
@@ -33,48 +33,53 @@ export function QRFallbackView({ settings, initialQR, lectureId, onEndSession }:
   const [qrRefreshTimeLeft, setQrRefreshTimeLeft] = useState(settings.intervalSeconds);
   const [sessionTimeLeft, setSessionTimeLeft] = useState(settings.validMinutes * 60);
 
+  // ✅ --- إضافة حالة لتتبع عدد مرات التمديد ---
+  const [extensionsCount, setExtensionsCount] = useState(0);
+  const MAX_EXTENSIONS = 3;
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
 
-  // ✅ --- التعديل هنا: إضافة دالة handleRefreshQR --- ✅
   const handleRefreshQR = useCallback(async () => {
-    if (isRefreshing || isEnding) return; // لا تقم بالتحديث إذا كانت هناك عملية أخرى جارية
+    if (isRefreshing || isEnding) return; 
     
     setIsRefreshing(true);
     try {
       const res = await api.patch(`/v1/qr-codes/${activeQR.qr_id}/refresh`, {
-        // نرسل مدة صلاحية الرمز الجديد ليقوم الخادم بحساب expires_at
         valid_minutes: settings.validMinutes,
       });
       
       const newQR: ActiveQRInfo = res.data.data;
-      
-      // تحديث حالة الـ QR بالبيانات الجديدة من الخادم
       setActiveQR(newQR);
       console.log("QR Code refreshed successfully:", newQR);
       
     } catch (error) {
       console.error("Failed to refresh QR code:", error);
-      // في حال فشل التحديث، سيكمل المؤقت وسيتم محاولة التحديث في الدورة التالية
     } finally {
       setIsRefreshing(false);
     }
-  }, [activeQR.qr_id, isRefreshing, isEnding, settings.validMinutes]); // إضافة الاعتماديات
+  }, [activeQR.qr_id, isRefreshing, isEnding, settings.validMinutes]); 
 
     const handleEndSession = async (isAutoEnd: boolean = false) => {
     if (isEnding) return;
     setIsEnding(true);
     
     try {
-      // الخطوة 1: إنهاء جلسة الـ QR
       console.log(`Ending QR session with ID: ${activeQR.qr_id}`);
       await api.patch(`/v1/qr-codes/${activeQR.qr_id}/end`);
       console.log("QR session ended successfully on the server.");
 
-      // الخطوة 2: جلب سجلات الحضور
       console.log(`Fetching attendance records for timetable_id: ${lectureId}`);
+      
+      // ✅ 1. تحديد تاريخ اليوم لضمان جلب حضور هذه الجلسة فقط
+      const today = new Date().toISOString().split('T')[0];
+
       const attendanceRes = await api.get(`/v1/student-attendance`, {
-        params: { timetable_id: lectureId } 
+        params: { 
+            timetable_id: lectureId,
+            attendance_date: today, // ✅ الفلترة بالتاريخ
+            per_page: 1000          // ✅ ضمان جلب جميع الطلاب (تجاوز تقسيم الصفحات)
+        } 
       });
       console.log("Attendance records fetched successfully.");
 
@@ -87,33 +92,55 @@ export function QRFallbackView({ settings, initialQR, lectureId, onEndSession }:
         });
       }
 
-      // الخطوة 3: استدعاء الدالة الأم وتمرير سجلات الحضور
       onEndSession(records);
 
     } catch (error: any) {
-      // ✅ --- التعديل هنا: لعرض الخطأ الفعلي --- ✅
       console.error("Failed to end session:", error.response?.data || error);
 
-      // استخلاص رسالة الخطأ من استجابة Laravel
       const errorMessage = 
-        error.response?.data?.error ||   // رسالة الخطأ من 'error'
-        error.response?.data?.message || // رسالة الخطأ من 'message'
-        "فشل إنهاء الجلسة. يرجى المحاولة مرة أخرى."; // رسالة احتياطية
+        error.response?.data?.error ||   
+        error.response?.data?.message || 
+        "فشل إنهاء الجلسة. يرجى المحاولة مرة أخرى."; 
 
       toast({
         title: "خطأ",
         description: errorMessage,
         variant: "destructive",
       });
-      // السماح للمستخدم بالمحاولة مرة أخرى في حال الفشل
       setIsEnding(false); 
     }
-  };// إضافة الاعتماديات
+  };
 
-  // المؤقت الرئيسي الذي يعمل كل ثانية
+  // ✅ --- دالة تمديد الوقت ---
+  const handleExtendSession = async () => {
+    if (extensionsCount >= MAX_EXTENSIONS) return;
+
+    try {
+        // 1. طلب التمديد من السيرفر
+        await api.patch(`/v1/qr-codes/${activeQR.qr_id}/extend`);
+
+        // 2. إذا نجح السيرفر، نحدث الواجهة
+        setSessionTimeLeft((prev) => prev + 60);
+        setExtensionsCount((prev) => prev + 1);
+
+        toast({
+            title: "تم التمديد",
+            description: `تم إضافة دقيقة واحدة بنجاح. (متبقي ${MAX_EXTENSIONS - (extensionsCount + 1)} محاولات)`,
+            variant: "default", // لون أخضر أو عادي
+        });
+
+    } catch (error) {
+        console.error("فشل تمديد الوقت", error);
+        toast({
+            title: "فشل التمديد",
+            description: "حدث خطأ أثناء محاولة تمديد الوقت في السيرفر.",
+            variant: "destructive",
+        });
+    }
+  };
+
   useEffect(() => {
     const timer = setInterval(() => {
-      // تحديث عداد تحديث الـ QR
       setQrRefreshTimeLeft(prev => {
         if (prev <= 1) {
           handleRefreshQR();
@@ -122,10 +149,9 @@ export function QRFallbackView({ settings, initialQR, lectureId, onEndSession }:
         return prev - 1;
       });
 
-      // تحديث عداد الجلسة الكلي
       setSessionTimeLeft(prev => {
         if (prev <= 1) {
-          handleEndSession(true); // إنهاء الجلسة تلقائيًا
+          handleEndSession(true); 
           clearInterval(timer);
           return 0;
         }
@@ -134,9 +160,19 @@ export function QRFallbackView({ settings, initialQR, lectureId, onEndSession }:
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [settings.intervalSeconds, handleRefreshQR, handleEndSession]); // إضافة الدوال إلى الاعتماديات
+  }, [settings.intervalSeconds, handleRefreshQR, handleEndSession]); 
 
   const qrProgress = (qrRefreshTimeLeft / settings.intervalSeconds) * 100;
+
+    // هل الوقت المتبقي 30 ثانية أو أقل؟
+  const isTimeLow = sessionTimeLeft <= 30;
+  
+  // هل وصل للحد الأقصى من التمديد؟
+  const isLimitReached = extensionsCount >= MAX_EXTENSIONS;
+
+  // هل يمكن الضغط على الزر الآن؟
+  // الشرط: الوقت قليل + لم يصل للحد الأقصى + الجلسة لا يتم إنهاؤها حالياً
+  const canExtend = isTimeLow && !isLimitReached && !isEnding;
 
   return (
     <div className="flex flex-col items-center gap-6">
@@ -159,10 +195,45 @@ export function QRFallbackView({ settings, initialQR, lectureId, onEndSession }:
         </div>
       </div>
 
-      <Button onClick={() => handleEndSession(false)} variant="destructive" disabled={isEnding}>
-        {isEnding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-        إنهاء الجلسة الآن
-      </Button>
+      {/* ✅ --- منطقة الأزرار المعدلة --- */}
+      <div className="flex flex-col w-full max-w-xs gap-3">
+        
+        {/* زر التمديد الذكي */}
+        <Button 
+            onClick={handleExtendSession} 
+            variant="outline" 
+            className={`w-full gap-2 transition-all duration-300 ${
+                canExtend 
+                ? "border-green-500 text-green-600 hover:bg-green-50 hover:text-green-700" // ستايل عندما يكون متاحاً
+                : "border-primary/20"
+            }`}
+            disabled={!canExtend} // 🔒 معطل إلا إذا تحقق الشرط
+        >
+            {isLimitReached ? (
+                // الحالة 1: استنفذ مرات التمديد
+                <span className="text-destructive flex items-center gap-2">
+                    تم استنفاذ مرات التمديد ({MAX_EXTENSIONS}/{MAX_EXTENSIONS})
+                </span>
+            ) : !isTimeLow ? (
+                // الحالة 2: الوقت ما زال طويلاً
+                <span className="text-muted-foreground flex items-center gap-2">
+                    التمديد متاح في آخر 30 ثانية
+                </span>
+            ) : (
+                // الحالة 3: متاح للتمديد
+                <>
+                    <Plus className="w-4 h-4" />
+                    تمديد دقيقة ({extensionsCount}/{MAX_EXTENSIONS})
+                </>
+            )}
+        </Button>
+
+        {/* زر الإنهاء */}
+        <Button onClick={() => handleEndSession(false)} variant="destructive" disabled={isEnding} className="w-full">
+            {isEnding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+            إنهاء الجلسة الآن
+        </Button>
+      </div>
     </div>
   );
 }

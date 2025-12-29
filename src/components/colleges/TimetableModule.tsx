@@ -913,8 +913,8 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
         {/* ✅ --- نهاية قسم الشرح --- ✅ */}
 
         <TabsList className="grid w-full grid-cols-2 bg-card/50 backdrop-blur-sm">
-          <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">إضافة / تعديل</TabsTrigger>
-          <TabsTrigger value="view" className="data-[state=active]:bg-primary/10">عرض الجدول</TabsTrigger>
+          <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">إضافة للجدول الرئيسي</TabsTrigger>
+          <TabsTrigger value="view" className="data-[state=active]:bg-primary/10"> عرض الجدول / تعديل</TabsTrigger>
         </TabsList>
 
         {/* ======================= */}
@@ -956,16 +956,17 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
           {/* ========= UNIFIED MANUAL ENTRY FORM ======== */}
           {/* ======================================================== */}
           {importSource === "manual" && (
-            <Card className="backdrop-blur-sm border-primary/30">
-              <CardHeader>
-                <CardTitle>إضافة بند في الجدول الدراسي</CardTitle>
+            <Card className="backdrop-blur-sm border-primary/30 w-full">
+              <CardHeader className="p-4 md:p-6">
+                <CardTitle className="text-lg md:text-xl">إضافة بند في الجدول الدراسي</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-6">
+              <CardContent className="space-y-6 p-4 md:p-6">
                 
                 {/* Academic Structure Section */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                {/* تعديل: عمود واحد للموبايل، 2 للتابلت، 4 للابتوب */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
                   {/* College */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>الكلية</Label>
                     <Input
                       disabled
@@ -974,7 +975,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     />
                   </div>
                   {/* Department */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>القسم</Label>
                     <Select
                       value={String(manualForm.department_id)}
@@ -991,7 +992,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     {manualFormErrors.department_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.department_id}</p>}
                   </div>
                   {/* Program */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>البرنامج</Label>
                     <Select
                       value={String(manualForm.program_id)}
@@ -1008,7 +1009,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                   </div>
   
                   {/* Level */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>المستوى</Label>
                     <Select
                       value={String(manualForm.level_id)}
@@ -1029,9 +1030,10 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                 <hr className="border-border/20" />
 
                 {/* Lecture Details Section */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* تعديل: عمود واحد للموبايل، 2 للتابلت، 3 للابتوب */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {/* Course */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>المقرر</Label>
                     <Select value={String(manualForm.course_id)} onValueChange={(v) => setManualForm({ ...manualForm, course_id: v ? Number(v) : "" })} disabled={!manualForm.level_id || courses.length === 0}>
                       <SelectTrigger><SelectValue placeholder="اختر المستوى أولاً" /></SelectTrigger>
@@ -1040,7 +1042,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     {manualFormErrors.course_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.course_id}</p>}
                   </div>
                   {/* Group */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>المجموعة الطلابية</Label>
                     <Select value={String(manualForm.group_id)} onValueChange={(v) => setManualForm({ ...manualForm, group_id: v ? Number(v) : "" })} disabled={!manualForm.level_id || groups.length === 0}>
                       <SelectTrigger><SelectValue placeholder="اختر المستوى أولاً" /></SelectTrigger>
@@ -1048,9 +1050,11 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     </Select>
                     {manualFormErrors.group_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.group_id}</p>}
                   </div>
+                  
                   {/* ======================= LECTURER SECTION (MODIFIED) ======================= */}
                   {/* خانة الاختيار لتفعيل وضع المحاضر الخارجي */}
-                  <div className="col-span-3 flex items-center space-x-2 rtl:space-x-reverse pt-4">
+                  {/* تعديل: الامتداد col-span يتغير حسب حجم الشاشة لضمان أخذ السطر كاملاً كفاصل */}
+                  <div className="col-span-1 sm:col-span-2 lg:col-span-3 flex items-center space-x-2 rtl:space-x-reverse pt-2 md:pt-4 bg-muted/30 p-2 rounded border border-dashed">
                       <Checkbox
                           id="external-lecturer-toggle"
                           checked={isExternalLecturer}
@@ -1065,7 +1069,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                       />
                       <label
                           htmlFor="external-lecturer-toggle"
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                       >
                           اختيار محاضر من كلية أخرى
                       </label>
@@ -1073,7 +1077,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
               
                   {/* حقل اختيار كلية المحاضر (يظهر فقط إذا تم تفعيل الخيار أعلاه) */}
                   {isExternalLecturer && (
-                      <div>
+                      <div className="space-y-2">
                           <Label>كلية المحاضر</Label>
                           <Select
                               value={String(externalCollegeId)}
@@ -1087,7 +1091,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                                   <SelectValue placeholder="اختر كلية المحاضر" />
                               </SelectTrigger>
                               <SelectContent>
-                                  {/* قائمة `colleges` لديك تحتوي على كل الكليات */}
+                                  {/* قائمة `colleges` لدي�� تحتوي على كل الكليات */}
                                   {colleges.map(c => 
                                       <SelectItem key={c.college_id} value={String(c.college_id)}>
                                           {c.name}
@@ -1099,7 +1103,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                   )}
               
                   {/* حقل اختيار المحاضر (مُعدّل) */}
-                  <div>
+                  <div className="space-y-2">
                       <Label>المحاضر</Label>
                       <Select 
                           value={String(manualForm.lecturer_id)} 
@@ -1122,8 +1126,9 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                       {manualFormErrors.lecturer_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.lecturer_id}</p>}
                   </div>
                   {/* ===================== END OF LECTURER SECTION ===================== */}
+                  
                   {/* Classroom */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>القاعة</Label>
                     <Select value={String(manualForm.classroom_id)} onValueChange={(v) => setManualForm({ ...manualForm, classroom_id: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر قاعة" /></SelectTrigger>
@@ -1139,7 +1144,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     {manualFormErrors.classroom_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.classroom_id}</p>}
                   </div>
                   {/* Day */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>اليوم</Label>
                     <Select value={String(manualForm.day_id)} onValueChange={(v) => setManualForm({ ...manualForm, day_id: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر اليوم" /></SelectTrigger>
@@ -1148,7 +1153,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     {manualFormErrors.day_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.day_id}</p>}
                   </div>
                   {/* Period */}
-                  <div>
+                  <div className="space-y-2">
                     <Label>الفترة</Label>
                     <Select value={String(manualForm.period_id)} onValueChange={(v) => setManualForm({ ...manualForm, period_id: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر الفترة" /></SelectTrigger>
@@ -1161,28 +1166,29 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                 <hr className="border-border/20" />
 
                 {/* Dates and Properties Section */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
+                {/* تعديل: عمود واحد موبايل، 2 تابلت، 4 لابتوب */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="space-y-2">
                     <Label>تاريخ البداية</Label>
                     <Input type="date" value={manualForm.start_date} onChange={(e) => setManualForm({ ...manualForm, start_date: e.target.value, academic_year: computeAcademicYear(e.target.value) })}/>
                     {manualFormErrors.start_date && <p className="text-xs text-destructive mt-1">{manualFormErrors.start_date}</p>}
                   </div>
-                  <div>
+                  <div className="space-y-2">
                     <Label>تاريخ النهاية</Label>
                     <Input type="date" value={manualForm.end_date} onChange={(e) => setManualForm({ ...manualForm, end_date: e.target.value })}/>
                     {manualFormErrors.end_date && <p className="text-xs text-destructive mt-1">{manualFormErrors.end_date}</p>}
                   </div>
-                  <div>
+                  <div className="space-y-2">
                     <Label>العام الأكاديمي</Label>
                     <Input placeholder="2024-2025" value={manualForm.academic_year} onChange={(e) => setManualForm({ ...manualForm, academic_year: e.target.value })}/>
                     {manualFormErrors.academic_year && <p className="text-xs text-destructive mt-1">{manualFormErrors.academic_year}</p>}
                   </div>
-                  <div>
+                  <div className="space-y-2">
                     <Label>ساعات المحاضرة</Label>
                     <Input type="number" step="0.25" min="0" value={String(manualForm.lecture_hours)} onChange={(e) => setManualForm({ ...manualForm, lecture_hours: e.target.value === "" ? "" : Number(e.target.value) })}/>
                     {manualFormErrors.lecture_hours && <p className="text-xs text-destructive mt-1">{manualFormErrors.lecture_hours}</p>}
                   </div>
-                  <div>
+                  <div className="space-y-2">
                     <Label>نوع المحاضرة</Label>
                     <Select value={String(manualForm.lecture_type)} onValueChange={(v) => setManualForm({ ...manualForm, lecture_type: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر النوع" /></SelectTrigger>
@@ -1192,7 +1198,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
+                  <div className="space-y-2">
                     <Label>الحالة</Label>
                     <Select value={String(manualForm.status)} onValueChange={(v) => setManualForm({ ...manualForm, status: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر الحالة" /></SelectTrigger>
@@ -1202,7 +1208,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
+                  <div className="space-y-2">
                     <Label>نوع الجنس</Label>
                     <Select value={String(manualForm.gender_type)} onValueChange={(v) => setManualForm({ ...manualForm, gender_type: v ? Number(v) : "" })}>
                       <SelectTrigger><SelectValue placeholder="اختر النوع" /></SelectTrigger>
@@ -1215,12 +1221,13 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                   </div>
                 </div>
 
-                <div className="flex gap-2 pt-4">
-                  <Button onClick={handleManualSubmit} disabled={manualSubmitLoading}>
+                {/* Buttons - Stacked on Mobile */}
+                <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                  <Button onClick={handleManualSubmit} disabled={manualSubmitLoading} className="flex-1 sm:flex-none">
                     {manualSubmitLoading && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
                     حفظ البند
                   </Button>
-                  <Button variant="outline" onClick={resetManualForm}>تفريغ</Button>
+                  <Button variant="outline" onClick={resetManualForm} className="flex-1 sm:flex-none">تفريغ</Button>
                 </div>
               </CardContent>
             </Card>

@@ -24,6 +24,7 @@ interface LectureScheduleProps {
   setViewDate: (date: Date) => void;
   onRefresh: () => void;
   lecturerName: string; 
+  collegeId?: string | number;
 }
 
 export function LectureSchedule({ 
@@ -33,7 +34,8 @@ export function LectureSchedule({
     viewDate, 
     setViewDate, 
     onRefresh, 
-    lecturerName 
+    lecturerName,
+    collegeId
 }: LectureScheduleProps) {
     
   const { toast } = useToast();
@@ -448,6 +450,7 @@ export function LectureSchedule({
                 studentsList={printData.students}
                 presentCount={printData.presentCount}
                 absentCount={printData.absentCount}
+                collegeId={collegeId}
             />
         )}
       </div>

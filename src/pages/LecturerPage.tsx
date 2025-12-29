@@ -57,6 +57,7 @@ export default function LecturerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   
+  const [currentLecturer, setCurrentLecturer] = useState<any>(null);
   const [sessions, setSessions] = useState<LectureSession[]>([]);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
   const [selectedSession, setSelectedSession] = useState<LectureSession | null>(null);
@@ -90,6 +91,7 @@ export default function LecturerPage() {
         setLecturerTitle(undefined);
         return;
       }
+      setCurrentLecturer(lecturerData);
 
       setLecturerTitle(lecturerData.academic_title?.title_name || lecturerData.academicTitle?.title_name);
       const lecturerId = lecturerData.lecturer_id;
@@ -186,6 +188,7 @@ export default function LecturerPage() {
         latitude: settings.latitude,
         longitude: settings.longitude,
         allowed_distance: settings.allowedDistance,
+        topics: settings.selectedTopics
       };
       const res = await api.post('/v1/qr-codes/start-session', payload);
       const firstQrCode = res.data.data || res.data;
@@ -234,6 +237,7 @@ export default function LecturerPage() {
                 setViewDate={setViewDate}
                 onRefresh={() => fetchLecturerInfoAndSchedule(viewDate)}
                 lecturerName={lecturerName} // ✅ تم التصحيح هنا
+                collegeId={currentLecturer?.college_id}
             />
             {isStartingSession && (
                 <div className="flex flex-col items-center justify-center p-10">
@@ -269,6 +273,7 @@ export default function LecturerPage() {
             timetableId={selectedSession.timetableId}
             sessionId={selectedSession.id}
             onFinalized={handleBackToSchedule}
+            collegeId={currentLecturer?.college_id} 
           />
         )}
 

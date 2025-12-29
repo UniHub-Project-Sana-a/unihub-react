@@ -7,8 +7,13 @@ import { api } from "@/lib/api";
 import { Loader2, Printer, FileText } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
 
-// ✅ 1. استيراد الصورة الصحيحة
-import reportBg from "@/assets/report-bg.png"; 
+// ✅ استيراد شعار الجامعة الثابت
+import uniLogo from "@/assets/logo.png"; 
+
+// ✅✅ حل مشكلة الصور الديناميكية داخل src:
+// نقوم باستيراد جميع صور الكليات دفعة واحدة عند التحميل
+// هذا السطر يخبر React أن يجهز جميع الصور الموجودة في هذا المجلد
+const collegeLogosGlob = import.meta.glob('@/assets/colleges/*.png', { eager: true });
 
 interface GroupAttendanceDialogProps {
   isOpen: boolean;
@@ -47,13 +52,26 @@ export function GroupAttendanceDialog({
   const [loading, setLoading] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
   
-  // ✅ لم نعد بحاجة للمسار النصي الثابت
-  // const bgImage = "/images/report-bg.png";
+  // ✅ دالة لجلب مسار صورة الكلية الصحيح من الملفات المستوردة
+  const getCollegeLogoSrc = (id: string | number) => {
+    // نبحث عن المفتاح الذي ينتهي بـ /id.png
+    const foundKey = Object.keys(collegeLogosGlob).find((key) => key.endsWith(`/${id}.png`));
+    // إذا وجدنا الصورة نرجع مسارها، وإلا نرجع null
+    return foundKey ? (collegeLogosGlob[foundKey] as any).default : null;
+  };
+
+  // تحديد شعار الكلية الحالي
+  const currentCollegeLogo = getCollegeLogoSrc(collegeId);
+
+  const currentDateTime = new Date().toLocaleString('ar-EG', {
+     year: 'numeric', month: '2-digit', day: '2-digit', 
+     hour: '2-digit', minute: '2-digit', hour12: true 
+  });
 
   const handlePrint = useReactToPrint({
     // @ts-ignore
     contentRef: printRef, 
-    documentTitle: `كشف_حضور_${groupName}_${courseName}`,
+    documentTitle: " ", 
   });
 
   useEffect(() => {
@@ -83,7 +101,7 @@ export function GroupAttendanceDialog({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0 gap-0 bg-background">
         
-        {/* Header */}
+        {/* Header - يظهر فقط في الشاشة */}
         <DialogHeader className="p-6 border-b shadow-sm bg-card z-10">
           <div className="flex justify-between items-center">
             <div>
@@ -91,16 +109,9 @@ export function GroupAttendanceDialog({
                 <FileText className="w-6 h-6" />
                 كشف تفصيلي للمجموعة: {groupName}
               </DialogTitle>
-              
-              {/* ✅ 2. إضافة الوصف لحل التحذير */}
               <DialogDescription>
                 تقرير تفصيلي لحضور وغياب الطلاب في المقرر المحدد.
               </DialogDescription>
-
-              <p className="text-muted-foreground mt-1 text-sm">
-                المقرر: <span className="font-medium text-foreground">{courseName}</span> | 
-                السنة الدراسية: <span className="font-medium text-foreground">{academicYear === 'all' ? 'الكل' : academicYear}</span>
-              </p>
             </div>
             <div className="flex gap-2">
               <Button 
@@ -131,55 +142,35 @@ export function GroupAttendanceDialog({
             </div>
           ) : (
             
-            /* حاوية الطباعة (Ref) */
+            /* ================= PRINT AREA ================= */
             <div 
               ref={printRef} 
-              className="bg-white p-8 rounded-xl shadow-sm border print:shadow-none print:border-none print:p-0 relative print:block print:bg-transparent"
+              className="bg-white p-8 rounded-xl shadow-sm border print:shadow-none print:border-none print:p-0 relative print:block print:bg-white"
             >
-              
               <style type="text/css" media="print">
                 {`
                   @page { 
                     size: A4 portrait; 
-                    margin: 0mm; 
+                    margin: 0; /* ✅ هامش الصفحة صفر */
                   }
                   body { 
                     margin: 0;
+                    background-color: white !important;
                     -webkit-print-color-adjust: exact !important; 
                     print-color-adjust: exact !important; 
                   }
-
-                  /* الخلفية الثابتة */
-                  .print-watermark-container {
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 210mm;
-                    height: 297mm;
-                    z-index: -10;
-                    overflow: hidden;
-                  }
-                  .print-watermark-img {
-                    width: 100%;
-                    height: 100%;
-                    object-fit: cover; /* تغطية كاملة */
-                  }
-
                   .print-container {
                     direction: rtl;
                     font-family: 'Tajawal', 'Cairo', sans-serif;
                     width: 100%;
-                    position: relative;
-                    z-index: 5;
                   }
-
+                  
+                  /* ✅ تقليل الهامش العلوي لأقل درجة ممكنة */
                   .print-content-wrapper {
-                    padding-left: 15mm;    
-                    padding-right: 15mm;   
+                    padding: 5mm 10mm 0 10mm; /* 5mm فقط من الأعلى */
                   }
 
-                  .header-space { height: 160px; } 
-                  .footer-space { height: 100px; } 
+                  .footer-space { height: 50px; } 
 
                   thead { display: table-header-group; }
                   tfoot { display: table-footer-group; }
@@ -193,84 +184,110 @@ export function GroupAttendanceDialog({
                 `}
               </style>
 
-              {/* ✅ 3. استخدام الصورة المستوردة */}
-              <div className="print-watermark-container hidden print:block">
-                <img src={reportBg} className="print-watermark-img" alt="Background" />
-              </div>
-
-              {/* المحتوى */}
               <div className="print-container">
                 <div className="print-content-wrapper">
                   
                   <table style={{ width: '100%', border: 'none', background: 'transparent' }}>
                     
-                    {/* مساحة الترويسة */}
                     <thead className="hidden print:table-header-group">
                       <tr>
-                        <td className="header-space" colSpan={8}>&nbsp;</td>
+                        <td style={{ height: '15px' }} colSpan={8}>&nbsp;</td>
                       </tr>
                     </thead>
 
-                    {/* مساحة التذييل */}
                     <tfoot className="hidden print:table-footer-group">
                       <tr>
                         <td className="footer-space" colSpan={8}>&nbsp;</td>
                       </tr>
                     </tfoot>
 
-                    {/* جسم الصفحة */}
                     <tbody>
                       <tr>
                         <td colSpan={8}>
                           
-                          {/* عنوان التقرير */}
-                          <div className="hidden print:block text-center mb-6">
-                            <h1 className="text-2xl font-bold text-black/90 mb-4 border-b-2 border-black/10 pb-2 inline-block px-8">
-                              كشف حضور وغياب الطلاب
-                            </h1>
-                            <div className="flex flex-wrap justify-between text-sm mt-4 bg-white/80 border border-black/20 rounded p-3 gap-4 shadow-sm">
-                                <div><strong>المقرر:</strong> {courseName}</div>
-                                <div><strong>المجموعة:</strong> {groupName}</div>
-                                <div><strong>العام الجامعي:</strong> {academicYear === 'all' ? 'شامل' : academicYear}</div>
+                          {/* ======================= HEADER ======================= */}
+                          {/* تأكدنا من إزالة أي padding أو margin زائد */}
+                          <div className="hidden print:flex justify-between items-start mb-2 border-b-2 border-black pb-2 pt-0 mt-0">
+                            
+                            {/* اليمين: شعار الجامعة */}
+                            <div className="w-1/4 flex justify-start items-start">
+                                <img src={uniLogo} alt="University Logo" className="h-24 w-auto object-contain" />
+                            </div>
+
+                            {/* المنتصف */}
+                            <div className="w-2/4 text-center pt-1">
+                                <h2 className="text-lg font-bold leading-tight">الجمهورية اليمنية</h2>
+                                <h2 className="text-lg font-bold leading-tight mb-2"> جامعة صنعاء </h2>
+                                
+                                <h1 className="text-xl font-black mb-2 inline-block px-6 py-1 bg-gray-100 border border-black/10 rounded-md">
+                                    كشف حضور وغياب الطلاب
+                                </h1>
+                                
+                                <div className="text-xs font-bold mt-1 flex flex-row gap-4 items-center justify-center bg-white border border-dashed border-gray-300 py-1 px-2 rounded">
+                                    <span>العام الجامعي: {academicYear === 'all' ? 'شامل' : academicYear}</span>
+                                    <span className="text-gray-400">|</span>
+                                    <span className="dir-ltr">{currentDateTime}</span>
+                                </div>
+                            </div>
+
+                            {/* اليسار: شعار الكلية (من src assets) */}
+                            <div className="w-1/4 flex justify-end items-start">
+                                {currentCollegeLogo ? (
+                                  <img 
+                                      src={currentCollegeLogo} 
+                                      alt="College Logo" 
+                                      className="h-24 w-auto object-contain" 
+                                  />
+                                ) : (
+                                  // عنصر فارغ بنفس الحجم للحفاظ على التنسيق إذا لم توجد صورة
+                                  <div className="h-24 w-24"></div> 
+                                )}
                             </div>
                           </div>
+                          
+                          {/* الشريط الرمادي */}
+                          <div className="hidden print:flex justify-between text-sm mb-4 font-bold px-3 py-1 bg-gray-100 border border-black/20 rounded shadow-sm items-center">
+                                <div className="flex gap-2">
+                                  <span className="text-gray-600">المقرر الدراسي:</span>
+                                  <span className="text-black">{courseName}</span>
+                                </div>
+                                <div className="flex gap-2">
+                                  <span className="text-gray-600">المجموعة:</span>
+                                  <span className="text-black">{groupName}</span>
+                                </div>
+                          </div>
+                          {/* ==================================================== */}
 
-                          {/* جدول البيانات */}
-                          <div className="overflow-hidden rounded-lg border print:border-black/20">
-                            <Table className="border-collapse w-full text-right bg-white/95 text-sm">
+
+                          {/* TABLE */}
+                          <div className="overflow-hidden rounded-none border-t border-x print:border-black/30">
+                            <Table className="border-collapse w-full text-right bg-white text-sm">
                               <TableHeader>
-                                <TableRow className="bg-muted/50 print:bg-gray-100 print:text-black">
-                                  <TableHead className="w-[40px] text-center border-b border-r print:border-black/20 font-bold text-black">#</TableHead>
-                                  <TableHead className="border-b border-r print:border-black/20 font-bold text-black">اسم الطالب</TableHead>
-                                  <TableHead className="w-[100px] border-b border-r print:border-black/20 font-bold text-black text-center">الرقم الجامعي</TableHead>
-                                  <TableHead className="text-center border-b border-r print:border-black/20 font-bold text-black w-[70px] bg-blue-50/30">المعتمدة</TableHead>
-                                  <TableHead className="text-center border-b border-r print:border-black/20 font-bold text-black w-[70px] bg-blue-50/30">المنفذة</TableHead>
-                                  <TableHead className="text-center border-b border-r print:border-black/20 font-bold text-black w-[60px] bg-green-50/30">حضور</TableHead>
-                                  <TableHead className="text-center border-b border-r print:border-black/20 font-bold text-black w-[60px] bg-red-50/30">غياب</TableHead>
-                                  <TableHead className="text-center border-b print:border-black/20 font-bold text-black w-[70px]">النسبة</TableHead>
+                                <TableRow className="bg-gray-200 print:bg-gray-200 print:text-black border-b border-black/30 h-10">
+                                  <TableHead className="w-[40px] text-center border-l border-black/30 font-extrabold text-black">#</TableHead>
+                                  <TableHead className="border-l border-black/30 font-extrabold text-black">اسم الطالب</TableHead>
+                                  <TableHead className="w-[100px] border-l border-black/30 font-extrabold text-black text-center">الرقم الجامعي</TableHead>
+                                  <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[70px]">المعتمدة</TableHead>
+                                  <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[70px]">المنفذة</TableHead>
+                                  <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[60px]">حضور</TableHead>
+                                  <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[60px]">غياب</TableHead>
+                                  <TableHead className="text-center border-black/30 font-extrabold text-black w-[70px]">النسبة</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
                                 {students.map((student, index) => (
-                                  <TableRow key={student.student_id} className="print:break-inside-avoid hover:bg-muted/5">
-                                    <TableCell className="text-center font-medium border-r print:border-black/20 border-b py-2">{index + 1}</TableCell>
-                                    <TableCell className="border-r print:border-black/20 border-b py-2 font-medium">{student.name}</TableCell>
-                                    <TableCell className="border-r print:border-black/20 border-b py-2 font-mono text-xs text-center">{student.academic_number}</TableCell>
-                                    <TableCell className="text-center border-r print:border-black/20 border-b py-2 bg-blue-50/10">{student.total_sessions_approved}</TableCell>
-                                    <TableCell className="text-center border-r print:border-black/20 border-b py-2 font-semibold bg-blue-50/10">{student.total_sessions_executed}</TableCell>
-                                    <TableCell className="text-center border-r print:border-black/20 border-b py-2 text-green-600 font-bold bg-green-50/10">{student.present_count}</TableCell>
-                                    <TableCell className="text-center border-r print:border-black/20 border-b py-2 text-red-600 font-bold bg-red-50/10">{student.absent_count}</TableCell>
-                                    <TableCell className="text-center border-b py-2">
-                                      <Badge 
-                                        variant="outline" 
-                                        className={`h-6 min-w-[50px] justify-center border-0 print:border text-xs ${
-                                          student.attendance_percentage >= 85 ? "bg-green-100 text-green-800 print:bg-transparent print:text-black" : 
-                                          student.attendance_percentage >= 60 ? "bg-yellow-100 text-yellow-800 print:bg-transparent print:text-black" : 
-                                          "bg-red-100 text-red-800 print:bg-transparent print:text-black"
-                                        }`}
-                                      >
+                                  <TableRow key={student.student_id} className="print:break-inside-avoid border-b border-black/30 h-9">
+                                    <TableCell className="text-center font-bold border-l border-black/30 py-1">{index + 1}</TableCell>
+                                    <TableCell className="border-l border-black/30 py-1 font-bold">{student.name}</TableCell>
+                                    <TableCell className="border-l border-black/30 py-1 font-mono text-xs text-center font-bold">{student.academic_number}</TableCell>
+                                    <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.total_sessions_approved}</TableCell>
+                                    <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.total_sessions_executed}</TableCell>
+                                    <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.present_count}</TableCell>
+                                    <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.absent_count}</TableCell>
+                                    <TableCell className="text-center py-1">
+                                      <span className="font-bold text-black">
                                         {student.attendance_percentage}%
-                                      </Badge>
+                                      </span>
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -278,22 +295,18 @@ export function GroupAttendanceDialog({
                             </Table>
                           </div>
 
-                          {/* التذييل */}
-                          <div className="hidden print:flex mt-16 justify-between px-10 text-sm page-break-inside-avoid">
+                          {/* FOOTER */}
+                          <div className="hidden print:flex mt-12 justify-between px-16 text-sm page-break-inside-avoid">
                               <div className="text-center">
-                                  <p className="mb-10 font-bold text-black">توقيع المحاضر</p>
-                                  <div className="border-b border-black border-dashed w-48 opacity-50"></div>
+                                  <p className="mb-8 font-bold text-black text-base">توقيع المحاضر</p>
+                                  <div className="border-b-2 border-black w-48"></div>
                               </div>
                               <div className="text-center">
-                                  <p className="mb-10 font-bold text-black">يعتمد، رئيس القسم</p>
-                                  <div className="border-b border-black border-dashed w-48 opacity-50"></div>
+                                  <p className="mb-8 font-bold text-black text-base">يعتمد، رئيس القسم</p>
+                                  <div className="border-b-2 border-black w-48"></div>
                               </div>
                           </div>
                           
-                          <div className="hidden print:block mt-8 text-center text-[10px] text-gray-400">
-                              تم استخراج هذا الكشف إلكترونياً من نظام UniHub بتاريخ {new Date().toLocaleDateString('ar-EG')}
-                          </div>
-
                         </td>
                       </tr>
                     </tbody>

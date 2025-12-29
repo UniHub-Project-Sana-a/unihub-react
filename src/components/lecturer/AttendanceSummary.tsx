@@ -29,6 +29,7 @@ interface AttendanceSummaryProps {
   timetableId: string;
   sessionId: string;
   onFinalized: () => void;
+  collegeId?: string | number;
 }
 
 export function AttendanceSummary({
@@ -41,22 +42,34 @@ export function AttendanceSummary({
   groupId,
   timetableId,
   sessionId,
-  onFinalized
+  onFinalized,
+  collegeId
 }: AttendanceSummaryProps) {
   const { toast } = useToast();
-
-   // ✅ 1. إنشاء Ref خاص بالطباعة
   const componentRef = useRef<HTMLDivElement>(null);
 
-  // --- Helper: Normalize Data ---
+    // ✅ --- Helper: تعديل دالة تطبيع البيانات لتعكس طريقة الحضور ---
   const normalizeRecord = (r: any): AttendanceRecord => {
     const name = r.studentName || r.student?.user?.full_name || r.student?.name || r.user?.full_name || "اسم غير معروف";
     const id = r.studentId || r.student?.user?.academic_number || r.student?.academic_number || r.academic_number || "---";
+    
+    // تحديد طريقة الحضور
+    let methodValue = "QR"; // قيمة نصية مؤقتة
+
+    if (r.attendance_method !== undefined && r.attendance_method !== null) {
+        // إذا جاءت من قاعدة البيانات (0 أو 1)
+        methodValue = Number(r.attendance_method) === 1 ? "يدوي" : "QR";
+    } else if (r.method) {
+        // إذا كانت موجودة كنص سابقاً
+        methodValue = r.method;
+    }
+
     return {
       studentName: name,
       studentId: String(id),
       scanTime: r.scanTime || r.created_at?.slice(11, 16) || "-",
-      method: r.method || "QR"
+      // ✅ هنا الحل: إجبار النوع ليكون مطابقاً للواجهة
+      method: methodValue as "QR" | "يدوي" 
     };
   };
 
@@ -110,6 +123,14 @@ export function AttendanceSummary({
     fetchAllStudents();
   }, [groupId, toast]);
 
+  // ✅ إصلاح: تحديث القائمة عند وصول بيانات جديدة من السيرفر (تجاوز الكاش القديم)
+  useEffect(() => {
+    if (records && records.length > 0) {
+      const normalized = records.map(normalizeRecord);
+      setPresentRecords(normalized);
+    }
+  }, [records]);
+
   // --- Calculations ---
   const absentStudents = useMemo(() => {
     if (allStudents.length === 0) return [];
@@ -117,14 +138,13 @@ export function AttendanceSummary({
     return allStudents.filter(s => !presentIds.has(String(s.academic_number).trim()));
   }, [allStudents, presentRecords]);
 
-  // --- ✅ قائمة الطباعة الموحدة (الكل مرتب أبجدياً) ---
   const printableList = useMemo(() => {
     const presentList = presentRecords.map(r => ({
       name: r.studentName,
       id: r.studentId,
       status: 'present',
       time: r.scanTime,
-      method: r.method
+      method: r.method // ✅ استخدام الطريقة المخزنة (QR أو يدوي)
     }));
 
     const absentList = absentStudents.map(s => ({
@@ -135,21 +155,17 @@ export function AttendanceSummary({
       method: '-'
     }));
 
-    // دمج وترتيب أبجدي
      return [...presentList, ...absentList].sort((a, b) => {
-      // 1. الترتيب حسب الحالة (حاضر قبل غائب)
       if (a.status === 'present' && b.status === 'absent') return -1;
       if (a.status === 'absent' && b.status === 'present') return 1;
-
-      // 2. إذا تساوت الحالة، يتم الترتيب أبجدياً حسب الاسم
       return a.name.localeCompare(b.name);
     });
   }, [presentRecords, absentStudents]);
 
   const displayedList = useMemo(() => {
-    let list: { studentName: string; studentId: string; status: 'present' | 'absent' }[] = [];
+    let list: { studentName: string; studentId: string; status: 'present' | 'absent'; method?: string }[] = [];
     if (filter === 'present') {
-      list = presentRecords.map(r => ({ studentName: r.studentName, studentId: r.studentId, status: 'present' }));
+      list = presentRecords.map(r => ({ studentName: r.studentName, studentId: r.studentId, status: 'present', method: r.method }));
     } else {
       list = absentStudents.map(s => ({ studentName: s.name, studentId: s.academic_number, status: 'absent' }));
     }
@@ -158,7 +174,6 @@ export function AttendanceSummary({
     return list.filter(item => item.studentName.toLowerCase().includes(lowerTerm) || String(item.studentId).includes(lowerTerm));
   }, [filter, presentRecords, absentStudents, searchTerm]);
 
-    // ✅ تحويل البيانات لمكون التقرير
   const reportData: ReportStudent[] = useMemo(() => {
     return printableList.map(p => ({
       name: p.name,
@@ -168,14 +183,13 @@ export function AttendanceSummary({
     }));
   }, [printableList]);
 
-  // ✅ 2. إعداد دالة الطباعة باستخدام react-to-print
   const handlePrint = useReactToPrint({
-    contentRef: componentRef, // يستخدم contentRef بدلاً من content في الإصدارات الحديثة
+    contentRef: componentRef,
     documentTitle: `Attendance_${lectureTitle}_${new Date().toLocaleDateString('en-CA')}`,
     onAfterPrint: () => console.log("Printed successfully"),
   });
 
-  // --- Actions ---
+  // ✅ --- Actions: تعديل التحضير اليدوي ---
   const handleToggleStatus = (studentId: string, currentStatus: 'present' | 'absent') => {
     if (currentStatus === 'present') {
       setPresentRecords(prev => prev.filter(r => String(r.studentId) !== String(studentId)));
@@ -186,26 +200,37 @@ export function AttendanceSummary({
         setPresentRecords(prev => [...prev, {
           studentId: student.academic_number,
           studentName: student.name,
-          scanTime: "-",
-          method: "يدوي"
+          scanTime: new Date().toLocaleTimeString('en-US', {hour12: false, hour: '2-digit', minute:'2-digit'}), // تسجيل وقت التحضير الحالي
+          method: "يدوي" // ✅ تحديد الطريقة كيدوي عند التحضير من هنا
         }]);
-        toast({ description: "تم تسجيل الطالب حاضر.", className: "bg-primary text-white" });
+        toast({ description: "تم تسجيل الطالب حاضر (يدوي).", className: "bg-primary text-white" });
       }
     }
   };
 
+  // ✅ --- Finalize: إرسال البيانات للاعتماد ---
   const handleFinalize = async () => {
     setIsFinalizing(true);
     try {
-      const present_student_ids = presentRecords.map(record => {
+      // تجهيز قائمة الطلاب الحاضرين مع تحديد طريقة الحضور لكل منهم
+      const students_data = presentRecords.map(record => {
           const student = allStudents.find(s => String(s.academic_number) === String(record.studentId));
-          return student ? student.student_id : null; 
-      }).filter(id => id !== null);
+          if (!student) return null;
+
+          // تحويل النص "يدوي" إلى 1، و "QR" إلى 0
+          const methodValue = record.method === "يدوي" ? 1 : 0;
+
+          return {
+              student_id: student.student_id,
+              attendance_method: methodValue
+          };
+      }).filter(item => item !== null);
 
       await api.post('/v1/attendance/finalize', {
         timetable_id: Number(timetableId),
         session_id: Number(sessionId),
-        present_student_ids: present_student_ids,
+        // نرسل القائمة الجديدة التي تحتوي على ID وطريقة الحضور
+        students_data: students_data, 
         group_id: Number(groupId) 
       });
 
@@ -219,36 +244,28 @@ export function AttendanceSummary({
     }
   };
 
-    // حساب وقت الجلسة بناءً على أول عملية تحضير
   const sessionTime = useMemo(() => {
-    // 1. استخراج الأوقات الصحيحة (استبعاد "يدوي" و "-")
     const scanTimes = presentRecords
       .map(r => r.scanTime)
       .filter(t => t && t !== '-' && t !== 'يدوي')
-      .sort(); // ترتيب تصاعدي لأخذ أقدم وقت
+      .sort();
 
     if (scanTimes.length > 0) {
-      return scanTimes[0]; // إرجاع وقت أول طالب حضر
+      return scanTimes[0];
     }
     
-    // 2. إذا لم يوجد أي طالب QR (كلهم يدوي أو غياب)، نرجع الوقت الحالي كاحتياط
     return new Date().toLocaleTimeString('ar-SA', {hour:'2-digit', minute:'2-digit'});
   }, [presentRecords]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
-      {/* ===================================================================================== */}
-      {/* 1. الواجهة التفاعلية (تختفي عند الطباعة بفضل الكلاس print:hidden) */}
-      {/* ===================================================================================== */}
       <div className="print:hidden space-y-6">
         
-        {/* Header */}
         <Card className="border-t-4 border-t-primary shadow-sm bg-card">
           <CardHeader className="pb-6">
             <div className="flex flex-col gap-6">
               
-              {/* الصف الأول: العناوين وزر الطباعة */}
               <div className="flex flex-col md:flex-row justify-between items-center gap-4 border-b pb-4 relative">
                 
                 <div className="w-full md:w-auto text-right">
@@ -268,7 +285,6 @@ export function AttendanceSummary({
                   </div>
                 </div>
 
-                {/* عنوان "كشف حضور" في المنتصف */}
                 <div className="order-first md:order-none absolute md:relative top-0 md:top-auto left-1/2 md:left-auto transform -translate-x-1/2 md:translate-x-0 w-full md:w-auto text-center mb-4 md:mb-0">
                   <div className="inline-block border-y-2 border-primary/20 py-1 px-6 bg-primary/5 rounded-sm">
                       <h2 className="text-lg md:text-xl font-extrabold text-primary uppercase tracking-wide">
@@ -277,8 +293,6 @@ export function AttendanceSummary({
                   </div>
                 </div>
                 
-                {/* زر الطباعة + التاريخ */}
-                 {/* ✅ الزر المعدل للطباعة */}
                 <div className="w-full md:w-auto flex items-center justify-end gap-3">
                   <Button 
                     variant="outline" 
@@ -301,7 +315,6 @@ export function AttendanceSummary({
 
               </div>
 
-              {/* الصف الثاني: التفاصيل */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-background border hover:bg-accent/5 transition-colors">
                   <div className="p-2 rounded-full bg-primary/10 text-primary"><User className="w-5 h-5" /></div>
@@ -325,7 +338,6 @@ export function AttendanceSummary({
 
         <Card>
           <CardContent className="pt-6">
-            {/* Statistics */}
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div onClick={() => setFilter('present')} className={`p-4 rounded-xl border cursor-pointer flex flex-col items-center justify-center transition-all ${filter === 'present' ? 'bg-primary/5 border-primary ring-1 ring-primary' : 'hover:bg-accent'}`}>
                 <UserCheck className="w-8 h-8 text-primary mb-2" />
@@ -339,13 +351,11 @@ export function AttendanceSummary({
               </div>
             </div>
 
-            {/* Search */}
             <div className="mb-4 relative">
               <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input placeholder="بحث بالاسم أو الرقم..." className="pr-9" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
             </div>
 
-            {/* Interactive Table */}
             <div className="border rounded-lg overflow-hidden min-h-[300px]">
               <Table>
                 <TableHeader className="bg-muted/50">
@@ -354,14 +364,15 @@ export function AttendanceSummary({
                     <TableHead className="text-right">اسم الطالب</TableHead>
                     <TableHead className="text-right">الرقم الأكاديمي</TableHead>
                     <TableHead className="text-center">الحالة</TableHead>
+                    <TableHead className="text-center">الطريقة</TableHead> {/* ✅ إضافة عمود الطريقة */}
                     <TableHead className="text-left">الإجراء</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoadingStudents && filter === 'absent' ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />جاري التحميل...</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />جاري التحميل...</TableCell></TableRow>
                   ) : displayedList.length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">{filter === 'absent' && allStudents.length === 0 ? "لا توجد بيانات." : "لا توجد نتائج."}</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">{filter === 'absent' && allStudents.length === 0 ? "لا توجد بيانات." : "لا توجد نتائج."}</TableCell></TableRow>
                   ) : (
                     displayedList.map((item, index) => (
                       <TableRow key={`${item.studentId}-${index}`} className="hover:bg-muted/50">
@@ -370,6 +381,9 @@ export function AttendanceSummary({
                         <TableCell className="font-mono text-sm">{item.studentId}</TableCell>
                         <TableCell className="text-center">
                           {item.status === 'present' ? <Badge className="bg-primary">حاضر</Badge> : <Badge variant="destructive">غائب</Badge>}
+                        </TableCell>
+                        <TableCell className="text-center text-xs text-muted-foreground">
+                            {item.status === 'present' ? (item.method || 'QR') : '-'} {/* ✅ عرض الطريقة */}
                         </TableCell>
                         <TableCell className="text-left">
                           <Button size="sm" variant={item.status === 'present' ? "destructive" : "default"} className="h-8 px-3 text-xs" onClick={() => handleToggleStatus(item.studentId, item.status)}>
@@ -383,7 +397,6 @@ export function AttendanceSummary({
               </Table>
             </div>
 
-            {/* Footer Actions */}
             <div className="mt-8 border-t pt-6 bg-muted/20 -mx-6 px-6 pb-2 rounded-b-lg">
               <div className="flex flex-col md:flex-row items-center justify-between gap-4">
                 <p className="text-sm text-muted-foreground order-2 md:order-1 text-center md:text-right">يرجى مراجعة البيانات بدقة قبل الاعتماد.</p>
@@ -427,9 +440,6 @@ export function AttendanceSummary({
         </Card>
       </div>
 
-      {/* ===================================================================================== */}
-      {/* 3. استدعاء مكون الطباعة (مخفي من الـ DOM ولكنه متاح لـ react-to-print) */}
-      {/* ===================================================================================== */}
       <div style={{ display: "none" }}>
         <AttendanceReportSheet 
             ref={componentRef}
@@ -444,6 +454,7 @@ export function AttendanceSummary({
             studentsList={reportData}
             presentCount={presentRecords.length}
             absentCount={absentStudents.length}
+            collegeId={collegeId}
         />
       </div>
 

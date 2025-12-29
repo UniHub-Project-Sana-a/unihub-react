@@ -1150,6 +1150,7 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
               selectedMonth={getSelectedMonthName()}
               departmentName={getFilterLabel('dept', selectedDepartment)}
               mode={activeTab === 'financial' ? 'financial' : 'performance'} 
+              collegeId={collegeId}
             />
         )}
 
@@ -1505,4 +1506,4 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
       </Dialog>
     </div>
   );
-}                
+}

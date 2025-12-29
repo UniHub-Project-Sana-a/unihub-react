@@ -22,6 +22,8 @@ const CollegesDashboardModule = lazy(() => import("@/components/colleges/College
 const DepartmentsModule = lazy(() => import("@/components/colleges/DepartmentsModule"));
 const AcademicTitlesModule = lazy(() => import("@/components/colleges/AcademicTitlesModule"));
 const PeriodsModule = lazy(() => import("@/components/colleges/PeriodsModule"));
+// ✅ إضافة الاستيراد للموديول الجديد
+const QualityAssuranceModule = lazy(() => import("@/components/colleges/QualityAssuranceModule"));
 
 const ModuleSkeleton = ({ title }: { title: string }) => (
   <div className="p-6">
@@ -73,7 +75,6 @@ export default function CollegesPage() {
       const res = await api.get("/v1/colleges");
       let data: any[] = res.data?.data ?? res.data;
       
-      // ✅ التعديل هنا: إذا لم يكن مشرفاً ولا أدمناً، قم بالتصفية
       if (myUserTypeCode && !isSuperUser) {
         data = data.filter(c => Number(c.college_id) === Number(me?.college_id));
       }
@@ -118,15 +119,13 @@ export default function CollegesPage() {
         setSelectedCollege(target);
       }
     } else {
-      // ✅ التعديل هنا: إذا لم يكن سوبر يوزر ولديه كلية واحدة، اخترها تلقائياً
       if (colleges.length === 1 && !isSuperUser) {
          setSelectedCollege(colleges[0]);
       } else {
-         // السوبر يوزر يرى القائمة
          setSelectedCollege(null);
       }
     }
-  }, [routeId, colleges, isLoading, isSuperUser]); // استخدام isSuperUser في المصفوفة
+  }, [routeId, colleges, isLoading, isSuperUser]); 
 
   const handleAddCollege = () => {
     setIsCollegeFormOpen(true);
@@ -200,7 +199,6 @@ export default function CollegesPage() {
           <>
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl sm:text-3xl font-bold">الكليات</h1>
-              {/* ✅ إظهار زر الإضافة للسوبر يوزر (رئاسة + أدمن) */}
               {isSuperUser && (
                 <Button onClick={handleAddCollege}>
                   <Plus className="w-4 h-4 mr-2" />
@@ -250,7 +248,6 @@ export default function CollegesPage() {
                         <TableCell>{college.academicCode}</TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            {/* ✅ إظهار أزرار التحكم للسوبر يوزر */}
                             {isSuperUser && (
                               <>
                                 <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleEditCollege(college); }}>
@@ -277,7 +274,6 @@ export default function CollegesPage() {
           <>
             <div className="mb-6 flex items-center justify-between">
               <div>
-                 {/* ✅ إظهار زر العودة للسوبر يوزر */}
                  {isSuperUser && (
                     <Button variant="outline" onClick={handleBackToAll} className="mb-2">
                         <ArrowLeft className="w-4 h-4 mr-2" />
@@ -292,6 +288,8 @@ export default function CollegesPage() {
               <TabsList className="h-auto flex flex-wrap justify-center bg-muted/30 p-2 rounded-xl border border-border/50 gap-2 w-full">
                   {[
                     { val: "colleges-dashboard", label: "لوحة التحكم" },
+                    // ✅ إضافة تبويب ضمان الجودة هنا
+                    { val: "quality-assurance", label: "ضمان الجودة" },
                     { val: "departments", label: "الأقسام" },
                     { val: "classrooms", label: "القاعات" },
                     { val: "academic-titles", label: "الرتب الأكاديمية" },
@@ -327,6 +325,15 @@ export default function CollegesPage() {
                 <Suspense fallback={<ModuleSkeleton title="لوحة التحكم " />}>
                   {activeTab === "colleges-dashboard" && (
                     <CollegesDashboardModule collegeId={selectedCollege.id} />
+                  )}
+                </Suspense>
+              </TabsContent>
+
+              {/* ✅ إضافة المحتوى الخاص بضمان الجودة */}
+              <TabsContent value="quality-assurance">
+                <Suspense fallback={<ModuleSkeleton title="ضمان الجودة" />}>
+                  {activeTab === "quality-assurance" && (
+                    <QualityAssuranceModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
               </TabsContent>
