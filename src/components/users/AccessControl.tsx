@@ -7,61 +7,50 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Shield, Globe, Clock, Eye, Download, Plus, Trash2, Users, Settings, CheckCircle, XCircle, AlertTriangle, Loader2 } from "lucide-react";
+import { Shield, Globe, Clock, Eye, Download, Plus, Trash2, Users, Settings, Loader2 } from "lucide-react";
 import { useForm, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 
-// بيانات تجريبية لسياسة الأمان (لا يوجد ربط DB لهذه التبويبات)
-const securityPolicies = {
-  passwordComplexity: { minLength: 8, requireUppercase: true, requireLowercase: true, requireNumbers: true, requireSymbols: false },
-  twoFactorAuth: { enabled: true, requiredForRoles: ["Admin", "Department Head"] },
-  loginPolicy: { maxFailedAttempts: 5, lockoutDuration: 30, sessionTimeout: 120 },
-};
-
-const ipRestrictions = [
-  { id: 1, type: "whitelist", address: "192.168.1.0/24", description: "شبكة داخلية", status: "active" },
-  { id: 2, type: "whitelist", address: "10.0.0.0/8", description: "شبكة VPN", status: "active" },
-  { id: 3, type: "blacklist", address: "203.0.113.0/24", description: "منطقة محجوبة", status: "active" },
-];
-
-const sessionSettings = { globalTimeout: 120, maxConcurrentSessions: 3, rememberMeEnabled: true, rememberMeDuration: 30 };
-
-// سكيمات Zod بأرقام فعلية
+// --- Schemas (Stable Types) ---
 const securityPolicySchema = z.object({
   minPasswordLength: z.number().min(6).max(50),
   maxFailedAttempts: z.number().min(3).max(10),
   lockoutDuration: z.number().min(5).max(120),
+  requireUppercase: z.boolean(),
+  requireNumbers: z.boolean(),
 });
-type SecurityPolicyFormData = z.infer<typeof securityPolicySchema>;
 
 const ipRestrictionSchema = z.object({
   type: z.enum(["whitelist", "blacklist"]),
-  address: z.string().min(7, "يرجى إدخال عنوان IP صالح أو مدى CIDR"),
+  address: z.string().min(7, "عنوان IP غير صالح"),
   description: z.string().min(1, "الوصف مطلوب"),
 });
-type IpRestrictionFormData = z.infer<typeof ipRestrictionSchema>;
 
 const sessionSettingsSchema = z.object({
   globalTimeout: z.number().min(15).max(480),
   maxConcurrentSessions: z.number().min(1).max(10),
+  rememberMeEnabled: z.boolean(),
   rememberMeDuration: z.number().min(1).max(90),
 });
-type SessionSettingsFormData = z.infer<typeof sessionSettingsSchema>;
 
-// أنواع API
+// --- Types Injection ---
+type SecurityPolicyValues = z.infer<typeof securityPolicySchema>;
+type IpRestrictionValues = z.infer<typeof ipRestrictionSchema>;
+type SessionSettingsValues = z.infer<typeof sessionSettingsSchema>;
+
+// --- API Types ---
 type ApiSession = {
-  id: string;           // token id (oauth_access_tokens.id)
+  id: string;
   user_id: number;
   full_name: string;
   email: string;
   device: string | null;
-  revoked: number;      // 0/1
+  revoked: number;
   created_at: string | null;
   expires_at: string | null;
 };
@@ -76,131 +65,169 @@ type ApiLog = {
   action_description: string | null;
 };
 
-const AccessControl = () => {
+type IpRule = {
+    id: number;
+    type: "whitelist" | "blacklist";
+    address: string;
+    description: string;
+    status: string;
+    created_at: string;
+}
+
+export default function AccessControl() {
   const { toast } = useToast();
 
+  // States
   const [activeTab, setActiveTab] = useState("security");
   const [isLoading, setIsLoading] = useState(false);
   const [isAddingIpRule, setIsAddingIpRule] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [logFilter, setLogFilter] = useState("all"); // شكلي فقط
-
+  
+  // Data States
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [logs, setLogs] = useState<ApiLog[]>([]);
+  const [ipRestrictions, setIpRestrictions] = useState<IpRule[]>([]);
 
-  // 1) النماذج — يجب تمرير نفس النوع للـ Form ولـ FormField
-  const securityForm = useForm<SecurityPolicyFormData>({
+  // --- Forms Initialization ---
+  const securityForm = useForm<SecurityPolicyValues>({
     resolver: zodResolver(securityPolicySchema),
     defaultValues: {
-      minPasswordLength: securityPolicies.passwordComplexity.minLength,
-      maxFailedAttempts: securityPolicies.loginPolicy.maxFailedAttempts,
-      lockoutDuration: securityPolicies.loginPolicy.lockoutDuration,
+      minPasswordLength: 8,
+      maxFailedAttempts: 5,
+      lockoutDuration: 30,
+      requireUppercase: true,
+      requireNumbers: true,
     },
   });
 
-  const ipForm = useForm<IpRestrictionFormData>({
+  const ipForm = useForm<IpRestrictionValues>({
     resolver: zodResolver(ipRestrictionSchema),
     defaultValues: { type: "whitelist", address: "", description: "" },
   });
 
-  const sessionForm = useForm<SessionSettingsFormData>({
+  const sessionForm = useForm<SessionSettingsValues>({
     resolver: zodResolver(sessionSettingsSchema),
     defaultValues: {
-      globalTimeout: sessionSettings.globalTimeout,
-      maxConcurrentSessions: sessionSettings.maxConcurrentSessions,
-      rememberMeDuration: sessionSettings.rememberMeDuration,
+      globalTimeout: 120,
+      maxConcurrentSessions: 3,
+      rememberMeEnabled: true,
+      rememberMeDuration: 30,
     },
   });
 
-  // 2) استدعاءات API
+  // --- API Calls ---
   const fetchSessions = async () => {
     try {
       const res = await api.get("/v1/admin/sessions");
-      const data: ApiSession[] = res.data?.data ?? res.data;
-      setSessions(data);
+      setSessions(res.data?.data ?? res.data);
     } catch {
-      toast({ title: "خطأ", description: "فشل تحميل الجلسات", variant: "destructive" });
-    }
-  };
-
-  const revokeToken = async (tokenId: string) => {
-    try {
-      await api.post("/v1/admin/sessions/revoke", { token_id: tokenId });
-      toast({ title: "نجاح", description: "تم إنهاء الجلسة" });
-      await fetchSessions();
-    } catch {
-      toast({ title: "خطأ", description: "فشل إنهاء الجلسة", variant: "destructive" });
+      toast({ title: "خطأ", description: "فشل تحميل الجلسات النشطة", variant: "destructive" });
     }
   };
 
   const fetchLogs = async () => {
     try {
       const res = await api.get("/v1/admin/audit-logs");
-      const data: ApiLog[] = res.data?.data ?? res.data;
-      setLogs(data);
+      setLogs(res.data?.data ?? res.data);
     } catch {
-      toast({ title: "خطأ", description: "فشل تحميل سجلات الوصول", variant: "destructive" });
+      toast({ title: "خطأ", description: "فشل تحميل سجلات النظام", variant: "destructive" });
+    }
+  };
+
+  const fetchIpRules = async () => {
+    try {
+      const res = await api.get("/v1/admin/ip-restrictions");
+      const data = res.data?.data || res.data;
+      setIpRestrictions(Array.isArray(data) ? data : []);
+    } catch {
+      console.error("Failed to fetch IP rules");
+    }
+  };
+
+  const fetchSettings = async () => {
+    try {
+        const res = await api.get("/v1/admin/security/policy");
+        if(res.data) {
+            if (res.data.security) securityForm.reset(res.data.security);
+            if (res.data.session) sessionForm.reset(res.data.session);
+        }
+    } catch {
+        // Ignore
     }
   };
 
   useEffect(() => {
     fetchSessions();
     fetchLogs();
+    fetchSettings();
+    fetchIpRules();
   }, []);
 
-  // 3) معالجات إرسال النماذج — بتواقيع SubmitHandler متوافقة
-  const onUpdateSecurityPolicy: SubmitHandler<SecurityPolicyFormData> = async (_) => {
+  // --- Handlers ---
+  const revokeToken = async (tokenId: string) => {
+    if(!confirm("هل أنت متأكد من إنهاء هذه الجلسة؟")) return;
+    try {
+      await api.post("/v1/admin/sessions/revoke", { token_id: tokenId });
+      toast({ title: "تم بنجاح", description: "تم إنهاء الجلسة" });
+      await fetchSessions();
+    } catch {
+      toast({ title: "خطأ", description: "فشل العملية", variant: "destructive" });
+    }
+  };
+
+  const onUpdateSecurityPolicy: SubmitHandler<SecurityPolicyValues> = async (data) => {
     setIsLoading(true);
     try {
-      await new Promise((r) => setTimeout(r, 700));
-      toast({ title: "نجاح", description: "تم تحديث سياسة الأمان (تجريبي)" });
+      await api.put("/v1/admin/security/policy", { type: 'security', ...data });
+      toast({ title: "تم الحفظ", description: "تم تحديث سياسات الأمان بنجاح" });
+    } catch {
+      toast({ title: "خطأ", description: "فشل حفظ الإعدادات", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const onAddIpRestriction: SubmitHandler<IpRestrictionFormData> = async (_) => {
+  const onUpdateSessionSettings: SubmitHandler<SessionSettingsValues> = async (data) => {
     setIsLoading(true);
     try {
-      await new Promise((r) => setTimeout(r, 700));
-      toast({ title: "نجاح", description: "تمت إضافة قاعدة IP (تجريبي)" });
-      ipForm.reset();
-      setIsAddingIpRule(false);
+      await api.put("/v1/admin/security/policy", { type: 'session', ...data });
+      toast({ title: "تم الحفظ", description: "تم تحديث إعدادات الجلسات" });
+    } catch {
+      toast({ title: "خطأ", description: "فشل حفظ الإعدادات", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const onUpdateSessionSettings: SubmitHandler<SessionSettingsFormData> = async (_) => {
-    setIsLoading(true);
-    try {
-      await new Promise((r) => setTimeout(r, 700));
-      toast({ title: "نجاح", description: "تم تحديث إعدادات الجلسات (تجريبي)" });
-    } finally {
-      setIsLoading(false);
-    }
+  const onAddIpRestriction: SubmitHandler<IpRestrictionValues> = async (data) => {
+      setIsLoading(true);
+      try {
+        await api.post("/v1/admin/ip-restrictions", data);
+        toast({ title: "تم الإضافة", description: "تمت إضافة قاعدة IP جديدة" });
+        ipForm.reset();
+        setIsAddingIpRule(false);
+        fetchIpRules();
+      } catch (error: any) {
+        toast({ title: "خطأ", description: "فشل إضافة القاعدة", variant: "destructive" });
+      } finally {
+        setIsLoading(false);
+      }
   };
 
-  // 4) فلترة السجلات محليًا (لا يوجد status في DB)
-  const filteredLogs = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    return logs.filter((log) => {
-      const hay = `${log.full_name} ${log.email} ${log.action_type} ${log.module_name ?? ""} ${log.action_description ?? ""}`.toLowerCase();
-      const matchesSearch = q === "" || hay.includes(q);
-      const matchesFilter = logFilter === "all";
-      return matchesSearch && matchesFilter;
-    });
-  }, [logs, searchQuery, logFilter]);
-
-  // 5) واجهة
-  const handleTestConnectivity = () => {
-    toast({ title: "اختبار الاتصال", description: "جارٍ اختبار الاتصال من عنوان IP الحالي..." });
-    setTimeout(() => toast({ title: "تم الاختبار بنجاح", description: "يمكن لعنوان IP الحالي الوصول إلى النظام" }), 1200);
-  };
+  const deleteIpRule = async (id: number) => {
+      if(!confirm("هل أنت متأكد من حذف هذه القاعدة؟")) return;
+      try {
+          await api.delete(`/v1/admin/ip-restrictions/${id}`);
+          toast({ title: "تم الحذف", description: "تم إزالة القاعدة" });
+          fetchIpRules();
+      } catch {
+          toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+      }
+  }
 
   const exportLogsCsv = () => {
-    const header = ["timestamp","full_name","email","action_type","module_name","action_description"];
-    const rows = filteredLogs.map((l) => [
+    const header = ["Timestamp","User","Email","Action","Module","Description"];
+    const rows = logs.map((l) => [
       l.created_at, l.full_name, l.email, l.action_type, l.module_name ?? "", (l.action_description ?? "").replace(/[\r\n]+/g, " "),
     ]);
     const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -213,523 +240,364 @@ const AccessControl = () => {
     URL.revokeObjectURL(url);
   };
 
+  // Filtering
+  const filteredLogs = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return logs.filter((log) => {
+      const text = `${log.full_name} ${log.email} ${log.action_type} ${log.module_name || ""}`.toLowerCase();
+      return text.includes(q);
+    });
+  }, [logs, searchQuery]);
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 container mx-auto p-4 animate-in fade-in duration-500">
+      
+      <div className="flex flex-col md:flex-row justify-between items-start gap-4 bg-card p-6 rounded-xl border shadow-sm">
         <div>
-          <h1 className="text-3xl font-bold">التحكم في الوصول</h1>
-          <p className="text-muted-foreground">إدارة سياسات الأمان وضوابط الوصول</p>
+          <h1 className="text-3xl font-bold tracking-tight">التحكم في الوصول والأمان</h1>
+          <p className="text-muted-foreground mt-1">إدارة سياسات الأمان، الجلسات النشطة، وسجلات النظام</p>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="security" className="flex items-center gap-2">
-            <Shield className="h-4 w-4" />
-            سياسة الأمان
-          </TabsTrigger>
-          <TabsTrigger value="ip" className="flex items-center gap-2">
-            <Globe className="h-4 w-4" />
-            قيود عناوين IP
-          </TabsTrigger>
-          <TabsTrigger value="sessions" className="flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            إدارة الجلسات
-          </TabsTrigger>
-          <TabsTrigger value="logs" className="flex items-center gap-2">
-            <Eye className="h-4 w-4" />
-            سجلات الوصول
-          </TabsTrigger>
-        </TabsList>
+        
+        <div className="overflow-x-auto pb-2">
+            <TabsList className="grid w-full min-w-[600px] grid-cols-4 bg-muted/50 p-1 rounded-lg">
+            <TabsTrigger value="security" className="gap-2"><Shield className="h-4 w-4" /> سياسة الأمان</TabsTrigger>
+            <TabsTrigger value="sessions" className="gap-2"><Clock className="h-4 w-4" /> إدارة الجلسات</TabsTrigger>
+            <TabsTrigger value="ip" className="gap-2"><Globe className="h-4 w-4" /> قيود الشبكة (IP)</TabsTrigger>
+            <TabsTrigger value="logs" className="gap-2"><Eye className="h-4 w-4" /> سجلات النظام</TabsTrigger>
+            </TabsList>
+        </div>
 
-        {/* سياسة الأمان (تجريبي) */}
-        <TabsContent value="security" className="space-y-6">
-          <Form<SecurityPolicyFormData> {...securityForm}>
+        {/* 1. Security Policy Tab */}
+        <TabsContent value="security">
+          <Form {...securityForm}>
             <form onSubmit={securityForm.handleSubmit(onUpdateSecurityPolicy)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Shield className="h-5 w-5 text-blue-600" />
-                      سياسة كلمة المرور
+                    <CardTitle className="text-lg flex items-center gap-2">
+                        <Shield className="h-5 w-5 text-blue-600" /> تعقيد كلمة المرور
                     </CardTitle>
-                    <CardDescription>ضبط متطلبات تعقيد كلمة المرور</CardDescription>
+                    <CardDescription>الحد الأدنى لمتطلبات كلمات مرور المستخدمين</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField<SecurityPolicyFormData>
-                      control={securityForm.control}
-                      name="minPasswordLength"
-                      render={({ field }) => (
+                    <FormField control={securityForm.control} name="minPasswordLength" render={({ field }) => (
                         <FormItem>
-                          <FormLabel>الحد الأدنى لطول كلمة المرور</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
-                          </FormControl>
-                          <FormMessage />
+                            <FormLabel>أقل طول لكلمة المرور</FormLabel>
+                            <FormControl>
+                                <Input 
+                                    type="number" 
+                                    {...field} 
+                                    onChange={e => field.onChange(parseInt(e.target.value) || 0)} 
+                                />
+                            </FormControl>
+                            <FormMessage />
                         </FormItem>
-                      )}
-                    />
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label>يتطلب حروف كبيرة</Label>
-                          <p className="text-sm text-muted-foreground">على الأقل حرف كبير واحد</p>
-                        </div>
-                        <Switch defaultChecked={securityPolicies.passwordComplexity.requireUppercase} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label>يتطلب حروف صغيرة</Label>
-                          <p className="text-sm text-muted-foreground">على الأقل حرف صغير واحد</p>
-                        </div>
-                        <Switch defaultChecked={securityPolicies.passwordComplexity.requireLowercase} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label>يتطلب أرقام</Label>
-                          <p className="text-sm text-muted-foreground">على الأقل رقم واحد</p>
-                        </div>
-                        <Switch defaultChecked={securityPolicies.passwordComplexity.requireNumbers} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <Label>يتطلب رموز</Label>
-                          <p className="text-sm text-muted-foreground">على الأقل رمز خاص واحد</p>
-                        </div>
-                        <Switch defaultChecked={securityPolicies.passwordComplexity.requireSymbols} />
-                      </div>
-                    </div>
+                    )} />
+                    
+                    <FormField control={securityForm.control} name="requireUppercase" render={({ field }) => (
+                        <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                            <div className="space-y-0.5"><FormLabel>حروف كبيرة (A-Z)</FormLabel></div>
+                            <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                        </FormItem>
+                    )} />
+
+                    <FormField control={securityForm.control} name="requireNumbers" render={({ field }) => (
+                        <FormItem className="flex items-center justify-between rounded-lg border p-3">
+                            <div className="space-y-0.5"><FormLabel>أرقام (0-9)</FormLabel></div>
+                            <FormControl><Switch checked={field.value} onCheckedChange={field.onChange} /></FormControl>
+                        </FormItem>
+                    )} />
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Settings className="h-5 w-5 text-green-600" />
-                      سياسة المصادقة
+                    <CardTitle className="text-lg flex items-center gap-2">
+                        <Settings className="h-5 w-5 text-green-600" /> سياسة الدخول
                     </CardTitle>
-                    <CardDescription>ضبط إعدادات تسجيل الدخول والمصادقة</CardDescription>
+                    <CardDescription>حماية الحسابات من محاولات التخمين</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <FormField<SecurityPolicyFormData>
-                      control={securityForm.control}
-                      name="maxFailedAttempts"
-                      render={({ field }) => (
+                    <FormField control={securityForm.control} name="maxFailedAttempts" render={({ field }) => (
                         <FormItem>
-                          <FormLabel>الحد الأقصى لمحاولات تسجيل الدخول الفاشلة</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
-                          </FormControl>
-                          <FormMessage />
+                            <FormLabel>الحد الأقصى للمحاولات الفاشلة</FormLabel>
+                            <FormControl>
+                                <Input 
+                                    type="number" 
+                                    {...field} 
+                                    onChange={e => field.onChange(parseInt(e.target.value) || 0)} 
+                                />
+                            </FormControl>
+                            <FormMessage />
                         </FormItem>
-                      )}
-                    />
-                    <FormField<SecurityPolicyFormData>
-                      control={securityForm.control}
-                      name="lockoutDuration"
-                      render={({ field }) => (
+                    )} />
+                    <FormField control={securityForm.control} name="lockoutDuration" render={({ field }) => (
                         <FormItem>
-                          <FormLabel>مدة قفل الحساب (بالدقائق)</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
-                          </FormControl>
-                          <FormMessage />
+                            <FormLabel>مدة الحظر المؤقت (دقائق)</FormLabel>
+                            <FormControl>
+                                <Input 
+                                    type="number" 
+                                    {...field} 
+                                    onChange={e => field.onChange(parseInt(e.target.value) || 0)} 
+                                />
+                            </FormControl>
+                            <FormMessage />
                         </FormItem>
-                      )}
-                    />
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>تفعيل المصادقة الثنائية</Label>
-                        <p className="text-sm text-muted-foreground">طلب المصادقة للحسابات ذات الصلاحيات</p>
-                      </div>
-                      <Switch defaultChecked={securityPolicies.twoFactorAuth.enabled} />
-                    </div>
+                    )} />
                   </CardContent>
                 </Card>
               </div>
 
               <div className="flex justify-end">
-                <Button type="submit" disabled={isLoading}>
-                  {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  تحديث سياسة الأمان
+                <Button type="submit" disabled={isLoading} size="lg" className="shadow-md">
+                  {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ التغييرات
                 </Button>
               </div>
             </form>
           </Form>
         </TabsContent>
 
-        {/* قيود IP (تجريبي) */}
-        <TabsContent value="ip" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold">قيود عناوين IP</h3>
-              <p className="text-sm text-muted-foreground">التحكم في الوصول بناءً على عناوين IP والشبكات</p>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => {
-                toast({ title: "اختبار الاتصال", description: "جارٍ اختبار الاتصال من عنوان IP الحالي..." });
-                setTimeout(() => toast({ title: "تم الاختبار بنجاح", description: "يمكن لعنوان IP الحالي الوصول إلى النظام" }), 1200);
-              }}>
-                اختبار الاتصال
-              </Button>
-              <Button onClick={() => setIsAddingIpRule(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                إضافة قاعدة
-              </Button>
-            </div>
-          </div>
-
-          {isAddingIpRule && (
-            <Card>
-              <CardHeader>
-                <CardTitle>إضافة قاعدة تقييد IP</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Form<IpRestrictionFormData> {...ipForm}>
-                  <form onSubmit={ipForm.handleSubmit(onAddIpRestriction)} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <FormField<IpRestrictionFormData>
-                        control={ipForm.control}
-                        name="type"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>نوع القاعدة</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="اختر النوع" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                <SelectItem value="whitelist">القائمة البيضاء (سماح)</SelectItem>
-                                <SelectItem value="blacklist">القائمة السوداء (حظر)</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField<IpRestrictionFormData>
-                        control={ipForm.control}
-                        name="address"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>عنوان IP/CIDR</FormLabel>
-                            <FormControl>
-                              <Input placeholder="192.168.1.0/24" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField<IpRestrictionFormData>
-                        control={ipForm.control}
-                        name="description"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>الوصف</FormLabel>
-                            <FormControl>
-                              <Input placeholder="أدخل الوصف" {...field} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <div className="flex justify-end gap-2">
-                      <Button type="button" variant="outline" onClick={() => setIsAddingIpRule(false)} disabled={isLoading}>
-                        إلغاء
-                      </Button>
-                      <Button type="submit" disabled={isLoading}>
-                        {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                        إضافة قاعدة
-                      </Button>
-                    </div>
-                  </form>
-                </Form>
-              </CardContent>
+        {/* 2. Sessions Management Tab */}
+        <TabsContent value="sessions" className="space-y-6">
+            <Card className="bg-muted/20 border-dashed">
+                <CardHeader><CardTitle className="text-base">إعدادات الجلسات</CardTitle></CardHeader>
+                <CardContent>
+                    <Form {...sessionForm}>
+                        <form onSubmit={sessionForm.handleSubmit(onUpdateSessionSettings)} className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                            <FormField control={sessionForm.control} name="globalTimeout" render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>وقت انتهاء الجلسة (دقيقة)</FormLabel>
+                                    <FormControl>
+                                        <Input 
+                                            type="number" 
+                                            {...field} 
+                                            onChange={e => field.onChange(parseInt(e.target.value) || 0)} 
+                                        />
+                                    </FormControl>
+                                </FormItem>
+                            )} />
+                            <FormField control={sessionForm.control} name="maxConcurrentSessions" render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>الحد الأقصى للأجهزة المتزامنة</FormLabel>
+                                    <FormControl>
+                                        <Input 
+                                            type="number" 
+                                            {...field} 
+                                            onChange={e => field.onChange(parseInt(e.target.value) || 0)} 
+                                        />
+                                    </FormControl>
+                                </FormItem>
+                            )} />
+                            <FormField control={sessionForm.control} name="rememberMeDuration" render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>مدة "تذكرني" (أيام)</FormLabel>
+                                    <FormControl>
+                                        <Input 
+                                            type="number" 
+                                            {...field} 
+                                            onChange={e => field.onChange(parseInt(e.target.value) || 0)} 
+                                        />
+                                    </FormControl>
+                                </FormItem>
+                            )} />
+                            <div className="pb-2">
+                                <Button type="submit" variant="secondary" className="w-full">تحديث الإعدادات</Button>
+                            </div>
+                        </form>
+                    </Form>
+                </CardContent>
             </Card>
-          )}
 
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>النوع</TableHead>
-                    <TableHead>عنوان IP/CIDR</TableHead>
-                    <TableHead>الوصف</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead>الإجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {ipRestrictions.map((rule) => (
-                    <TableRow key={rule.id}>
-                      <TableCell>
-                        <Badge className={rule.type === "whitelist" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
-                          {rule.type === "whitelist" ? "سماح" : "حظر"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-mono">{rule.address}</TableCell>
-                      <TableCell>{rule.description}</TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-100 text-green-700">{rule.status}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="ghost" size="sm">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+            <Card>
+                <CardHeader>
+                    <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2"><Users className="w-5 h-5 text-purple-600" /> الجلسات النشطة حالياً</CardTitle>
+                        <Badge variant="outline" className="text-base px-3">{sessions.filter(s => !s.revoked).length} جلسة</Badge>
+                    </div>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader className="bg-muted/50">
+                            <TableRow>
+                                <TableHead>المستخدم</TableHead>
+                                <TableHead>الجهاز / المتصفح</TableHead>
+                                <TableHead className="text-center">وقت الدخول</TableHead>
+                                <TableHead className="text-center">الحالة</TableHead>
+                                <TableHead className="text-left">إجراء</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {sessions.length === 0 ? (
+                                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا توجد جلسات نشطة.</TableCell></TableRow>
+                            ) : (
+                                sessions.map(session => (
+                                    <TableRow key={session.id} className={session.revoked ? "opacity-50 bg-muted/20" : ""}>
+                                        <TableCell>
+                                            <div className="flex flex-col">
+                                                <span className="font-medium">{session.full_name}</span>
+                                                <span className="text-xs text-muted-foreground">{session.email}</span>
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-xs font-mono text-muted-foreground truncate max-w-[200px]" title={session.device || ""}>
+                                            {session.device || "Unknown Device"}
+                                        </TableCell>
+                                        <TableCell className="text-center text-sm">{session.created_at}</TableCell>
+                                        <TableCell className="text-center">
+                                            {session.revoked ? (
+                                                <Badge variant="secondary">منتهية</Badge>
+                                            ) : (
+                                                <Badge className="bg-green-500 hover:bg-green-600">نشطة</Badge>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            {!session.revoked && (
+                                                <Button variant="destructive" size="sm" onClick={() => revokeToken(session.id)}>
+                                                    إخراج
+                                                </Button>
+                                            )}
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            )}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
         </TabsContent>
 
-        {/* الجلسات (فعلي) */}
-        <TabsContent value="sessions" className="space-y-6">
-          <Form<SessionSettingsFormData> {...sessionForm}>
-            <form onSubmit={sessionForm.handleSubmit(onUpdateSessionSettings)} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Clock className="h-5 w-5 text-blue-600" />
-                      مهلة الجلسة
-                    </CardTitle>
-                    <CardDescription>ضبط مهلة الجلسة العامة (تجريبي)</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField<SessionSettingsFormData>
-                      control={sessionForm.control}
-                      name="globalTimeout"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>المهلة (بالدقائق)</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>تحذير قبل انتهاء المهلة</Label>
-                        <p className="text-sm text-muted-foreground">إظهار تحذير قبل 5 دقائق</p>
-                      </div>
-                      <Switch defaultChecked={sessionSettings.rememberMeEnabled} />
-                    </div>
-                    <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">تحديث المهلة</Button>
-                  </CardContent>
-                </Card>
+        {/* 3. IP Restrictions Tab */}
+        <TabsContent value="ip" className="space-y-6">
+            <div className="flex justify-between items-center">
+                <div>
+                    <h3 className="text-lg font-semibold">القائمة السوداء والبيضاء</h3>
+                    <p className="text-sm text-muted-foreground">التحكم في العناوين المسموح لها بالوصول للنظام.</p>
+                </div>
+                <Button onClick={() => setIsAddingIpRule(true)}><Plus className="w-4 h-4 mr-2" /> إضافة قاعدة</Button>
+            </div>
 
-                <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Users className="h-5 w-5 text-green-600" />
-                      الجلسات المتزامنة
-                    </CardTitle>
-                    <CardDescription>إدارة الوصول عبر جلسات متعددة (تجريبي)</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField<SessionSettingsFormData>
-                      control={sessionForm.control}
-                      name="maxConcurrentSessions"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>الحد الأقصى للجلسات المتزامنة</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <Label>تفعيل "تذكرني"</Label>
-                        <p className="text-sm text-muted-foreground">السماح بجلسات تسجيل دخول ممتدة</p>
-                      </div>
-                      <Switch defaultChecked={sessionSettings.rememberMeEnabled} />
-                    </div>
-                    <FormField<SessionSettingsFormData>
-                      control={sessionForm.control}
-                      name="rememberMeDuration"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>مدة "تذكرني" (أيام)</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} onChange={(e) => field.onChange(parseInt(e.target.value || "0", 10))} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <Button type="submit" className="w-full" disabled={isLoading}>
-                      {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                      تحديث إعدادات التزامن
-                    </Button>
-                  </CardContent>
+            {isAddingIpRule && (
+                <Card className="border-dashed border-2">
+                    <CardContent className="pt-6">
+                        <Form {...ipForm}>
+                            <form onSubmit={ipForm.handleSubmit(onAddIpRestriction)} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                <FormField control={ipForm.control} name="type" render={({ field }) => (
+                                    <FormItem><FormLabel>النوع</FormLabel>
+                                        <Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="whitelist">سماح (Whitelist)</SelectItem><SelectItem value="blacklist">حظر (Blacklist)</SelectItem></SelectContent></Select>
+                                    </FormItem>
+                                )} />
+                                <FormField control={ipForm.control} name="address" render={({ field }) => (
+                                    <FormItem className="md:col-span-2"><FormLabel>IP / CIDR</FormLabel><FormControl><Input placeholder="e.g. 192.168.1.0/24" {...field} /></FormControl></FormItem>
+                                )} />
+                                <FormField control={ipForm.control} name="description" render={({ field }) => (
+                                    <FormItem><FormLabel>الوصف</FormLabel><FormControl><Input placeholder="وصف القاعدة..." {...field} /></FormControl></FormItem>
+                                )} />
+                                <div className="flex gap-2 col-span-1 md:col-span-4 justify-end">
+                                    <Button type="button" variant="outline" onClick={() => setIsAddingIpRule(false)}>إلغاء</Button>
+                                    <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ القاعدة</Button>
+                                </div>
+                            </form>
+                        </Form>
+                    </CardContent>
                 </Card>
+            )}
 
-                <Card className="bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Eye className="h-5 w-5 text-purple-600" />
-                      الجلسات النشطة
-                    </CardTitle>
-                    <CardDescription>{sessions.filter((s) => !s.revoked).length} جلسة نشطة حالياً</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="text-center">
-                      <p className="text-3xl font-bold text-purple-700">{sessions.filter((s) => !s.revoked).length}</p>
-                      <p className="text-sm text-purple-600">جلسات نشطة</p>
-                    </div>
-                    <Button className="w-full bg-purple-600 hover:bg-purple-700 text-white" onClick={() => setActiveTab("sessions")}>
-                      عرض جميع الجلسات
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </form>
-          </Form>
+            <Card>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>نوع القيد</TableHead>
+                                <TableHead>العنوان (IP)</TableHead>
+                                <TableHead>الوصف</TableHead>
+                                <TableHead>التاريخ</TableHead>
+                                <TableHead>إجراء</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {ipRestrictions.length === 0 ? (
+                                <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا توجد قيود مضافة.</TableCell></TableRow>
+                            ) : (
+                                ipRestrictions.map((rule, idx) => (
+                                    <TableRow key={idx}>
+                                        <TableCell>
+                                            <Badge variant={rule.type === 'whitelist' ? 'default' : 'destructive'}>
+                                                {rule.type === 'whitelist' ? 'مسموح' : 'محظور'}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="font-mono">{rule.address}</TableCell>
+                                        <TableCell>{rule.description}</TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{rule.created_at ? new Date(rule.created_at).toLocaleDateString() : '—'}</TableCell>
+                                        <TableCell>
+                                            <Button variant="ghost" size="icon" className="text-destructive" onClick={() => deleteIpRule(rule.id)}>
+                                                <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            )}
+                        </TableBody>
+                    </Table>
+                </CardContent>
+            </Card>
+        </TabsContent>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>جلسات المستخدمين</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Input
-                    placeholder="ابحث في الجلسات..."
-                    className="w-64"
+        {/* 4. Audit Logs Tab */}
+        <TabsContent value="logs" className="space-y-4">
+            <div className="flex gap-4">
+                <Input 
+                    placeholder="بحث في السجلات (اسم، بريد، عملية)..." 
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>المستخدم</TableHead>
-                    <TableHead>الجهاز</TableHead>
-                    <TableHead>وقت الإنشاء</TableHead>
-                    <TableHead>الانتهاء</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead>الإجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sessions
-                    .filter((s) => {
-                      const q = searchQuery.toLowerCase();
-                      const hay = `${s.full_name} ${s.email} ${s.device ?? ""}`.toLowerCase();
-                      return hay.includes(q);
-                    })
-                    .map((s) => (
-                      <TableRow key={s.id}>
-                        <TableCell className="whitespace-nowrap">
-                          <div className="font-medium">{s.full_name}</div>
-                          <div className="text-xs text-muted-foreground">{s.email}</div>
-                        </TableCell>
-                        <TableCell>{s.device ?? "—"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{s.created_at ?? "—"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{s.expires_at ?? "—"}</TableCell>
-                        <TableCell>
-                          <Badge className={!s.revoked ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
-                            {!s.revoked ? "مفعّلة" : "ملغاة"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {!s.revoked ? (
-                            <Button variant="destructive" size="sm" onClick={() => revokeToken(s.id)}>
-                              تسجيل خروج إجباري
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                    className="max-w-md"
+                />
+                <Button variant="outline" onClick={exportLogsCsv}><Download className="w-4 h-4 mr-2" /> تصدير CSV</Button>
+            </div>
+
+            <Card>
+                <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader className="bg-muted/50">
+                                <TableRow>
+                                    <TableHead className="w-[180px]">الوقت</TableHead>
+                                    <TableHead>المستخدم</TableHead>
+                                    <TableHead>العملية</TableHead>
+                                    <TableHead>الوحدة</TableHead>
+                                    <TableHead className="w-[40%]">التفاصيل</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredLogs.length === 0 ? (
+                                    <TableRow><TableCell colSpan={5} className="text-center py-10 text-muted-foreground">لا توجد سجلات مطابقة.</TableCell></TableRow>
+                                ) : (
+                                    filteredLogs.map(log => (
+                                        <TableRow key={log.activity_id} className="hover:bg-muted/5">
+                                            <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">{log.created_at}</TableCell>
+                                            <TableCell>
+                                                <div className="flex flex-col">
+                                                    <span className="font-medium text-sm">{log.full_name}</span>
+                                                    <span className="text-xs text-muted-foreground">{log.email}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell><Badge variant="outline">{log.action_type}</Badge></TableCell>
+                                            <TableCell className="text-sm">{log.module_name || 'System'}</TableCell>
+                                            <TableCell className="text-sm text-muted-foreground truncate max-w-[300px]" title={log.action_description || ""}>
+                                                {log.action_description}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
         </TabsContent>
 
-        {/* سجلات الوصول (فعلي) */}
-        <TabsContent value="logs" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold">سجلات الوصول</h3>
-              <p className="text-sm text-muted-foreground">مراقبة وصول النظام والأحداث</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <Input
-                placeholder="ابحث في السجلات..."
-                className="w-64"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <Select value={logFilter} onValueChange={setLogFilter}>
-                <SelectTrigger className="w-32">
-                  <SelectValue placeholder="تصفية" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">كل الأحداث</SelectItem>
-                  <SelectItem value="success">ناجحة</SelectItem>
-                  <SelectItem value="failed">فاشلة</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={exportLogsCsv}>
-                <Download className="w-4 h-4 mr-2" />
-                تصدير
-              </Button>
-            </div>
-          </div>
-
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>الطابع الزمني</TableHead>
-                    <TableHead>المستخدم</TableHead>
-                    <TableHead>العملية</TableHead>
-                    <TableHead>الوحدة</TableHead>
-                    <TableHead>الوصف</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredLogs.map((log) => (
-                    <TableRow key={log.activity_id}>
-                      <TableCell className="font-mono text-sm">{log.created_at}</TableCell>
-                      <TableCell>
-                        <div className="font-medium">{log.full_name}</div>
-                        <div className="text-xs text-muted-foreground">{log.email}</div>
-                      </TableCell>
-                      <TableCell>{log.action_type}</TableCell>
-                      <TableCell>{log.module_name ?? "—"}</TableCell>
-                      <TableCell className="max-w-[420px]">
-                        <div className="text-sm text-muted-foreground truncate">
-                          {log.action_description ?? "—"}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );
-};
-
-export default AccessControl;
+}

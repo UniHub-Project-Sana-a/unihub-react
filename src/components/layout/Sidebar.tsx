@@ -36,16 +36,17 @@ const menuItems = [
     badge: null,
     subItems: [
       { title: "جميع المستخدمين", href: "/users" },
+      { title: "الأدوار", href: "/users/roles" },
       { title: "التحكم في الوصول", href: "/users/access-control" }
     ]
   },
-  {
-    title: "الإعدادات",
-    icon: Settings,
-    href: "/settings",
-    badge: null,
-    subItems: undefined
-  },
+  // {
+  //   title: "الإعدادات",
+  //   icon: Settings,
+  //   href: "/settings",
+  //   badge: null,
+  //   subItems: undefined
+  // },
 ];
 
 export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {

@@ -1,11 +1,8 @@
 import React from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-// ✅ 1. استيراد شعار الجامعة
+// ✅ 1. استيراد شعار الجامعة الثابت (محلياً لأنه لا يتغير)
 import uniLogo from "@/assets/logo.png"; 
-
-// ✅ 2. استيراد صور الكليات (ديناميكي)
-const collegeLogosGlob = import.meta.glob('/src/assets/colleges/*.png', { eager: true });
 
 export interface ReportStudent {
   name: string;
@@ -26,7 +23,7 @@ interface AttendanceReportSheetProps {
   studentsList: ReportStudent[];
   presentCount: number;
   absentCount: number;
-  // ✅ أضفنا collegeId لتحديد الشعار
+  // ✅ collegeId لتحديد رابط الشعار
   collegeId?: string | number;
 }
 
@@ -46,20 +43,12 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
     collegeId
   }, ref) => {
     
-    // ✅ دالة البحث عن الشعار
-    const getCollegeLogoSrc = (id: string | number | undefined) => {
-        if (!id) return null;
-        const idStr = String(id);
-        const foundKey = Object.keys(collegeLogosGlob).find((key) => {
-            return key.endsWith(`/${idStr}.png`);
-        });
-        if (foundKey) {
-            return (collegeLogosGlob[foundKey] as any).default;
-        }
-        return null;
-    };
-    
-    const currentCollegeLogo = getCollegeLogoSrc(collegeId);
+    // ✅ 2. بناء رابط الشعار الديناميكي
+    // نستخدم collegeId لجلب الصورة من مجلد التخزين العام في لارافيل
+    // نضيف timestamp لمنع الكاش عند تحديث الشعار
+    const currentCollegeLogo = collegeId 
+        ? `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}` 
+        : null;
 
     return (
       <div 
@@ -154,13 +143,17 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
                             </div>
                         </div>
 
-                        {/* اليسار: شعار الكلية */}
+                        {/* اليسار: شعار الكلية (الديناميكي) */}
                         <div className="w-1/4 flex justify-end items-start">
                             {currentCollegeLogo ? (
                               <img 
                                   src={currentCollegeLogo} 
                                   alt="College Logo" 
-                                  className="h-24 w-auto object-contain" 
+                                  className="h-24 w-auto object-contain"
+                                  onError={(e) => {
+                                    // إخفاء الصورة في حال فشل التحميل
+                                    (e.target as HTMLImageElement).style.display = 'none';
+                                  }}
                               />
                             ) : (
                               <div className="h-24 w-24 flex items-center justify-center border border-dashed border-gray-300 rounded text-xs text-gray-400">

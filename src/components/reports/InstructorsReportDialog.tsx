@@ -5,12 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Printer, DollarSign, FileText } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
 
-// ✅ 1. استيراد شعار الجامعة
+// ✅ 1. استيراد شعار الجامعة الثابت
 import uniLogo from "@/assets/logo.png"; 
-
-// ✅ 2. استيراد صور الكليات (ديناميكي)
-// هذا السطر يجمع كل الصور التي تنتهي بـ .png داخل المجلد المحدد
-const collegeLogosGlob = import.meta.glob('/src/assets/colleges/*.png', { eager: true });
 
 interface InstructorData {
   id: number;
@@ -37,7 +33,7 @@ interface InstructorsReportDialogProps {
   selectedMonth: string;
   departmentName: string;
   mode?: 'financial' | 'performance';
-  // ✅ هذا هو المتغير المهم، تأكد من تمريره عند استدعاء هذا المكون
+  // ✅ collegeId ضروري لجلب الشعار
   collegeId?: string | number;
 }
 
@@ -54,33 +50,14 @@ export function InstructorsReportDialog({
   
   const printRef = useRef<HTMLDivElement>(null);
 
-  // ✅ دالة البحث عن الشعار بناءً على اللوج الذي أرسلته
-  const getCollegeLogoSrc = (id: string | number | undefined) => {
-    // إذا لم يصل الـ ID (undefined)، نرجع null
-    if (id === undefined || id === null) return null;
+  // ✅ 2. رابط الشعار الديناميكي (مع منع الكاش)
+  const currentCollegeLogo = collegeId 
+    ? `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}` 
+    : null;
 
-    const idStr = String(id); // تحويل الرقم لنص (مثلاً 1 يصبح "1")
-
-    // نبحث في مفاتيح المصفوفة عن مسار يحتوي على /ID.png
-    // اللوج الخاص بك أظهر المسار: /src/assets/colleges/1.png
-    const foundKey = Object.keys(collegeLogosGlob).find((key) => {
-        // نستخدم includes لضمان العثور عليه حتى لو اختلف بداية المسار قليلاً
-        // ولكن نتأكد من نهايته لعدم الخلط (مثلاً بين 1.png و 11.png)
-        return key.endsWith(`/${idStr}.png`);
-    });
-
-    if (foundKey) {
-        return (collegeLogosGlob[foundKey] as any).default;
-    }
-    return null;
-  };
-
-  const currentCollegeLogo = getCollegeLogoSrc(collegeId);
-
-  // مراقبة للكونسول للتأكد
+  // مراقبة للكونسول للتأكد (اختياري)
   useEffect(() => {
     if (isOpen) {
-        // إذا ظهر undefined هنا، فهذا يعني أنك لم تمرر البروبس من الملف الأب
         console.log("Current College ID received:", collegeId); 
     }
   }, [isOpen, collegeId]);
@@ -224,16 +201,18 @@ export function InstructorsReportDialog({
                                 </div>
                             </div>
 
-                            {/* اليسار: شعار الكلية */}
+                            {/* اليسار: شعار الكلية (الديناميكي) */}
                             <div className="w-1/4 flex justify-end items-start">
                                 {currentCollegeLogo ? (
                                   <img 
                                       src={currentCollegeLogo} 
                                       alt="College Logo" 
-                                      className="h-24 w-auto object-contain" 
+                                      className="h-24 w-auto object-contain"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).style.display = 'none';
+                                      }} 
                                   />
                                 ) : (
-                                  // مكان فارغ في حال لم تظهر الصورة
                                   <div className="h-24 w-24 flex items-center justify-center border border-dashed border-gray-300 rounded text-xs text-gray-400">
                                      شعار الكلية
                                   </div> 

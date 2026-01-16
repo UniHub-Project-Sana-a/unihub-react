@@ -7,10 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Pencil, Trash2, Plus, ArrowLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Pencil, Trash2, Plus, ArrowLeft, ChevronRight, Loader2, Upload, ImageIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // تأكد من وجود هذا المكون أو استخدم img عادي
 
 // Lazy imports
 const TimetableModule = lazy(() => import("@/components/colleges/TimetableModule"));
@@ -22,8 +23,6 @@ const CollegesDashboardModule = lazy(() => import("@/components/colleges/College
 const DepartmentsModule = lazy(() => import("@/components/colleges/DepartmentsModule"));
 const AcademicTitlesModule = lazy(() => import("@/components/colleges/AcademicTitlesModule"));
 const PeriodsModule = lazy(() => import("@/components/colleges/PeriodsModule"));
-// ✅ إضافة الاستيراد للموديول الجديد
-const QualityAssuranceModule = lazy(() => import("@/components/colleges/QualityAssuranceModule"));
 
 const ModuleSkeleton = ({ title }: { title: string }) => (
   <div className="p-6">
@@ -36,10 +35,20 @@ const ModuleSkeleton = ({ title }: { title: string }) => (
   </div>
 );
 
+// تحديث الواجهة لتشمل الشعار
 interface College {
   id: string;
   name: string;
   academicCode: string;
+  logoUrl: string | null; // الحقل الجديد
+}
+
+// واجهة حالة النموذج
+interface CollegeFormData {
+    name: string;
+    academicCode: string;
+    logoFile: File | null;
+    logoPreview: string | null;
 }
 
 export default function CollegesPage() {
@@ -54,37 +63,75 @@ export default function CollegesPage() {
   const [selectedCollege, setSelectedCollege] = useState<College | null>(null);
   const [isCollegeFormOpen, setIsCollegeFormOpen] = useState(false);
   const [editingCollegeId, setEditingCollegeId] = useState<string | null>(null);
-  const [collegeFormData, setCollegeFormData] = useState({ name: "", academicCode: "" });
+  const STORAGE_BASE_URL = "http://192.168.0.124/unihub-api/storage/";
+  
+  // تحديث الحالة لتدعم الملفات
+  const [collegeFormData, setCollegeFormData] = useState<CollegeFormData>({ 
+      name: "", 
+      academicCode: "", 
+      logoFile: null, 
+      logoPreview: null 
+  });
+
   const [userTypes, setUserTypes] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // تحديد نوع المستخدم
   const myUserType = useMemo(() => {
     if (!me || !userTypes || userTypes.length === 0) return null;
     return userTypes.find(t => t.user_type_id === (me as any).user_type_id) || null;
   }, [me, userTypes]);
   
   const myUserTypeCode = myUserType?.user_type_code;
-
-  // هل المستخدم "سوبر" (مشرف عام أو أدمن)؟
   const isSuperUser = myUserTypeCode === 'presidency' || myUserTypeCode === 'admin';
 
   // تحميل الكليات
   const loadColleges = async () => {
+    setIsLoading(true);
     try {
       const res = await api.get("/v1/colleges");
-      let data: any[] = res.data?.data ?? res.data;
       
+      // التأكد من أن البيانات مصفوفة لتجنب الأخطاء
+      let data: any[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : []);
+      
+      // تصفية الكليات حسب صلاحيات المستخدم
       if (myUserTypeCode && !isSuperUser) {
         data = data.filter(c => Number(c.college_id) === Number(me?.college_id));
       }
   
-      setColleges(data.map(c => ({
-        id: String(c.college_id),
-        name: c.college_name,
-        academicCode: c.college_code || ""
-      })));
-    } catch {
+      const mappedColleges = data.map(c => {
+        // --- معالجة رابط الصورة ---
+        let finalLogoUrl = null;
+        
+        // نتحقق أولاً أن الحقل موجود وليس null
+        if (c.college_logo && typeof c.college_logo === 'string') {
+            // 1. هل الرابط قادم من الباك إند كاملاً (بسبب الـ Accessor)؟
+            if (c.college_logo.startsWith('http')) {
+                finalLogoUrl = c.college_logo;
+            } 
+            // 2. إذا كان مساراً نسبياً (مثل colleges/1.png) نقوم بدمجه مع رابط السيرفر
+            else {
+                // إزالة أي شرطة مائلة في البداية لتجنب //
+                const cleanPath = c.college_logo.replace(/^\//, '');
+                finalLogoUrl = `${STORAGE_BASE_URL}${cleanPath}`;
+            }
+
+            // إضافة الوقت لتحديث الكاش (Cache Busting)
+            finalLogoUrl += `?t=${new Date().getTime()}`;
+        }
+        // --------------------------
+
+        return {
+          id: String(c.college_id),
+          name: c.college_name,
+          academicCode: c.college_code || "",
+          logoUrl: finalLogoUrl // الرابط النهائي
+        };
+      });
+
+      setColleges(mappedColleges);
+
+    } catch (error) {
+      console.error("Error loading colleges:", error); // طباعة الخطأ في الكونسول للمراجعة
       toast({ title: "خطأ", description: "فشل تحميل الكليات", variant: "destructive" });
     } finally {
       setIsLoading(false);
@@ -109,7 +156,6 @@ export default function CollegesPage() {
     }
   }, [myUserTypeCode]);
 
-  // منطق المزامنة بين الرابط والكلية المختارة
   useEffect(() => {
     if (isLoading || colleges.length === 0) return;
 
@@ -130,13 +176,30 @@ export default function CollegesPage() {
   const handleAddCollege = () => {
     setIsCollegeFormOpen(true);
     setEditingCollegeId(null);
-    setCollegeFormData({ name: "", academicCode: "" });
+    setCollegeFormData({ name: "", academicCode: "", logoFile: null, logoPreview: null });
   };
 
   const handleEditCollege = (college: College) => {
     setIsCollegeFormOpen(true);
     setEditingCollegeId(college.id);
-    setCollegeFormData({ name: college.name, academicCode: college.academicCode });
+    setCollegeFormData({ 
+        name: college.name, 
+        academicCode: college.academicCode,
+        logoFile: null,
+        logoPreview: college.logoUrl // عرض الشعار الحالي كمعاينة مبدئية
+    });
+  };
+
+  // دالة التعامل مع اختيار ملف الصورة
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+        setCollegeFormData(prev => ({
+            ...prev,
+            logoFile: file,
+            logoPreview: URL.createObjectURL(file) // إنشاء رابط محلي للمعاينة
+        }));
+    }
   };
 
   const handleDeleteCollege = async (id: string) => {
@@ -153,15 +216,26 @@ export default function CollegesPage() {
   const handleSubmitCollege = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const payload = {
-        college_name: collegeFormData.name,
-        college_code: collegeFormData.academicCode,
+      // استخدام FormData لإرسال الملفات
+      const formData = new FormData();
+      formData.append('college_name', collegeFormData.name);
+      formData.append('college_code', collegeFormData.academicCode);
+      
+      if (collegeFormData.logoFile) {
+          formData.append('college_logo', collegeFormData.logoFile);
+      }
+
+      const config = {
+          headers: { 'Content-Type': 'multipart/form-data' }
       };
+
       if (editingCollegeId) {
-        await api.put(`/v1/colleges/${editingCollegeId}`, payload);
-        toast({ title: "نجاح", description: "تم تحديث الكلية" });
+        // في Laravel عند تحديث ملفات يفضل استخدام POST مع _method: PUT
+        formData.append('_method', 'PUT'); 
+        await api.post(`/v1/colleges/${editingCollegeId}`, formData, config);
+        toast({ title: "نجاح", description: "تم تحديث الكلية والشعار" });
       } else {
-        await api.post("/v1/colleges", payload);
+        await api.post("/v1/colleges", formData, config);
         toast({ title: "نجاح", description: "تم إنشاء الكلية" });
       }
       setIsCollegeFormOpen(false);
@@ -214,17 +288,40 @@ export default function CollegesPage() {
                 </CardHeader>
                 <CardContent>
                   <form onSubmit={handleSubmitCollege} className="space-y-4">
-                    <div>
-                      <Label>اسم الكلية *</Label>
-                      <Input value={collegeFormData.name} onChange={(e) => setCollegeFormData({ ...collegeFormData, name: e.target.value })} required />
+                    <div className="flex gap-4 items-start">
+                        {/* قسم رفع الصورة */}
+                        <div className="w-32 h-32 shrink-0 border-2 border-dashed rounded-lg flex items-center justify-center relative overflow-hidden bg-muted/20">
+                            {collegeFormData.logoPreview ? (
+                                <img src={collegeFormData.logoPreview} alt="Logo Preview" className="w-full h-full object-contain" />
+                            ) : (
+                                <div className="text-center text-muted-foreground text-xs p-2">
+                                    <ImageIcon className="w-8 h-8 mx-auto mb-1 opacity-50" />
+                                    <span>اختر شعار</span>
+                                </div>
+                            )}
+                            <Input 
+                                type="file" 
+                                accept="image/*"
+                                className="absolute inset-0 opacity-0 cursor-pointer" 
+                                onChange={handleFileChange}
+                            />
+                        </div>
+
+                        <div className="flex-1 space-y-4">
+                            <div>
+                                <Label>اسم الكلية *</Label>
+                                <Input value={collegeFormData.name} onChange={(e) => setCollegeFormData({ ...collegeFormData, name: e.target.value })} required />
+                            </div>
+                            <div>
+                                <Label>الكود الأكاديمي *</Label>
+                                <Input value={collegeFormData.academicCode} onChange={(e) => setCollegeFormData({ ...collegeFormData, academicCode: e.target.value })} required />
+                            </div>
+                        </div>
                     </div>
-                    <div>
-                      <Label>الكود الأكاديمي *</Label>
-                      <Input value={collegeFormData.academicCode} onChange={(e) => setCollegeFormData({ ...collegeFormData, academicCode: e.target.value })} required />
-                    </div>
-                    <div className="flex gap-2">
-                      <Button type="submit">حفظ</Button>
-                      <Button type="button" variant="outline" onClick={() => setIsCollegeFormOpen(false)}>إلغاء</Button>
+
+                    <div className="flex gap-2 justify-end">
+                        <Button type="button" variant="outline" onClick={() => setIsCollegeFormOpen(false)}>إلغاء</Button>
+                        <Button type="submit">حفظ</Button>
                     </div>
                   </form>
                 </CardContent>
@@ -236,30 +333,91 @@ export default function CollegesPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>اسم الكلية</TableHead>
-                      <TableHead>الكود الأكاديمي</TableHead>
-                      <TableHead>الإجراءات</TableHead>
+                      {/* 1. عمود الشعار: عرض ثابت */}
+                      <TableHead className="w-[120px] text-right">الشعار</TableHead>
+                      
+                      {/* 2. عمود الاسم: يأخذ المساحة المتبقية */}
+                      <TableHead className="w-auto min-w-[200px] text-right">اسم الكلية</TableHead>
+                      
+                      {/* 3. عمود الكود: عرض ثابت */}
+                      <TableHead className="w-[150px] text-right">الكود الأكاديمي</TableHead>
+                      
+                      {/* 4. عمود الإجراءات: عرض ثابت */}
+                      <TableHead className="w-[140px] text-left">الإجراءات</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {colleges.map((college) => (
-                      <TableRow key={college.id} className="cursor-pointer hover:bg-muted/50" onClick={() => handleSelectCollege(college)}>
-                        <TableCell className="font-medium">{college.name}</TableCell>
-                        <TableCell>{college.academicCode}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
+                      <TableRow 
+                        key={college.id} 
+                        className="cursor-pointer hover:bg-muted/50 transition-colors h-[70px]" // ارتفاع ثابت للسطر
+                        onClick={() => handleSelectCollege(college)}
+                      >
+                        {/* 1. خلية الشعار */}
+                        <TableCell className="align-middle">
+                          {college.logoUrl ? (
+                            <div className="h-12 w-12 rounded-md overflow-hidden border bg-white p-1 flex items-center justify-center shrink-0">
+                              <img 
+                                src={college.logoUrl} 
+                                alt={college.name} 
+                                className="h-full w-full object-contain"
+                                // إضافة onError لإخفاء الصورة المكسورة إذا فشل التحميل
+                                onError={(e) => {
+                                  console.error("فشل تحميل الصورة على الرابط:", college.logoUrl);
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                  (e.target as HTMLImageElement).parentElement!.innerText = "!"; 
+                                }} 
+                              />
+                            </div>
+                          ) : (
+                            <div className="h-12 w-12 rounded-md bg-secondary flex items-center justify-center text-xs font-bold text-muted-foreground border shrink-0">
+                              {college.academicCode ? college.academicCode.substring(0, 2).toUpperCase() : "??"}
+                            </div>
+                          )}
+                        </TableCell>
+                        
+                        {/* 2. خلية الاسم */}
+                        <TableCell className="font-medium text-base align-middle">
+                            {college.name}
+                        </TableCell>
+                        
+                        {/* 3. خلية الكود */}
+                        <TableCell className="align-middle">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-sm font-medium bg-primary/10 text-primary border border-primary/20">
+                                {college.academicCode}
+                            </span>
+                        </TableCell>
+                        
+                        {/* 4. خلية الإجراءات */}
+                        <TableCell className="align-middle">
+                          <div className="flex gap-1 items-center justify-end"> 
                             {isSuperUser && (
                               <>
-                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleEditCollege(college); }}>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-blue-600 hover:bg-blue-50" 
+                                  onClick={(e) => { e.stopPropagation(); handleEditCollege(college); }}
+                                >
                                   <Pencil className="w-4 h-4" />
                                 </Button>
-                                <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleDeleteCollege(college.id); }}>
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50" 
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteCollege(college.id); }}
+                                >
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
                               </>
                             )}
-                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleSelectCollege(college); }}>
-                              <ChevronRight className="w-4 h-4" />
+                            <Button 
+                              size="sm" 
+                              variant="ghost" 
+                              className="h-8 w-8 p-0 text-muted-foreground hover:text-primary" 
+                              onClick={(e) => { e.stopPropagation(); handleSelectCollege(college); }}
+                            >
+                              <ChevronRight className="w-4 h-4 rtl:rotate-180" /> {/* تدوير السهم في العربية */}
                             </Button>
                           </div>
                         </TableCell>
@@ -273,14 +431,22 @@ export default function CollegesPage() {
         ) : (
           <>
             <div className="mb-6 flex items-center justify-between">
-              <div>
+              <div className="flex items-center gap-4">
                  {isSuperUser && (
-                    <Button variant="outline" onClick={handleBackToAll} className="mb-2">
-                        <ArrowLeft className="w-4 h-4 mr-2" />
-                        العودة للكليات
+                    <Button variant="ghost" size="icon" onClick={handleBackToAll} className="mb-2">
+                        <ArrowLeft className="w-5 h-5" />
                     </Button>
                  )}
-                 <h1 className="text-2xl sm:text-3xl font-bold mt-1">{selectedCollege.name}</h1>
+                 
+                 {/* عرض الشعار الكبير في صفحة الكلية */}
+                 <div className="flex items-center gap-3">
+                    {selectedCollege.logoUrl && (
+                        <div className="w-12 h-12 rounded-lg overflow-hidden border bg-white p-1">
+                            <img src={selectedCollege.logoUrl} alt={selectedCollege.name} className="w-full h-full object-contain" />
+                        </div>
+                    )}
+                    <h1 className="text-2xl sm:text-3xl font-bold mt-1">{selectedCollege.name}</h1>
+                 </div>
               </div>
             </div>
 
@@ -288,8 +454,6 @@ export default function CollegesPage() {
               <TabsList className="h-auto flex flex-wrap justify-center bg-muted/30 p-2 rounded-xl border border-border/50 gap-2 w-full">
                   {[
                     { val: "colleges-dashboard", label: "لوحة التحكم" },
-                    // ✅ إضافة تبويب ضمان الجودة هنا
-                    { val: "quality-assurance", label: "ضمان الجودة" },
                     { val: "departments", label: "الأقسام" },
                     { val: "classrooms", label: "القاعات" },
                     { val: "academic-titles", label: "الرتب الأكاديمية" },
@@ -325,15 +489,6 @@ export default function CollegesPage() {
                 <Suspense fallback={<ModuleSkeleton title="لوحة التحكم " />}>
                   {activeTab === "colleges-dashboard" && (
                     <CollegesDashboardModule collegeId={selectedCollege.id} />
-                  )}
-                </Suspense>
-              </TabsContent>
-
-              {/* ✅ إضافة المحتوى الخاص بضمان الجودة */}
-              <TabsContent value="quality-assurance">
-                <Suspense fallback={<ModuleSkeleton title="ضمان الجودة" />}>
-                  {activeTab === "quality-assurance" && (
-                    <QualityAssuranceModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
               </TabsContent>

@@ -331,16 +331,34 @@ export function LectureSchedule({
                     return (
                       <Card
                         key={session.id}
-                        className={`p-4 transition-all ${session.isCurrent || isWithinBuffer ? "border-primary bg-primary/5" : "border-border bg-background/50"} ${cardClass}`}
+                        className={cn(
+                            "p-4 transition-all",
+                            // التنسيق الأساسي للحالة (جارية / مجدولة)
+                            session.isCurrent || isWithinBuffer ? "border-primary bg-primary/5" : "border-border bg-background/50",
+                            // إضافة التنسيق الخاص بالتعويض (حدود برتقالية وخلفية صفراء خفيفة)
+                            session.isMakeup && !session.isCurrent && !isWithinBuffer && !isPast && "border-amber-500/50 bg-amber-50/50 dark:bg-amber-900/10 border-dashed border-2",
+                            cardClass
+                        )}
                       >
                         <div className="flex items-center sm:items-start justify-between gap-4 flex-col sm:flex-row">
                           <div className="flex-1 space-y-2">
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <h4 className="text-lg font-semibold">{session.title}</h4>
                               
                               {/* الشارة (Badge) */}
                               {(session.isCurrent || isWithinBuffer) && <Badge className="animate-pulse">{badgeText}</Badge>}
-                              {session.isAttended && !session.isCurrent && !isWithinBuffer && <Badge variant={isPast && session.status !== 0 ? 'secondary' : 'outline'}>{badgeText}</Badge>}
+                              
+                              {/* شارة الحالة العادية */}
+                              {session.isAttended && !session.isCurrent && !isWithinBuffer && (
+                                  <Badge variant={isPast && session.status !== 0 ? 'secondary' : 'outline'}>{badgeText}</Badge>
+                              )}
+                      
+                              {/* ✅ شارة "تعويضية" جديدة ومميزة */}
+                              {session.isMakeup && (
+                                  <Badge className="bg-amber-500 hover:bg-amber-600 border-0 text-white">
+                                      تعويضية
+                                  </Badge>
+                              )}
                             </div>
                             
                             <div className="flex flex-col gap-1 text-sm text-muted-foreground">
@@ -370,7 +388,6 @@ export function LectureSchedule({
                                 </Button>
                               </div>
                             
-                            /* 🔥 الشرط المعدل: تظهر "فاتت" فقط إذا انتهى الوقت ولم نكن في فترة السماح */
                             ) : (isPast && !isWithinBuffer) ? (
                               <div className="flex gap-2 w-full sm:w-auto">
                                 <Button disabled variant="outline" className="flex-1 gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
@@ -387,18 +404,21 @@ export function LectureSchedule({
                                     {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
                                 </Button>
                               </div>
-                  
+                      
                             ) : (
-                              /* 🔥 الزر الآن مفعل بناءً على isWithinBuffer */
                               <Button 
                                 onClick={() => onStartQR(session)} 
                                 disabled={!isWithinBuffer}
-                                className="w-full sm:w-auto gap-2"
+                                className={cn(
+                                    "w-full sm:w-auto gap-2",
+                                    // تمييز زر البدء للجلسة التعويضية بلون مختلف إذا كانت متاحة
+                                    session.isMakeup && isWithinBuffer && "bg-amber-600 hover:bg-amber-700"
+                                )}
                               >
                                 <QrCode className="w-4 h-4" /> بدء الحضور
                               </Button>
                             )}
-                  
+                      
                             {!isWithinBuffer && !session.isAttended && !isPast && (
                                 <p className="text-xs text-muted-foreground">متاح قبل 10د من البدء وحتى 10د بعد الانتهاء</p>
                             )}

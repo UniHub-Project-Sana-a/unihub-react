@@ -10,11 +10,6 @@ import { useReactToPrint } from "react-to-print";
 // ✅ استيراد شعار الجامعة الثابت
 import uniLogo from "@/assets/logo.png"; 
 
-// ✅✅ حل مشكلة الصور الديناميكية داخل src:
-// نقوم باستيراد جميع صور الكليات دفعة واحدة عند التحميل
-// هذا السطر يخبر React أن يجهز جميع الصور الموجودة في هذا المجلد
-const collegeLogosGlob = import.meta.glob('@/assets/colleges/*.png', { eager: true });
-
 interface GroupAttendanceDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -52,16 +47,11 @@ export function GroupAttendanceDialog({
   const [loading, setLoading] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
   
-  // ✅ دالة لجلب مسار صورة الكلية الصحيح من الملفات المستوردة
-  const getCollegeLogoSrc = (id: string | number) => {
-    // نبحث عن المفتاح الذي ينتهي بـ /id.png
-    const foundKey = Object.keys(collegeLogosGlob).find((key) => key.endsWith(`/${id}.png`));
-    // إذا وجدنا الصورة نرجع مسارها، وإلا نرجع null
-    return foundKey ? (collegeLogosGlob[foundKey] as any).default : null;
-  };
-
-  // تحديد شعار الكلية الحالي
-  const currentCollegeLogo = getCollegeLogoSrc(collegeId);
+  // ✅ رابط الشعار الديناميكي من الباك إند
+  // نضيف timestamp لمنع المتصفح من تخزين الصورة القديمة (Cache busting)
+  const currentCollegeLogo = collegeId 
+    ? `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}` 
+    : null;
 
   const currentDateTime = new Date().toLocaleString('ar-EG', {
      year: 'numeric', month: '2-digit', day: '2-digit', 
@@ -206,7 +196,6 @@ export function GroupAttendanceDialog({
                         <td colSpan={8}>
                           
                           {/* ======================= HEADER ======================= */}
-                          {/* تأكدنا من إزالة أي padding أو margin زائد */}
                           <div className="hidden print:flex justify-between items-start mb-2 border-b-2 border-black pb-2 pt-0 mt-0">
                             
                             {/* اليمين: شعار الجامعة */}
@@ -230,16 +219,20 @@ export function GroupAttendanceDialog({
                                 </div>
                             </div>
 
-                            {/* اليسار: شعار الكلية (من src assets) */}
+                            {/* اليسار: شعار الكلية (الديناميكي) */}
                             <div className="w-1/4 flex justify-end items-start">
                                 {currentCollegeLogo ? (
                                   <img 
                                       src={currentCollegeLogo} 
                                       alt="College Logo" 
-                                      className="h-24 w-auto object-contain" 
+                                      className="h-24 w-auto object-contain"
+                                      onError={(e) => {
+                                        // في حال فشل تحميل الصورة، يتم إخفاء العنصر
+                                        (e.target as HTMLImageElement).style.display = 'none';
+                                      }} 
                                   />
                                 ) : (
-                                  // عنصر فارغ بنفس الحجم للحفاظ على التنسيق إذا لم توجد صورة
+                                  // عنصر فارغ بنفس الحجم للحفاظ على التنسيق
                                   <div className="h-24 w-24"></div> 
                                 )}
                             </div>

@@ -9,8 +9,10 @@ import { LecturerDetailsDialog } from "./LecturerDetailsDialog";
 import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow,} from "@/components/ui/table";
 import { GroupAttendanceDialog } from "@/components/reports/GroupAttendanceDialog";
 import { InstructorsReportDialog } from "@/components/reports/InstructorsReportDialog";
+import { AdminGradesReportDialog } from "@/components/reports/AdminGradesReportDialog";
+import { QAReportDialog } from "@/components/reports/QAReportDialog";
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue,} from "@/components/ui/select";
-import { DollarSign, TrendingUp, TrendingDown, Users,BookOpen,Calendar,MapPin,Download,Filter,BarChart3,PieChart,LineChart,FileText,Search,Loader2,AlertCircle,Edit, Plus, Printer, ShieldCheck} from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, Users,BookOpen,Calendar,MapPin,Download,Filter,BarChart3,PieChart,LineChart,FileText,Search,Loader2,AlertCircle,Edit, Plus, Printer, ShieldCheck, GraduationCap, ArrowRight} from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -115,6 +117,13 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
   const [selectedCourseIdForGroups, setSelectedCourseIdForGroups] = useState<number | null>(null);
   const [courseGroups, setCourseGroups] = useState<any[]>([]);
   const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+
+  // لتخزين المقرر والمجموعة المختارة لتقرير الدرجات
+  const [selectedGradeReportGroup, setSelectedGradeReportGroup] = useState<{groupId: number, courseId: number, groupYear: string;} | null>(null);
+
+  // بيانات تقرير الجودة
+  const [qaData, setQaData] = useState<any[]>([]);
+  const [selectedQATimetableId, setSelectedQATimetableId] = useState<number | null>(null);
 
   // ==================================================================================
   // Effects: Fetching Lookups (Cascading Logic)
@@ -242,6 +251,31 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
 
     fetchCourseGroups();
   }, [selectedCourseIdForGroups, selectedAcademicYear, collegeId]); // تمت إضافة collegeId للاعتماديات
+
+  // دالة لجلب بيانات الجودة
+  const fetchQAReport = async () => {
+      setLoading(true);
+      try {
+          const res = await api.get(`/v1/colleges/${collegeId}/reports/qa-performance`, {
+              params: {
+                  academic_year: selectedAcademicYear === "all" ? null : selectedAcademicYear,
+                  department_id: selectedDepartment === "all" ? null : selectedDepartment
+              }
+          });
+          setQaData(res.data.data);
+      } catch (error) {
+          console.error("QA Fetch Error", error);
+      } finally {
+          setLoading(false);
+      }
+  };
+  
+  // Trigger fetch when tab is active
+  useEffect(() => {
+      if (activeTab === 'qa') {
+          fetchQAReport();
+      }
+  }, [activeTab, selectedAcademicYear, selectedDepartment]);
 
   // ==================================================================================
   // Effect: Fetch Main Report Data (Triggered by ANY Filter Change)
@@ -675,27 +709,43 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
   
       {/* ✅ 2. Tabs Navigation */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full" dir="rtl">
-        <TabsList className="grid w-full grid-cols-3 bg-muted/30 backdrop-blur-sm h-14 mb-8 shadow-sm border border-border/60 rounded-xl p-1.5 gap-2">
+        {/* ✅ Professional Responsive Grid Layout */}
+        <TabsList className="grid w-full h-auto min-h-[3.5rem] grid-cols-2 md:grid-cols-5 bg-muted/30 backdrop-blur-sm shadow-sm border border-border/60 rounded-xl p-1.5 gap-2">
           
           <TabsTrigger 
             value="financial" 
-            className="rounded-lg font-medium transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
+            className="rounded-lg font-medium h-10 transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
           >
             التقارير المالية
           </TabsTrigger>
           
           <TabsTrigger 
             value="instructor" 
-            className="rounded-lg font-medium transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
+            className="rounded-lg font-medium h-10 transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
           >
             حضور المحاضرين
           </TabsTrigger>
           
           <TabsTrigger 
             value="student" 
-            className="rounded-lg font-medium transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
+            className="rounded-lg font-medium h-10 transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
           >
             حضور الطلاب
+          </TabsTrigger>
+
+          <TabsTrigger 
+            value="grades" 
+            className="rounded-lg font-medium h-10 transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
+          >
+            نتائج أعمال الفصل
+          </TabsTrigger>
+
+          {/* ✅ الزر الخامس يأخذ عرض عمودين في الجوال لملء الفراغ، وعمود واحد في اللابتوب */}
+          <TabsTrigger 
+            value="qa" 
+            className="col-span-2 md:col-span-1 rounded-lg font-medium h-10 transition-all duration-300 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md hover:bg-background/50"
+          >
+            ضمان الجودة
           </TabsTrigger>
 
         </TabsList>
@@ -981,6 +1031,7 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
           )}
         </TabsContent>
 
+        {/* ================================================================== */}
         {/* Instructor Attendance Tab */}
         <TabsContent value="instructor" className="space-y-6">
           <Card className="backdrop-blur-sm border-t-4 border-t-primary/50">
@@ -1384,6 +1435,298 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
               collegeId={collegeId}
               academicYear={selectedAcademicYear}
             />
+          )}
+        </TabsContent>
+
+        {/* ======================================================= */}
+        {/* 4. Grades Reports Tab (نتائج أعمال الفصل)              */}
+        {/* ======================================================= */}
+        <TabsContent value="grades" className="space-y-6">
+          <Card className="backdrop-blur-sm border-t-4 border-t-primary/50">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <GraduationCap className="w-5 h-5 text-primary" />
+                  سجلات درجات أعمال الفصل
+                </CardTitle>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                استعراض وطباعة كشوف درجات أعمال الفصل للمقررات والمجموعات الدراسية.
+              </p>
+            </CardHeader>
+            
+            <CardContent>
+              {/* إعادة استخدام قائمة المواد الموجودة (courseAttendance) */}
+              {courseAttendance.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground flex flex-col items-center gap-2">
+                  <BookOpen className="w-12 h-12 opacity-20" />
+                  <p>لا توجد مقررات للعرض.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {courseAttendance.map((course: any) => (
+                    <Card 
+                      key={course.course_id}
+                      onClick={() => setSelectedCourseIdForGroups(
+                        selectedCourseIdForGroups === course.course_id ? null : course.course_id
+                      )}
+                      className={`border transition-all duration-200 cursor-pointer group overflow-hidden ${
+                        selectedCourseIdForGroups === course.course_id 
+                          ? 'border-primary ring-2 ring-primary/20 bg-primary/5' 
+                          : 'hover:border-primary/50 hover:shadow-md'
+                      }`}
+                    >
+                       <CardContent className="p-5 space-y-4">
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="space-y-1 w-full">
+                            <h3 className="font-bold text-lg leading-tight group-hover:text-primary transition-colors line-clamp-2">
+                              {course.course_name}
+                            </h3>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px] font-mono text-muted-foreground">
+                                {course.course_code}
+                              </Badge>
+                              <span className="text-xs text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-sm">
+                                {course.department_name}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+        
+              {/* عرض المجموعات للمقرر المختار */}
+              {selectedCourseIdForGroups && (
+                <div className="mt-8 animate-in slide-in-from-top-4 duration-300 border-t pt-6">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-primary">
+                    <Users className="w-5 h-5" />
+                    اختر المجموعة لعرض التقرير
+                    {isLoadingGroups && <Loader2 className="w-4 h-4 animate-spin" />}
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {courseGroups.map((group: any) => (
+                      <div 
+                        key={group.group_id} 
+                        className="p-4 bg-card border rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer group hover:border-primary/50 flex justify-between items-center"
+                        onClick={() => {
+                          // const yearToUse = group.academic_year || (selectedAcademicYear === 'all' ? new Date().getFullYear() + '-' + (new Date().getFullYear()+1) : selectedAcademicYear);
+                           // ✅ فتح المودال عند الضغط
+                           setSelectedGradeReportGroup({
+                               groupId: group.group_id,
+                               courseId: selectedCourseIdForGroups!,
+                               groupYear: group.academic_year || selectedAcademicYear
+                           });
+                        }}
+                      >
+                        <div className="flex items-center gap-3">
+                           <div className="p-2.5 rounded-full bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                              <FileText className="w-5 h-5" />
+                           </div>
+                           <div>
+                              <p className="font-bold text-foreground group-hover:text-primary transition-colors">{group.group_name}</p>
+                              <p className="text-xs text-muted-foreground">{group.students_count} طالب</p>
+                           </div>
+                        </div>
+                        <Button variant="ghost" size="sm" className="text-primary hover:text-primary/80 hover:bg-primary/10">
+                           عرض الكشف <ArrowRight className="w-4 h-4 mr-1 rotate-180" />
+                        </Button>
+                      </div>
+                    ))}
+                    {courseGroups.length === 0 && !isLoadingGroups && (
+                        <p className="text-muted-foreground col-span-2 text-center py-4">لا توجد مجموعات مرتبطة.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        
+          {/* ✅ استدعاء المودال الجديد */}
+          {selectedGradeReportGroup && (
+              <AdminGradesReportDialog 
+                isOpen={!!selectedGradeReportGroup}
+                onClose={() => setSelectedGradeReportGroup(null)}
+                collegeId={collegeId}
+                courseId={selectedGradeReportGroup.courseId}
+                groupId={selectedGradeReportGroup.groupId}
+                academicYear={
+                  selectedAcademicYear !== 'all' 
+                    ? selectedAcademicYear 
+                    : selectedGradeReportGroup.groupYear
+                } 
+              />
+          )}
+        </TabsContent>
+
+        {/* ======================================================= */}
+        {/* 5. Quality Assurance Tab (ضمان الجودة)              */}
+        {/* ======================================================= */}
+        <TabsContent value="qa" className="space-y-6">
+          <Card className="border-t-4 border-t-primary/60 shadow-sm">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-primary" />
+                      مؤشرات أداء العملية التعليمية
+                  </CardTitle>
+                  <Badge variant="outline">العام: {selectedAcademicYear === 'all' ? 'شامل' : selectedAcademicYear}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {qaData.length === 0 && !loading ? (
+                   <div className="text-center py-10 text-muted-foreground">لا توجد بيانات متاحة للعرض.</div>
+              ) : (
+                  <Table>
+                      <TableHeader>
+                          <TableRow className="bg-muted/50 border-b-2 border-primary/10">
+                              {/* المحاضر */}
+                              <TableHead className="w-[20%] text-right font-bold text-primary">المحاضر</TableHead>
+                              
+                              {/* المقرر الدراسي (موسع ومحسّن) */}
+                              <TableHead className="w-[25%] text-right font-bold text-primary">المقرر الدراسي والمجموعة</TableHead>
+                              
+                              {/* إنجاز الجلسات (بدلاً من topics مؤقتاً لتصحيح المحاذاة) */}
+                              <TableHead className="w-[15%] text-center font-bold text-primary">إنجاز الجلسات</TableHead>
+                              
+                              {/* إنجاز المقرر (المواضيع) */}
+                              <TableHead className="w-[15%] text-center font-bold text-primary">تغطية المواضيع</TableHead>
+                              
+                              {/* فهم الطلاب (العمود الجديد) */}
+                              <TableHead className="w-[15%] text-center font-bold text-primary">مستوى الفهم</TableHead>
+                              
+                              {/* التفاصيل */}
+                              <TableHead className="w-[10%] text-center font-bold text-primary">إجراءات</TableHead>
+                          </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                          {qaData.map((row: any) => (
+                              <TableRow key={row.timetable_id} className="hover:bg-muted/5 group transition-colors">
+                                  
+                                  {/* 1. المحاضر */}
+                                  <TableCell className="align-middle">
+                                      <div className="flex flex-col gap-1">
+                                          <span className="font-bold text-sm text-foreground">{row.lecturer_name}</span>
+                                          <span className="text-[11px] text-muted-foreground bg-muted/50 w-fit px-1.5 py-0.5 rounded">
+                                              {row.department_name}
+                                          </span>
+                                      </div>
+                                  </TableCell>
+                  
+                                  {/* 2. المقرر والمجموعة (تحسين التصميم) */}
+                                  <TableCell className="align-middle">
+                                      <div className="flex flex-col gap-1.5">
+                                          <div className="flex items-center gap-2">
+                                              <span className="font-bold text-sm text-foreground">{row.course_name}</span>
+                                              <Badge variant="outline" className="text-[10px] h-5 font-mono px-1">
+                                                  {row.course_code}
+                                              </Badge>
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                              <Users className="w-3 h-3 text-muted-foreground" />
+                                              <span className="text-xs font-medium text-primary bg-primary/5 px-2 py-0.5 rounded-full border border-primary/10">
+                                                  {row.group_name}
+                                              </span>
+                                          </div>
+                                      </div>
+                                  </TableCell>
+                                  
+                                  {/* 3. إنجاز الجلسات (Sessions) */}
+                                  <TableCell className="text-center align-middle">
+                                      <div className="flex flex-col items-center justify-center gap-1">
+                                          <span className="font-bold font-mono text-sm">
+                                              {row.sessions_executed} <span className="text-muted-foreground font-sans text-[10px]">/ {row.sessions_total}</span>
+                                          </span>
+                                          <span className="text-[10px] text-muted-foreground">جلسة منفذة</span>
+                                      </div>
+                                  </TableCell>
+                  
+                                  {/* 4. تغطية المواضيع (Topics Coverage) */}
+                                  <TableCell className="align-middle">
+                                      <div className="w-full max-w-[120px] mx-auto space-y-1.5">
+                                          <div className="flex justify-between items-center text-xs">
+                                              <span className="font-bold text-foreground">{row.coverage_percent}%</span>
+                                              <span className="text-[10px] text-muted-foreground">
+                                                  ({row.topics_covered}/{row.topics_total})
+                                              </span>
+                                          </div>
+                                          <div className="h-2 w-full bg-secondary/20 rounded-full overflow-hidden shadow-inner">
+                                              <div 
+                                                  className={`h-full rounded-full transition-all duration-500 ${
+                                                      row.coverage_percent >= 80 ? 'bg-green-500' : 
+                                                      row.coverage_percent >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                                                  }`}
+                                                  style={{width: `${row.coverage_percent}%`}}
+                                              />
+                                          </div>
+                                      </div>
+                                  </TableCell>
+                  
+                                  {/* 5. مستوى الفهم (Understanding) - المنطق الجديد */}
+                                  <TableCell className="align-middle">
+                                      {row.qa_sessions_count > 0 ? (
+                                          <div className="w-full max-w-[120px] mx-auto space-y-1.5">
+                                              <div className="flex justify-between items-center text-xs">
+                                                  <span className={`font-bold ${
+                                                      row.understanding_percent >= 75 ? 'text-green-600' : 
+                                                      row.understanding_percent >= 50 ? 'text-blue-600' : 'text-red-500'
+                                                  }`}>
+                                                      {row.understanding_percent}%
+                                                  </span>
+                                                  <span className="text-[10px] text-muted-foreground" title="عدد الجلسات التي شملت تقييماً">
+                                                      {row.qa_sessions_count} تقييم
+                                                  </span>
+                                              </div>
+                                              <div className="h-2 w-full bg-secondary/20 rounded-full overflow-hidden shadow-inner">
+                                                  <div 
+                                                      className={`h-full rounded-full transition-all duration-500 ${
+                                                          row.understanding_percent >= 75 ? 'bg-green-500' : 
+                                                          row.understanding_percent >= 50 ? 'bg-blue-500' : 'bg-red-500'
+                                                      }`}
+                                                      style={{width: `${row.understanding_percent}%`}}
+                                                  />
+                                              </div>
+                                          </div>
+                                      ) : (
+                                          <div className="text-center">
+                                              <span className="text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded-full">
+                                                  لا يوجد تقييم
+                                              </span>
+                                          </div>
+                                      )}
+                                  </TableCell>
+                  
+                                  {/* 6. التفاصيل */}
+                                  <TableCell className="text-center align-middle">
+                                      <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          className="text-primary hover:bg-primary/10 hover:text-primary h-8 w-8 p-0 rounded-full"
+                                          title="عرض التقرير التفصيلي"
+                                          onClick={() => setSelectedQATimetableId(row.timetable_id)}
+                                      >
+                                          <FileText className="w-4 h-4" />
+                                      </Button>
+                                  </TableCell>
+                              </TableRow>
+                          ))}
+                      </TableBody>
+                  </Table>
+              )}
+            </CardContent>
+          </Card>
+        
+          {/* QA Dialog */}
+          {selectedQATimetableId && (
+              <QAReportDialog 
+                  isOpen={!!selectedQATimetableId}
+                  onClose={() => setSelectedQATimetableId(null)}
+                  collegeId={collegeId}
+                  timetableId={selectedQATimetableId}
+              />
           )}
         </TabsContent>
       </Tabs>

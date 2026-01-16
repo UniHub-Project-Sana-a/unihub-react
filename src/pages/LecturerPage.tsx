@@ -15,6 +15,9 @@ import { StartQRModal, QRFormSettings } from "@/components/lecturer/StartQRModal
 import { QRSessionView } from "@/components/lecturer/QRSessionView";
 import { AttendanceSummary } from "@/components/lecturer/AttendanceSummary";
 
+// ✅ استيراد مكون الدرجات الجديد
+import { GradesManager } from "@/components/lecturer/GradesManager";
+
 // --- واجهات الأنواع (Types) ---
 export interface ActiveQRInfo {
   qr_id: number;
@@ -43,6 +46,7 @@ export interface LectureSession {
   departmentName: string;
   expectedStudents: number;
   sessionCode?: string;
+  isMakeup?: boolean;
 }
 export interface AttendanceRecord {
   studentName: string;
@@ -57,6 +61,9 @@ export default function LecturerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   
+  // ✅ حالة جديدة للتحكم في الصفحة المعروضة (حضور أم درجات)
+  const [currentView, setCurrentView] = useState<'attendance' | 'grades'>('attendance');
+
   const [currentLecturer, setCurrentLecturer] = useState<any>(null);
   const [sessions, setSessions] = useState<LectureSession[]>([]);
   const [isLoadingSchedule, setIsLoadingSchedule] = useState(true);
@@ -80,6 +87,7 @@ export default function LecturerPage() {
       return;
     }
     
+    // ملاحظة: نجلب الجدول فقط إذا كنا في وضع الحضور، أو عند التحميل الأولي
     setIsLoadingSchedule(true);
     try {
       const lecturerRes = await api.get(`/v1/lecturers`, { params: { user_id: user.user_id, with: 'academicTitle' } });
@@ -143,6 +151,7 @@ export default function LecturerPage() {
           classroomName: session.actual_classroom?.classroom_name || session.timetable?.classroom?.classroom_name || 'قاعة غير محددة',
           buildingName: session.actual_classroom?.building?.building_name || session.timetable?.classroom?.building?.building_name || 'مبنى غير محدد',
           departmentName: session.timetable?.department?.department_name || 'قسم غير محدد',
+          isMakeup: Boolean(session.is_makeup),
           
           classroom: {
             latitude: session.actual_classroom?.latitude ?? session.timetable?.classroom?.latitude ?? null,
@@ -225,59 +234,82 @@ export default function LecturerPage() {
   return (
     <div className="min-h-screen bg-background p-4 md:p-6 lg:p-8" dir="rtl">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* الحالة الافتراضية: عرض الجدول */}
-        {!qrSessionActive && !sessionEnded && (
-          <>
-            <LecturerWelcome name={lecturerName} academicTitle={lecturerTitle} />
-            <LectureSchedule
-                sessions={sessions}
-                onStartQR={handleStartQR}
-                isLoading={isLoadingSchedule}
-                viewDate={viewDate}
-                setViewDate={setViewDate}
-                onRefresh={() => fetchLecturerInfoAndSchedule(viewDate)}
-                lecturerName={lecturerName} // ✅ تم التصحيح هنا
-                collegeId={currentLecturer?.college_id}
-            />
-            {isStartingSession && (
-                <div className="flex flex-col items-center justify-center p-10">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <p className="mt-2 text-muted-foreground">جاري بدء جلسة الحضور...</p>
-                </div>
+        
+        {/* ✅ مكون الترحيب والتحكم في التبويبات */}
+        <LecturerWelcome 
+            name={lecturerName} 
+            academicTitle={lecturerTitle} 
+            currentView={currentView}
+            onViewChange={setCurrentView} 
+        />
+
+        {/* ========================================================= */}
+        {/* العرض الأول: قسم الحضور (الجدول، QR، الملخص) */}
+        {/* ========================================================= */}
+        {currentView === 'attendance' && (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* الحالة الافتراضية: عرض الجدول */}
+            {!qrSessionActive && !sessionEnded && (
+              <>
+                <LectureSchedule
+                    sessions={sessions}
+                    onStartQR={handleStartQR}
+                    isLoading={isLoadingSchedule}
+                    viewDate={viewDate}
+                    setViewDate={setViewDate}
+                    onRefresh={() => fetchLecturerInfoAndSchedule(viewDate)}
+                    lecturerName={lecturerName}
+                    collegeId={currentLecturer?.college_id}
+                />
+                {isStartingSession && (
+                    <div className="flex flex-col items-center justify-center p-10">
+                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                        <p className="mt-2 text-muted-foreground">جاري بدء جلسة الحضور...</p>
+                    </div>
+                )}
+              </>
             )}
-          </>
+
+            {/* الحالة الثانية: جلسة QR نشطة */}
+            {qrSessionActive && qrSettings && selectedSession && activeQR && (
+              <QRSessionView
+                settings={qrSettings}
+                lectureTitle={selectedSession.title}
+                groupName={selectedSession.groupName}
+                lectureId={selectedSession.timetableId} 
+                initialQR={activeQR}
+                onEndSession={handleEndSession}
+              />
+            )}
+
+            {/* الحالة الثالثة: ملخص الحضور */}
+            {sessionEnded && selectedSession && (
+              <AttendanceSummary
+                records={attendanceRecords}
+                lectureTitle={selectedSession.title}
+                groupName={selectedSession.groupName}
+                lecturerName={lecturerName}
+                classroomName={selectedSession.classroomName}
+                buildingName={selectedSession.buildingName}
+                groupId={selectedSession.groupId} 
+                timetableId={selectedSession.timetableId}
+                sessionId={selectedSession.id}
+                onFinalized={handleBackToSchedule}
+                collegeId={currentLecturer?.college_id} 
+              />
+            )}
+          </div>
         )}
 
-        {/* الحالة الثانية: جلسة QR نشطة */}
-        {qrSessionActive && qrSettings && selectedSession && activeQR && (
-          <QRSessionView
-            settings={qrSettings}
-            lectureTitle={selectedSession.title}
-            groupName={selectedSession.groupName}
-            lectureId={selectedSession.timetableId} 
-            initialQR={activeQR}
-            onEndSession={handleEndSession}
-          />
+        {/* ========================================================= */}
+        {/* العرض الثاني: قسم إدارة الدرجات */}
+        {/* ========================================================= */}
+        {currentView === 'grades' && (
+           <GradesManager />
         )}
 
-        {/* الحالة الثالثة: ملخص الحضور */}
-        {sessionEnded && selectedSession && (
-          <AttendanceSummary
-            records={attendanceRecords}
-            lectureTitle={selectedSession.title}
-            groupName={selectedSession.groupName}
-            lecturerName={lecturerName}
-            classroomName={selectedSession.classroomName}
-            buildingName={selectedSession.buildingName}
-            groupId={selectedSession.groupId} 
-            timetableId={selectedSession.timetableId}
-            sessionId={selectedSession.id}
-            onFinalized={handleBackToSchedule}
-            collegeId={currentLecturer?.college_id} 
-          />
-        )}
 
-        {/* المودال: يظهر عند الحاجة */}
+        {/* المودال: يبقى خارج الشروط لأنه يظهر فوق المحتوى */}
         <StartQRModal
           expectedCount={selectedSession?.expectedStudents || 50}
           open={showQRModal}

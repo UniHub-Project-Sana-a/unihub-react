@@ -13,7 +13,6 @@ import AccessControlPage from "./pages/AccessControlPage";
 import TimetablePage from "./pages/TimetablePage";
 import EnrollmentPage from "./pages/EnrollmentPage";
 import ExcusesPage from "./pages/ExcusesPage";
-import ReportsPage from "./pages/ReportsPage";
 import IntegrationPage from "./pages/IntegrationPage";
 import SettingsPage from "./pages/SettingsPage";
 import AuditLogPage from "./pages/AuditLogPage";
@@ -100,7 +99,6 @@ const App = () => (
                   <Route path="/timetable/*" element={<TimetablePage />} />
                   <Route path="/enrollment/*" element={<EnrollmentPage />} />
                   <Route path="/excuses/*" element={<ExcusesPage />} />
-                  <Route path="/reports/*" element={<ReportsPage />} />
                   <Route path="/course-management/*" element={<CourseManagementPage />} />
                   <Route path="/academic-staff" element={<AcademicStaffPage />} />
                 </Route>
