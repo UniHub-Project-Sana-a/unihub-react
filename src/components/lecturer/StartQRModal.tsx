@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox"; // تأكد من وجود هذا المكون في shadcn/ui
-import { AlertTriangle, MapPin, Loader2, BookOpen, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, MapPin, Loader2, BookOpen, CheckCircle2 , Clock, Play} from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area"; // تأكد من وجود ScrollArea
 import { api } from "@/lib/api"; // لاستدعاء API
 
@@ -16,7 +16,6 @@ export interface QRFormSettings {
   latitude: number;
   longitude: number;
   allowedDistance: number;
-  selectedTopics: number[]; // مصفوفة معرفات المواضيع المختارة
 }
 
 interface ClassroomInfo {
@@ -25,11 +24,11 @@ interface ClassroomInfo {
   allowed_distance: number | string | null;
 }
 
-interface TopicItem {
-  topic_id: number;
-  title: string;
-  is_covered: boolean; // هل تم شرحه سابقاً في هذا الترم؟
-}
+// interface TopicItem {
+//   topic_id: number;
+//   title: string;
+//   is_covered: boolean; // هل تم شرحه سابقاً في هذا الترم؟
+// }
 
 interface StartQRModalProps {
   open: boolean;
@@ -50,9 +49,9 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
   const [allowedDistance, setAllowedDistance] = useState(50);
   
   // حالات المواضيع
-  const [topics, setTopics] = useState<TopicItem[]>([]);
-  const [selectedTopics, setSelectedTopics] = useState<number[]>([]);
-  const [isLoadingTopics, setIsLoadingTopics] = useState(false);
+  // const [topics, setTopics] = useState<TopicItem[]>([]);
+  // const [selectedTopics, setSelectedTopics] = useState<number[]>([]);
+  // const [isLoadingTopics, setIsLoadingTopics] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -69,38 +68,8 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
         setLongitude(isNaN(lon) ? null : lon);
         setAllowedDistance(isNaN(dist) ? 50 : dist);
       }
-      setErrors({});
-      setSelectedTopics([]); // تصفير الاختيارات الجديدة
-
-      // 2. جلب المواضيع وحالتها لهذا الجدول الدراسي (lectureId = timetable_id)
-      if (lectureId) {
-        fetchTopicsStatus(lectureId);
-      }
     }
   }, [open, classroomInfo, expectedCount, lectureId]);
-
-  const fetchTopicsStatus = async (timetableId: string) => {
-    setIsLoadingTopics(true);
-    try {
-      // نفترض وجود هذا الرابط في الباك إند (سأعطيك الكود الخاص به في الأسفل)
-      const res = await api.get(`/v1/timetable/${timetableId}/topics-status`);
-      setTopics(res.data.data || []);
-    } catch (error) {
-      console.error("فشل جلب المواضيع", error);
-      // يمكن وضع مواضيع افتراضية أو تركها فارغة
-      setTopics([]);
-    } finally {
-      setIsLoadingTopics(false);
-    }
-  };
-
-  const handleTopicToggle = (topicId: number, isChecked: boolean) => {
-    if (isChecked) {
-      setSelectedTopics(prev => [...prev, topicId]);
-    } else {
-      setSelectedTopics(prev => prev.filter(id => id !== topicId));
-    }
-  };
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -108,10 +77,6 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
     if (validMinutes < 1) newErrors.validMinutes = "الحد الأدنى دقيقة واحدة.";
     if (!latitude || !longitude) newErrors.location = "إحداثيات القاعة غير متوفرة.";
     
-    
-    if (selectedTopics.length === 0) newErrors.topics = "يجب اختيار موضوع واحد على الأقل لبدء المحاضرة.";
-
-    setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -124,7 +89,6 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
         latitude,
         longitude,
         allowedDistance,
-        selectedTopics, 
       });
     }
   };
@@ -137,111 +101,117 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
           <DialogDescription>تحديد إعدادات الحضور واختيار المواضيع التي سيتم شرحها.</DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto py-4 px-1 space-y-6">
-          
-          {/* قسم إعدادات المواضيع */}
-          <div className="space-y-3 border rounded-lg p-3 bg-muted/20">
-            <div className="flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-primary" />
-              <Label className="font-semibold text-base">مواضيع المحاضرة</Label>
-            </div>
+        <div className="flex-1 overflow-y-auto py-6 px-2 space-y-6">
+  
+          {/* حاوية الشبكة الرئيسية للإعدادات */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
-            {isLoadingTopics ? (
-              <div className="flex justify-center py-4">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            {/* 1. إعدادات التوقيت (Interval & Validity) */}
+            <div className="space-y-4 p-4 border rounded-xl bg-card shadow-sm">
+              <div className="flex items-center gap-2 pb-2 border-b">
+                <Clock className="w-4 h-4 text-primary" />
+                <h3 className="font-semibold text-sm">إعدادات التوقيت</h3>
               </div>
-            ) : topics.length > 0 ? (
-              <ScrollArea className="h-[150px] w-full rounded-md border p-2 bg-background">
-                <div className="space-y-2">
-                  {topics.map((topic) => (
-                    <div 
-                      key={topic.topic_id} 
-                      className={`flex items-start gap-3 p-2 rounded-md transition-colors ${topic.is_covered ? 'bg-green-50/50 dark:bg-green-900/10' : 'hover:bg-muted'}`}
-                    >
-                      <Checkbox 
-                        id={`topic-${topic.topic_id}`}
-                        checked={topic.is_covered || selectedTopics.includes(topic.topic_id)}
-                        disabled={topic.is_covered} // 🔒 لا يمكن اختياره إذا تم شرحه
-                        onCheckedChange={(checked) => !topic.is_covered && handleTopicToggle(topic.topic_id, checked === true)}
-                        className={topic.is_covered ? "data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500 opacity-70" : ""}
-                      />
-                      <div className="grid gap-1.5 leading-none">
-                        <Label 
-                          htmlFor={`topic-${topic.topic_id}`}
-                          className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer ${topic.is_covered ? 'text-green-700 dark:text-green-400' : ''}`}
-                        >
-                          {topic.title}
-                        </Label>
-                        {topic.is_covered && (
-                           <p className="text-[10px] text-green-600 dark:text-green-500 flex items-center gap-1">
-                             <CheckCircle2 className="w-3 h-3" />
-                             تم شرحه مسبقاً
-                           </p>
-                        )}
+              
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <div className="flex justify-between">
+                    <Label htmlFor="interval" className="text-xs">تحديث الكود (ثوانٍ)</Label>
+                    <span className="text-xs text-muted-foreground font-mono">{intervalSeconds}s</span>
+                  </div>
+                  <Input 
+                    id="interval" 
+                    type="number" 
+                    min={5} 
+                    className="h-9"
+                    value={intervalSeconds} 
+                    onChange={(e) => setIntervalSeconds(Number(e.target.value))} 
+                  />
+                  {errors.intervalSeconds && <p className="text-[10px] text-destructive">{errors.intervalSeconds}</p>}
+                </div>
+        
+                <div className="space-y-1.5">
+                  <div className="flex justify-between">
+                    <Label htmlFor="validity" className="text-xs">مدة الجلسة (دقيقة)</Label>
+                    <span className="text-xs text-muted-foreground font-mono">{validMinutes}m</span>
+                  </div>
+                  <Input 
+                    id="validity" 
+                    type="number" 
+                    min={1} 
+                    className="h-9"
+                    value={validMinutes} 
+                    onChange={(e) => setValidMinutes(Number(e.target.value))} 
+                  />
+                </div>
+              </div>
+            </div>
+        
+            {/* 2. إعدادات الحضور والموقع (Attendance & Location) */}
+            <div className="space-y-4 p-4 border rounded-xl bg-card shadow-sm">
+              <div className="flex items-center gap-2 pb-2 border-b">
+                <MapPin className="w-4 h-4 text-primary" />
+                <h3 className="font-semibold text-sm">الموقع والحضور</h3>
+              </div>
+        
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="maxScans" className="text-xs">عدد الطلاب المتوقع</Label>
+                  <Input 
+                    id="maxScans" 
+                    type="number" 
+                    min={1} 
+                    className="h-9"
+                    value={maxScans} 
+                    onChange={(e) => setMaxScans(Number(e.target.value))} 
+                  />
+                </div>
+        
+                <div className="space-y-1.5">
+                  <Label className="text-xs">نطاق الموقع الجغرافي</Label>
+                  {latitude && longitude ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 p-2 border rounded-md bg-muted/50 text-xs flex items-center justify-center gap-1 text-muted-foreground">
+                        <CheckCircle2 className="w-3 h-3 text-green-600" />
+                        <span>تم تحديد الموقع</span>
+                      </div>
+                      <div className="flex items-center gap-1 border rounded-md px-2 bg-background w-24">
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">متر:</span>
+                        <Input 
+                          id="distance" 
+                          type="number" 
+                          className="h-8 border-none shadow-none focus-visible:ring-0 p-0 text-center" 
+                          min={1} 
+                          value={allowedDistance} 
+                          onChange={(e) => setAllowedDistance(Number(e.target.value))} 
+                        />
                       </div>
                     </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            ) : (
-              <p className="text-sm text-muted-foreground text-center py-2">لا توجد مواضيع مسجلة لهذه المادة.</p>
-            )}
-            {errors.topics && <p className="text-sm text-destructive">{errors.topics}</p>}
-          </div>
-
-          {/* قسم إعدادات QR (كما هو) */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="interval">تحديث (ثوانٍ)</Label>
-              <Input id="interval" type="number" min={5} value={intervalSeconds} onChange={(e) => setIntervalSeconds(Number(e.target.value))} />
-              {errors.intervalSeconds && <p className="text-xs text-destructive">{errors.intervalSeconds}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="validity">الصلاحية (دقيقة)</Label>
-              <Input id="validity" type="number" min={1} value={validMinutes} onChange={(e) => setValidMinutes(Number(e.target.value))} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="maxScans">عدد الطلاب المتوقع</Label>
-            <Input id="maxScans" type="number" min={1} value={maxScans} onChange={(e) => setMaxScans(Number(e.target.value))} />
-          </div>
-          
-          <div className="space-y-2">
-            <Label>الموقع الجغرافي للقاعة</Label>
-            {latitude && longitude ? (
-              <div className="p-3 border rounded-md bg-muted text-muted-foreground flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-green-500" />
-                  <span>{latitude.toFixed(5)}, {longitude.toFixed(5)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                   <Label htmlFor="distance" className="whitespace-nowrap">المسافة (م):</Label>
-                   <Input 
-                     id="distance" 
-                     type="number" 
-                     className="h-6 w-16 text-xs" 
-                     min={1} 
-                     value={allowedDistance} 
-                     onChange={(e) => setAllowedDistance(Number(e.target.value))} 
-                   />
+                  ) : (
+                    <div className="p-2 border border-destructive/40 rounded-md bg-destructive/5 text-destructive flex items-center justify-center gap-2 text-xs">
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>الإحداثيات غير متوفرة لهذه القاعة</span>
+                    </div>
+                  )}
+                  {errors.location && <p className="text-[10px] text-destructive">{errors.location}</p>}
                 </div>
               </div>
-            ) : (
-              <div className="p-3 border border-destructive/50 rounded-md bg-destructive/10 text-destructive flex items-center justify-center gap-2 text-sm">
-                <AlertTriangle className="w-4 h-4" />
-                <span>إحداثيات القاعة غير متوفرة</span>
-              </div>
-            )}
-            {errors.location && <p className="text-xs text-destructive mt-1">{errors.location}</p>}
+            </div>
+        
           </div>
         </div>
 
-        <DialogFooter className="gap-2 pt-2 border-t">
-          <Button variant="outline" onClick={onClose}>إلغاء</Button>
-          <Button onClick={handleSubmit} disabled={!latitude || !longitude || selectedTopics.length === 0}>
-             بدء المحاضرة ({selectedTopics.length})
+        <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4 border-t mt-auto bg-muted/10 p-4">
+          <Button variant="outline" onClick={onClose} className="w-full sm:w-auto">
+            إلغاء
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            disabled={!latitude || !longitude} 
+            className="w-full sm:w-auto gap-2"
+          >
+            <Play className="w-4 h-4" /> {/* يمكنك استيراد Play من lucide-react */}
+            بدء الجلسة
           </Button>
         </DialogFooter>
       </DialogContent>

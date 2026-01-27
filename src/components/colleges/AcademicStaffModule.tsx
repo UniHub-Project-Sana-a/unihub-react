@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
+import { usePermission } from "@/hooks/usePermission";
 
 interface AcademicStaff {
   id: string;               // lecturer_id
@@ -106,6 +107,7 @@ interface Props {
 }
 
 export default function AcademicStaffModule({ collegeId }: Props) {
+  const { can } = usePermission();
   const { toast } = useToast();
 
   // Lists
@@ -469,15 +471,19 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">أعضاء هيئة التدريس</h2>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleClickImportCsv} disabled={isImportingCsv}>
-            {isImportingCsv && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            <Upload className="w-4 h-4 mr-2" />
-            استيراد CSV
-          </Button>
-          <Button onClick={handleAddStaff}>
-            <Plus className="w-4 h-4 mr-2" />
-            إضافة عضو
-          </Button>
+          {can('staff.create') && (
+            <Button variant="outline" onClick={handleClickImportCsv} disabled={isImportingCsv}>
+              {isImportingCsv && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              <Upload className="w-4 h-4 mr-2" />
+              استيراد CSV
+            </Button>
+          )}
+          {can('staff.create') && (
+            <Button onClick={handleAddStaff}>
+              <Plus className="w-4 h-4 mr-2" />
+              إضافة عضو
+            </Button>
+          )}
         </div>
       </div>
       <input
@@ -487,172 +493,6 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         className="hidden"
         onChange={handleCsvChange}
       />
-
-      {/* Entitlements (واجهة فقط) */}
-      {/* <Card>
-        <CardHeader>
-          <CardTitle>الاستحقاقات الأكاديمية</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs value={entitlementStep} onValueChange={setEntitlementStep}>
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="1">فترات الاستحقاق</TabsTrigger>
-              <TabsTrigger value="2">أجر الساعة</TabsTrigger>
-              <TabsTrigger value="3">مراجعة</TabsTrigger>
-              <TabsTrigger value="4">اعتماد</TabsTrigger>
-              <TabsTrigger value="5">صرف</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="1" className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>تاريخ البداية</Label>
-                  <Input
-                    type="date"
-                    value={entitlementPeriod.from}
-                    onChange={(e) => setEntitlementPeriod({ ...entitlementPeriod, from: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>تاريخ النهاية</Label>
-                  <Input
-                    type="date"
-                    value={entitlementPeriod.to}
-                    onChange={(e) => setEntitlementPeriod({ ...entitlementPeriod, to: e.target.value })}
-                  />
-                </div>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="2">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>العضو</TableHead>
-                    <TableHead>أجر الساعة</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {collegeStaff.map((staff) => (
-                    <TableRow key={staff.id}>
-                      <TableCell>{staff.fullName}</TableCell>
-                      <TableCell>
-                        <Input type="number" min={0} defaultValue={staff.lectureRate} className="w-32" disabled />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TabsContent>
-
-            <TabsContent value="3">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>العضو</TableHead>
-                    <TableHead>عدد الساعات</TableHead>
-                    <TableHead>أجر الساعة</TableHead>
-                    <TableHead>الإجمالي</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {entitlementReviews.map((review) => {
-                    const staff = collegeStaff.find((s) => s.id === review.staffId);
-                    return (
-                      <TableRow key={review.staffId}>
-                        <TableCell>{staff?.fullName || "-"}</TableCell>
-                        <TableCell>{review.hoursWorked}</TableCell>
-                        <TableCell>{review.hourlyRate}</TableCell>
-                        <TableCell className="font-bold">{review.total.toLocaleString()}</TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TabsContent>
-
-            <TabsContent value="4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>العضو</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead>مُعتمد بواسطة</TableHead>
-                    <TableHead>التاريخ</TableHead>
-                    <TableHead>إجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {entitlementApprovals.map((approval) => {
-                    const staff = collegeStaff.find((s) => s.id === approval.staffId);
-                    return (
-                      <TableRow key={approval.staffId}>
-                        <TableCell>{staff?.fullName || "-"}</TableCell>
-                        <TableCell>
-                          <span
-                            className={cn(
-                              "px-2 py-1 rounded text-sm",
-                              approval.status === "معتمد" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"
-                            )}
-                          >
-                            {approval.status}
-                          </span>
-                        </TableCell>
-                        <TableCell>{approval.approvedBy}</TableCell>
-                        <TableCell>{approval.date}</TableCell>
-                        <TableCell>
-                          <Button size="sm" variant="outline" onClick={() => toggleApprovalStatus(approval.staffId)}>
-                            {approval.status === "قيد المراجعة" ? "اعتماد" : "إلغاء الاعتماد"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TabsContent>
-
-            <TabsContent value="5">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>العضو</TableHead>
-                    <TableHead>المبلغ</TableHead>
-                    <TableHead>طريقة الصرف</TableHead>
-                    <TableHead>رقم المرجع</TableHead>
-                    <TableHead>التاريخ</TableHead>
-                    <TableHead>الحالة</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {entitlementPayouts.map((payout) => {
-                    const staff = collegeStaff.find((s) => s.id === payout.staffId);
-                    return (
-                      <TableRow key={payout.staffId}>
-                        <TableCell>{staff?.fullName || "-"}</TableCell>
-                        <TableCell>{payout.amount.toLocaleString()}</TableCell>
-                        <TableCell>{payout.method}</TableCell>
-                        <TableCell>{payout.ref}</TableCell>
-                        <TableCell>{payout.date}</TableCell>
-                        <TableCell>
-                          <span
-                            className={cn(
-                              "px-2 py-1 rounded text-sm",
-                              payout.status === "تم" ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"
-                            )}
-                          >
-                            {payout.status}
-                          </span>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card> */}
 
       {/* Staff form */}
       {isStaffFormOpen && (
@@ -857,12 +697,16 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     <TableCell className="text-right">{staff.lectureRate}</TableCell>
                     <TableCell className="text-center">
                       <div className="flex justify-center gap-2">
-                        <Button size="sm" variant="outline" onClick={() => handleEditStaff(staff)}>
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => handleDeleteStaff(staff.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        {can('staff.update') && (
+                          <Button size="sm" variant="outline" onClick={() => handleEditStaff(staff)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {can('staff.delete') && (
+                          <Button size="sm" variant="outline" onClick={() => handleDeleteStaff(staff.id)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

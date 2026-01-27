@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // تأكد من وجود هذا المكون أو استخدم img عادي
+import { usePermission } from "@/hooks/usePermission";
 
 // Lazy imports
 const TimetableModule = lazy(() => import("@/components/colleges/TimetableModule"));
@@ -23,6 +24,7 @@ const CollegesDashboardModule = lazy(() => import("@/components/colleges/College
 const DepartmentsModule = lazy(() => import("@/components/colleges/DepartmentsModule"));
 const AcademicTitlesModule = lazy(() => import("@/components/colleges/AcademicTitlesModule"));
 const PeriodsModule = lazy(() => import("@/components/colleges/PeriodsModule"));
+const MakeupRequestsModule = lazy(() => import("@/components/colleges/MakeupRequestsModule"));
 
 const ModuleSkeleton = ({ title }: { title: string }) => (
   <div className="p-6">
@@ -52,6 +54,7 @@ interface CollegeFormData {
 }
 
 export default function CollegesPage() {
+  const { can } = usePermission();
   const { id: routeId } = useParams(); 
   const navigate = useNavigate(); 
   const location = useLocation();
@@ -266,6 +269,23 @@ export default function CollegesPage() {
     );
   }
 
+  // 2. تعريف التبويبات مع صلاحياتها
+  const tabsConfig = [
+    { val: "colleges-dashboard", label: "لوحة التحكم",      perm: "dashboard.view_college" },
+    { val: "departments",        label: "الخطة الدراسية",   perm: "study_plan.view" },
+    { val: "classrooms",         label: "القاعات",          perm: "locations.view" },
+    { val: "academic-titles",    label: "الرتب الأكاديمية", perm: "academic_titles.view" },
+    { val: "Academic Staff",     label: "هيئة التدريس",     perm: "staff.view" },
+    { val: "Timetable",          label: "الجدول",           perm: "timetable.view_lectures" },
+    { val: "Enrollment",         label: "التسجيل",          perm: "groups.view" },
+    { val: "periods",            label: "الفترات",          perm: "periods.view" },
+    { val: "Reports",            label: "التقارير",         perm: "reports.view_custom" }, // تأكد من وجود هذه الصلاحية
+    { val: "MakeupRequests",     label: "طلبات التعويض",    perm: "requests.view_makeup" }, // تأكد من وجود هذه الصلاحية
+  ];
+  
+  // 3. تصفية القائمة بناءً على الصلاحيات
+  const visibleTabs = tabsConfig.filter(tab => can(tab.perm));
+
   return (
     <AdminLayout>
       <div className="p-3 sm:p-6">
@@ -273,7 +293,7 @@ export default function CollegesPage() {
           <>
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl sm:text-3xl font-bold">الكليات</h1>
-              {isSuperUser && (
+              {can('colleges.create') && (
                 <Button onClick={handleAddCollege}>
                   <Plus className="w-4 h-4 mr-2" />
                   إضافة كلية
@@ -350,8 +370,19 @@ export default function CollegesPage() {
                     {colleges.map((college) => (
                       <TableRow 
                         key={college.id} 
-                        className="cursor-pointer hover:bg-muted/50 transition-colors h-[70px]" // ارتفاع ثابت للسطر
-                        onClick={() => handleSelectCollege(college)}
+                        // 1. التحكم في الـ CSS: نظهر تأثير الـ Hover والمؤشر فقط إذا كان يملك الصلاحية
+                        className={`${
+                          can('dashboard.view_college') 
+                            ? "cursor-pointer hover:bg-muted/50" 
+                            : "cursor-default"
+                        } transition-colors h-[70px]`} 
+                        
+                        // 2. التحكم في الحدث: ننفذ الدالة فقط إذا كان الشرط متحققاً
+                        onClick={() => {
+                          if (can('dashboard.view_college')) {
+                            handleSelectCollege(college);
+                          }
+                        }}
                       >
                         {/* 1. خلية الشعار */}
                         <TableCell className="align-middle">
@@ -391,34 +422,43 @@ export default function CollegesPage() {
                         {/* 4. خلية الإجراءات */}
                         <TableCell className="align-middle">
                           <div className="flex gap-1 items-center justify-end"> 
-                            {isSuperUser && (
-                              <>
-                                <Button 
-                                  size="sm" 
-                                  variant="ghost" 
-                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-blue-600 hover:bg-blue-50" 
-                                  onClick={(e) => { e.stopPropagation(); handleEditCollege(college); }}
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="ghost" 
-                                  className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50" 
-                                  onClick={(e) => { e.stopPropagation(); handleDeleteCollege(college.id); }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </>
+                            
+                            {/* زر التعديل */}
+                            {can('colleges.update') && (
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-blue-600 hover:bg-blue-50" 
+                                onClick={(e) => { e.stopPropagation(); handleEditCollege(college); }}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </Button>
                             )}
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              className="h-8 w-8 p-0 text-muted-foreground hover:text-primary" 
-                              onClick={(e) => { e.stopPropagation(); handleSelectCollege(college); }}
-                            >
-                              <ChevronRight className="w-4 h-4 rtl:rotate-180" /> {/* تدوير السهم في العربية */}
-                            </Button>
+                        
+                            {/* زر الحذف */}
+                            {can('colleges.delete') && (
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600 hover:bg-red-50" 
+                                onClick={(e) => { e.stopPropagation(); handleDeleteCollege(college.id); }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            )}
+                        
+                            {/* زر الدخول للكلية (السهم) */}
+                            {/* نستخدم صلاحية عرض لوحة تحكم الكلية هنا لأن السهم يوجه لداخل الكلية */}
+                            {can('dashboard.view_college') && (
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-primary" 
+                                onClick={(e) => { e.stopPropagation(); handleSelectCollege(college); }}
+                              >
+                                <ChevronRight className="w-4 h-4 rtl:rotate-180" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -451,39 +491,36 @@ export default function CollegesPage() {
             </div>
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="h-auto flex flex-wrap justify-center bg-muted/30 p-2 rounded-xl border border-border/50 gap-2 w-full">
-                  {[
-                    { val: "colleges-dashboard", label: "لوحة التحكم" },
-                    { val: "departments", label: "الأقسام" },
-                    { val: "classrooms", label: "القاعات" },
-                    { val: "academic-titles", label: "الرتب الأكاديمية" },
-                    { val: "Academic Staff", label: "هيئة التدريس" },
-                    { val: "Timetable", label: "الجدول" },
-                    { val: "Enrollment", label: "التسجيل" },
-                    { val: "Reports", label: "التقارير" },
-                    { val: "periods", label: "الفترات" },
-                  ].map((tab) => (
-                    <TabsTrigger
-                      key={tab.val}
-                      value={tab.val}
-                      className="
-                        flex-1 min-w-[110px] sm:min-w-[140px] md:min-w-[auto]
-                        px-3 py-2.5
-                        rounded-lg 
-                        text-xs sm:text-sm font-medium 
-                        transition-all duration-200
-                        border border-transparent
-                        data-[state=active]:bg-primary 
-                        data-[state=active]:text-primary-foreground 
-                        data-[state=active]:shadow-sm
-                        data-[state=active]:border-primary/10
-                        hover:bg-background/80
-                      "
-                    >
-                      {tab.label}
-                    </TabsTrigger>
-                  ))}
-              </TabsList>
+                <TabsList className="h-auto flex flex-wrap justify-center bg-muted/30 p-2 rounded-xl border border-border/50 gap-2 w-full">
+                    {visibleTabs.map((tab) => (
+                      <TabsTrigger
+                        key={tab.val}
+                        value={tab.val}
+                        className="
+                          flex-1 min-w-[110px] sm:min-w-[140px] md:min-w-[auto]
+                          px-3 py-2.5
+                          rounded-lg 
+                          text-xs sm:text-sm font-medium 
+                          transition-all duration-200
+                          border border-transparent
+                          data-[state=active]:bg-primary 
+                          data-[state=active]:text-primary-foreground 
+                          data-[state=active]:shadow-sm
+                          data-[state=active]:border-primary/10
+                          hover:bg-background/80
+                        "
+                      >
+                        {tab.label}
+                      </TabsTrigger>
+                    ))}
+                    
+                    {/* (اختياري) رسالة في حال اختفت جميع التبويبات */}
+                    {visibleTabs.length === 0 && (
+                      <div className="w-full text-center py-2 text-muted-foreground text-sm">
+                        لا توجد أقسام متاحة للعرض
+                      </div>
+                    )}
+                </TabsList>
 
               <TabsContent value="colleges-dashboard">
                 <Suspense fallback={<ModuleSkeleton title="لوحة التحكم " />}>
@@ -538,6 +575,12 @@ export default function CollegesPage() {
               <TabsContent value="Reports">
                 <Suspense fallback={<ModuleSkeleton title="التقارير" />}>
                   {activeTab === "Reports" && <ReportsModule collegeId={selectedCollege.id} />}
+                </Suspense>
+              </TabsContent>
+
+              <TabsContent value="MakeupRequests">
+                <Suspense fallback={<ModuleSkeleton title="طلبات التعويض" />}>
+                  {activeTab === "MakeupRequests" && <MakeupRequestsModule collegeId={selectedCollege.id} />}
                 </Suspense>
               </TabsContent>
 

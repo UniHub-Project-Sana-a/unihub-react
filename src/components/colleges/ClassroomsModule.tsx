@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
+import { api } from "@/lib/api";import { usePermission } from "@/hooks/usePermission";
 
 type ApiBuilding = {
   building_id: number;
@@ -132,6 +132,7 @@ function getPreciseLocation(
 }
 
 export default function ClassroomsModule({ collegeId }: Props) {
+  const { can } = usePermission();
   const { toast } = useToast();
   const lastAccuracyRef = useRef<number>(Infinity);
   // Buildings
@@ -403,10 +404,12 @@ const handleAddClassroom = () => {
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">القاعات الدراسية</h2>
-        <Button onClick={handleAddClassroom} disabled={!selectedBuilding}>
-          <Plus className="w-4 h-4 mr-2" />
-          إضافة قاعة
-        </Button>
+        {can('locations.create') && (
+          <Button onClick={handleAddClassroom} disabled={!selectedBuilding}>
+            <Plus className="w-4 h-4 mr-2" />
+            إضافة قاعة
+          </Button>
+        )}
       </div>
 
       {/* Buildings grid */}
@@ -414,10 +417,12 @@ const handleAddClassroom = () => {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>اختر مبنى</CardTitle>
-            <Button variant="outline" onClick={handleAddBuilding}>
-              <Plus className="w-4 h-4 ml-2" />
-              إضافة مبنى
-            </Button>
+            {can('locations.create') && (
+              <Button variant="outline" onClick={handleAddBuilding}>
+                <Plus className="w-4 h-4 ml-2" />
+                إضافة مبنى
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -601,34 +606,38 @@ const handleAddClassroom = () => {
                   <TableCell>{classroom.allowedDistance ?? "-"}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setIsClassroomFormOpen(true);
-                          setEditingClassroomId(classroom.id);
-                          setClassroomFormData({
-                            name: classroom.name,
-                            type: classroom.type,
-                            capacity: classroom.capacity,
-                            floor: classroom.floor ?? 0,
-                            latitude: classroom.latitude ?? "",
-                            longitude: classroom.longitude ?? "",
-                            allowedDistance: classroom.allowedDistance ?? "",
-                          });
-                        }}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          await handleDeleteClassroom(classroom.id);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {can('locations.update') && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setIsClassroomFormOpen(true);
+                            setEditingClassroomId(classroom.id);
+                            setClassroomFormData({
+                              name: classroom.name,
+                              type: classroom.type,
+                              capacity: classroom.capacity,
+                              floor: classroom.floor ?? 0,
+                              latitude: classroom.latitude ?? "",
+                              longitude: classroom.longitude ?? "",
+                              allowedDistance: classroom.allowedDistance ?? "",
+                            });
+                          }}
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                      )}
+                      {can('locations.delete') && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={async () => {
+                            await handleDeleteClassroom(classroom.id);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>

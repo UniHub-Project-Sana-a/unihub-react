@@ -9,6 +9,7 @@ import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { usePermission } from "@/hooks/usePermission";
 
 type ApiPeriod = {
   period_id: number;
@@ -33,6 +34,7 @@ interface PeriodsModuleProps {
 }
 
 export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
+  const { can } = usePermission();
   const { toast } = useToast();
 
   const [periods, setPeriods] = useState<Period[]>([]);
@@ -135,10 +137,12 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">الفترات الزمنية</h2>
-        <Button onClick={openAdd}>
-          <Plus className="w-4 h-4 mr-2" />
-          إضافة فترة
-        </Button>
+        {can('periods.create') && (
+          <Button onClick={openAdd}>
+            <Plus className="w-4 h-4 mr-2" />
+            إضافة فترة
+          </Button>
+        )}
       </div>
 
       {/* Dialog form */}
@@ -205,7 +209,7 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
       </Dialog>
 
       {/* Periods table */}
-            <Card>
+      <Card>
         <CardContent className="pt-6">
           <Table>
             <TableHeader>
@@ -239,8 +243,12 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
                     {/* توسيط أزرار الإجراءات */}
                     <TableCell className="text-center">
                       <div className="flex justify-center gap-2">
+                        {can('periods.update') && (
                         <Button size="sm" variant="outline" onClick={() => openEdit(p)}><Pencil className="w-4 h-4" /></Button>
+                        )}
+                        {can('periods.delete') && (
                         <Button size="sm" variant="outline" onClick={() => handleDelete(p.id)}><Trash2 className="w-4 h-4" /></Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

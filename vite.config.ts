@@ -5,7 +5,7 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig({
   // هذا هو السطر الأهم الذي كان ينقصك
-  base: '/react-app/', 
+  base: './', 
 
   server: {
     host: "::",

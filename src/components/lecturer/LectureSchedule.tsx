@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { 
   Calendar, Clock, Users, QrCode, CheckCircle, 
   BatteryCharging, Loader2, MapPin, Building, 
-  HeartHandshake, RefreshCw, Printer 
+  HeartHandshake, RefreshCw, Printer, CalendarPlus, CheckCircle2, XCircle, Info
 } from "lucide-react";
 import { LectureSession } from "@/pages/LecturerPage";
 import { format, startOfWeek, endOfWeek, addDays, subDays, isToday } from 'date-fns';
@@ -15,6 +15,7 @@ import { useReactToPrint } from "react-to-print";
 import { AttendanceReportSheet, ReportStudent } from "@/components/reports/AttendanceReportSheet";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { RequestMakeupDialog } from "@/components/lecturer/RequestMakeupDialog";
 
 interface LectureScheduleProps {
   sessions: LectureSession[];
@@ -25,6 +26,7 @@ interface LectureScheduleProps {
   onRefresh: () => void;
   lecturerName: string; 
   collegeId?: string | number;
+  lecturerId?: number;
 }
 
 export function LectureSchedule({ 
@@ -35,13 +37,18 @@ export function LectureSchedule({
     setViewDate, 
     onRefresh, 
     lecturerName,
-    collegeId
+    collegeId,
+    lecturerId
 }: LectureScheduleProps) {
     
   const { toast } = useToast();
   const printComponentRef = useRef<HTMLDivElement>(null);
 
   const [isPrintingId, setIsPrintingId] = useState<string | null>(null);
+
+  // حالات الجلسة التعويضية
+  const [isMakeupRequestOpen, setIsMakeupRequestOpen] = useState(false);
+  const [makeupSession, setMakeupSession] = useState<any>(null); // الجلسة التي نريد تعويضها
   
   // ✅ تعديل الـ State ليحمل وقتين
   const [printData, setPrintData] = useState<{
@@ -389,22 +396,73 @@ export function LectureSchedule({
                               </div>
                             
                             ) : (isPast && !isWithinBuffer) ? (
-                              <div className="flex gap-2 w-full sm:w-auto">
-                                <Button disabled variant="outline" className="flex-1 gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
-                                    <Clock className="w-4 h-4" /> فاتت
-                                </Button>
-                                <Button 
-                                    variant="outline" 
-                                    size="icon" 
-                                    className="border-destructive/30 hover:bg-destructive/10 hover:text-destructive bg-background"
-                                    title="طباعة كشف الغياب"
-                                    onClick={() => prepareAndPrint(session)}
-                                    disabled={isPrintingId !== null}
-                                >
-                                    {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                                </Button>
+                              <div className="flex flex-col gap-2 w-full sm:w-auto">
+                                <div className="flex gap-2">
+                                    <Button disabled variant="outline" className="flex-1 gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
+                                        <Clock className="w-4 h-4" /> فاتت
+                                    </Button>
+                                    <Button 
+                                        variant="outline" 
+                                        size="icon" 
+                                        className="border-destructive/30 hover:bg-destructive/10 hover:text-destructive bg-background"
+                                        title="طباعة كشف الغياب"
+                                        onClick={() => prepareAndPrint(session)}
+                                        disabled={isPrintingId !== null}
+                                    >
+                                        {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                                    </Button>
+                                </div>
+                                
+                                {/* ✅ الزر الذكي: طلب تعويض أو عرض الحالة */}
+                                {session.makeupRequest ? (
+                                    // الحالة 1: يوجد طلب مسبق -> نعرض الحالة
+                                    <Button 
+                                        size="sm" 
+                                        variant="outline"
+                                        className={cn(
+                                            "gap-2 h-8 w-full border cursor-default", // جعلناه غير قابل للنقر كزر إجراء، بل كزر معلومات
+                                            // تلوين الزر حسب الحالة
+                                            session.makeupRequest.status === 0 && "text-amber-600 border-amber-200 bg-amber-50 hover:bg-amber-100", // قيد المراجعة
+                                            session.makeupRequest.status === 1 && "text-green-600 border-green-200 bg-green-50 hover:bg-green-100", // مقبول
+                                            session.makeupRequest.status === 2 && "text-red-600 border-red-200 bg-red-50 hover:bg-red-100" // مرفوض
+                                        )}
+                                        onClick={() => {
+                                            // عرض توست توضيحي عند الضغط
+                                            toast({
+                                                title: session.makeupRequest?.status === 0 ? "طلب قيد المراجعة" : 
+                                                       session.makeupRequest?.status === 1 ? "تمت الموافقة" : "تم رفض الطلب",
+                                                description: session.makeupRequest?.status === 0 
+                                                    ? "الطلب بانتظار موافقة رئيس القسم/العميد." 
+                                                    : session.makeupRequest?.status === 1 
+                                                        ? `تم اعتماد التعويض بتاريخ ${session.makeupRequest.requestedDate}`
+                                                        : "عذراً، تم رفض طلب التعويض لهذه المحاضرة.",
+                                                variant: session.makeupRequest?.status === 2 ? "destructive" : "default"
+                                            });
+                                        }}
+                                    >
+                                        {session.makeupRequest.status === 0 && <Clock className="w-4 h-4 animate-pulse" />}
+                                        {session.makeupRequest.status === 1 && <CheckCircle2 className="w-4 h-4" />}
+                                        {session.makeupRequest.status === 2 && <XCircle className="w-4 h-4" />}
+                                        
+                                        {session.makeupRequest.status === 0 ? "قيد المراجعة" : 
+                                         session.makeupRequest.status === 1 ? "تمت الموافقة" : "مرفوض"}
+                                    </Button>
+                                ) : (
+                                    // الحالة 2: لا يوجد طلب -> زر التقديم (القديم)
+                                    <Button 
+                                        size="sm" 
+                                        variant="ghost" 
+                                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 gap-2 h-8 w-full border border-amber-200"
+                                        onClick={() => {
+                                            setMakeupSession(session);
+                                            setIsMakeupRequestOpen(true);
+                                        }}
+                                    >
+                                        <CalendarPlus className="w-4 h-4" /> طلب تعويض
+                                    </Button>
+                                )}
                               </div>
-                      
+                            
                             ) : (
                               <Button 
                                 onClick={() => onStartQR(session)} 
@@ -474,6 +532,20 @@ export function LectureSchedule({
             />
         )}
       </div>
+
+      {/* ✅✅ هنا يتم وضع المودال الجديد */}
+      {makeupSession && (
+        <RequestMakeupDialog
+          isOpen={isMakeupRequestOpen}
+          onClose={() => {
+            setIsMakeupRequestOpen(false);
+            setMakeupSession(null);
+          }}
+          session={makeupSession}
+          lecturerId={lecturerId || 0} 
+          lecturerName={lecturerName}
+        />
+      )}
 
     </Card>
   );

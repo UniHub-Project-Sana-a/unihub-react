@@ -8,14 +8,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { usePermission } from "@/hooks/usePermission";
 
 type ApiTitle = {
   title_id: number;
   title_name: string;
   title_code: string;
   hourly_price: number | string;
-  lecture_price: number | string;
   college_id: number;
 };
 
@@ -24,7 +23,6 @@ type Title = {
   name: string;
   code: string;
   hourlyPrice: number;
-  lecturePrice: number;
   collegeId: number;
 };
 
@@ -33,6 +31,7 @@ interface AcademicTitlesModuleProps {
 }
 
 export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModuleProps) {
+  const { can } = usePermission();
   const { toast } = useToast();
 
   const [titles, setTitles] = useState<Title[]>([]);
@@ -46,7 +45,6 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
     name: "",
     code: "",
     hourlyPrice: 0,
-    lecturePrice: 0,
   });
   
 
@@ -60,7 +58,6 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
         name: t.title_name,
         code: t.title_code,
         hourlyPrice: Number(t.hourly_price ?? 0),
-        lecturePrice: Number(t.lecture_price ?? 0),
         collegeId: Number(t.college_id),
       }));
       // ترتيب اختياري بالاسم
@@ -79,7 +76,7 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
 
   const openAdd = () => {
     setEditingTitle(null);
-    setFormData({ name: "", code: "", hourlyPrice: 0, lecturePrice: 0 });
+    setFormData({ name: "", code: "", hourlyPrice: 0 });
     setIsDialogOpen(true);
   };
 
@@ -89,7 +86,6 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
       name: t.name,
       code: t.code,
       hourlyPrice: t.hourlyPrice,
-      lecturePrice: t.lecturePrice,
     });
     setIsDialogOpen(true);
   };
@@ -114,7 +110,6 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
         title_name: formData.name,
         title_code: formData.code,
         hourly_price: Number(formData.hourlyPrice),
-        lecture_price: Number(formData.lecturePrice),
         college_id: Number(collegeId),
       };
 
@@ -142,10 +137,12 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">الدرجات الأكاديمية</h2>
-        <Button onClick={openAdd}>
-          <Plus className="w-4 h-4 mr-2" />
-          إضافة درجة
-        </Button>
+        {can('academic_titles.create') && (
+          <Button onClick={openAdd}>
+            <Plus className="w-4 h-4 mr-2" />
+            إضافة درجة
+          </Button>
+        )}
       </div>
 
       {/* Dialog form */}
@@ -193,26 +190,6 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
                  }}
                />
              </div>
-             <div>
-               <Label>أجر المحاضرة (ريال)</Label>
-               <Input
-                 type="number"
-                 step="0.01"
-                 min={0}
-                 value={formData.lecturePrice ?? ""} // يسمح يكون فاضي أثناء الكتابة
-                 onChange={(e) =>
-                   setFormData((p) => ({
-                     ...p,
-                     lecturePrice: e.target.value === "" ? (undefined as any) : Number(e.target.value),
-                   }))
-                 }
-                 onBlur={() => {
-                   if (formData.lecturePrice == null || Number.isNaN(formData.lecturePrice as any)) {
-                     setFormData((p) => ({ ...p, lecturePrice: 0 }));
-                   }
-                 }}
-               />
-             </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>
@@ -229,7 +206,7 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
 
       {/* Titles table */}
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-5">
           <Table>
             <TableHeader>
               <TableRow>
@@ -238,8 +215,6 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
                 <TableHead className="text-right">اسم الدرجة</TableHead>
                 <TableHead className="text-right">الكود</TableHead>
                 <TableHead className="text-right">أجر الساعة</TableHead>
-                <TableHead className="text-right">أجر المحاضرة</TableHead>
-                {/* الإجراءات في الوسط */}
                 <TableHead className="text-center">الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
@@ -262,16 +237,19 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
                     <TableCell className="text-right font-medium">{t.name}</TableCell>
                     <TableCell className="text-right">{t.code}</TableCell>
                     <TableCell className="text-right">{t.hourlyPrice}</TableCell>
-                    <TableCell className="text-right">{t.lecturePrice}</TableCell>
                     {/* توسيط الإجراءات */}
                     <TableCell className="text-center">
                       <div className="flex justify-center gap-2">
+                        {can('academic_titles.update') && (
                         <Button size="sm" variant="outline" onClick={() => openEdit(t)}>
                           <Pencil className="w-4 h-4" />
                         </Button>
+                        )}
+                        {can('academic_titles.delete') && (
                         <Button size="sm" variant="outline" onClick={() => handleDelete(t.id)}>
                           <Trash2 className="w-4 h-4" />
                         </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

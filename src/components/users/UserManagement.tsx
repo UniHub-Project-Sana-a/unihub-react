@@ -21,6 +21,8 @@ import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+// ✅ 1. استيراد الهوك
+import { usePermission } from "@/hooks/usePermission";
 
 // --- Types ---
 type ApiUser = {
@@ -32,7 +34,6 @@ type ApiUser = {
   gender: number;
   user_type_id: number;
   college_id?: number | null;
-  // status تم إزالته لأنه غير موجود
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -55,6 +56,8 @@ type UserFormData = z.infer<typeof userSchema>;
 export function UserManagement() {
   const { toast } = useToast();
   const { user: me } = useAuth();
+  // ✅ 2. استخدام الهوك
+  const { can } = usePermission();
   
   // --- States ---
   const [users, setUsers] = useState<ApiUser[]>([]);
@@ -97,17 +100,11 @@ export function UserManagement() {
   const roleNameById = (id?: number) => userTypes.find(x => x.user_type_id === id)?.user_type_name || "غير معروف";
   const roleCodeById = (id?: number) => userTypes.find(x => x.user_type_id === id)?.user_type_code || "";
 
-  // ✅ تعديل المنطق: تحديد الأدوار المسموح بإنشائها
   const allowedRoleCodesForCreate = useMemo(() => {
     const code = myUserType?.user_type_code || "";
-    
-    // 1. المشرف العام: يضيف الكل
     if (code === "admin" || code === "presidency") {
-       // نعيد كل الأكواد المتاحة في النظام
        return userTypes.map(t => t.user_type_code);
     }
-    
-    // 2. العميد: يضيف ما تحته فقط
     if (code === "dean") {
       return userTypes
         .filter(t => !["admin", "dean", "presidency"].includes(t.user_type_code))
@@ -116,10 +113,8 @@ export function UserManagement() {
     return [];
   }, [myUserType, userTypes]);
 
-  // دالة لمعرفة هل الدور يتطلب كلية؟
   const isCollegeRequired = (roleId: string) => {
       const code = roleCodeById(Number(roleId));
-      // الأدوار العليا لا تتطلب كلية، البقية تتطلب
       return !["admin", "presidency"].includes(code);
   };
 
@@ -154,21 +149,16 @@ export function UserManagement() {
     fetchLookups();
   }, []);
 
-  // --- Filtering Logic ---
   const filteredUsers = useMemo(() => {
     return users.filter(u => {
-      // 1. صلاحيات الرؤية
       const code = myUserType?.user_type_code || "";
       if (code === "admin" || code === "presidency") {
         if (collegeFilter !== "all" && u.college_id !== Number(collegeFilter)) return false;
         return true;
       }
-      if (code === "dean") {
-        return u.college_id === me?.college_id;
-      }
+      if (code === "dean") return u.college_id === me?.college_id;
       return true;
     }).filter(u => {
-      // 2. البحث
       const q = searchQuery.toLowerCase();
       const rn = roleNameById(u.user_type_id).toLowerCase();
       return u.full_name.toLowerCase().includes(q) || 
@@ -176,13 +166,11 @@ export function UserManagement() {
              u.academic_number.includes(q) ||
              rn.includes(q);
     }).filter(u => {
-      // 3. فلتر الدور
       if (roleFilter === "all") return true;
       return u.user_type_id === roleFilter;
     });
   }, [users, searchQuery, roleFilter, collegeFilter, myUserType, me]);
 
-  // --- Handlers ---
   const onAddUser: SubmitHandler<UserFormData> = async (data) => {
     setIsLoading(true);
     try {
@@ -193,7 +181,6 @@ export function UserManagement() {
         password: "12345678",
         college_id: data.college_id ? Number(data.college_id) : null
       };
-      // Header للكليات، مهم للعميد
       const headers = myUserType?.user_type_code === 'dean' ? { "X-College-Id": String(me?.college_id) } : {};
       
       await api.post("/v1/users", payload, { headers });
@@ -254,11 +241,8 @@ export function UserManagement() {
   };
 
   const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedUsers(new Set(filteredUsers.map(u => u.user_id)));
-    } else {
-      setSelectedUsers(new Set());
-    }
+    if (checked) setSelectedUsers(new Set(filteredUsers.map(u => u.user_id)));
+    else setSelectedUsers(new Set());
   };
 
   const handleSelectUser = (userId: number, checked: boolean) => {
@@ -272,7 +256,6 @@ export function UserManagement() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500 container mx-auto px-4 sm:px-6 lg:px-8 py-4">
       
-      {/* Header & Main Actions */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-card p-6 rounded-xl border shadow-sm">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">إدارة المستخدمين</h1>
@@ -284,7 +267,8 @@ export function UserManagement() {
         </div>
         
         <div className="flex items-center gap-2 w-full md:w-auto">
-          {(myUserType?.user_type_code === "admin" || myUserType?.user_type_code === "presidency" || myUserType?.user_type_code === "dean") && (
+          {/* ✅ 3. حماية زر الإضافة: يظهر فقط إذا كان لديه صلاحية users.create */}
+          {(myUserType?.user_type_code === "admin" || myUserType?.user_type_code === "presidency" || myUserType?.user_type_code === "dean") && can('users.create') && (
             <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
               <DialogTrigger asChild>
                 <Button size="lg" className="shadow-md hover:shadow-lg transition-all w-full md:w-auto">
@@ -299,8 +283,6 @@ export function UserManagement() {
                 </DialogHeader>
                 <Form {...addUserForm}>
                   <form onSubmit={addUserForm.handleSubmit(onAddUser)} className="space-y-6 mt-4">
-                    
-                    {/* بيانات شخصية */}
                     <div className="space-y-4">
                       <h3 className="text-sm font-semibold flex items-center gap-2 text-primary">
                         <UserCircle className="w-4 h-4" /> البيانات الشخصية
@@ -342,7 +324,6 @@ export function UserManagement() {
 
                     <Separator />
 
-                    {/* بيانات وظيفية */}
                     <div className="space-y-4">
                       <h3 className="text-sm font-semibold flex items-center gap-2 text-primary">
                         <Briefcase className="w-4 h-4" /> البيانات الوظيفية
@@ -361,7 +342,6 @@ export function UserManagement() {
                             <FormLabel>الدور (الصلاحية)</FormLabel>
                             <Select onValueChange={(val) => {
                                 field.onChange(val);
-                                // إعادة تعيين الكلية إذا كان الدور لا يتطلبها
                                 if(!isCollegeRequired(val)) {
                                     addUserForm.setValue("college_id", undefined); 
                                 }
@@ -377,13 +357,11 @@ export function UserManagement() {
                           </FormItem>
                         )} />
                         
-                        {/* حقل الكلية: يظهر إذا كان المستخدم أدمن والدور المختار يتطلب كلية */}
                         {(myUserType?.user_type_code === 'admin' || myUserType?.user_type_code === 'presidency') && (
                           <FormField
                             control={addUserForm.control}
                             name="college_id"
                             render={({ field }) => {
-                                // إخفاء الحقل إذا كان الدور لا يتطلب كلية
                                 const selectedRole = addUserForm.watch("user_type_id");
                                 if(selectedRole && !isCollegeRequired(selectedRole)) return <></>;
 
@@ -421,7 +399,6 @@ export function UserManagement() {
         </div>
       </div>
 
-      {/* Filter Bar */}
       <div className="space-y-4">
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-1">
@@ -446,8 +423,6 @@ export function UserManagement() {
           </div>
         </div>
 
-        {/* Role Tabs (Responsive Grid) */}
-        {/* ✅ هذا الجزء تم تعديله ليكون متجاوباً تماماً */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
           <Button 
             variant={roleFilter === 'all' ? "default" : "outline"} 
@@ -475,7 +450,6 @@ export function UserManagement() {
         </div>
       </div>
 
-      {/* Users Table */}
       <Card className="overflow-hidden border shadow-sm">
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -541,37 +515,46 @@ export function UserManagement() {
                         </TableCell>
 
                         <TableCell className="text-center">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                <MoreHorizontal className="w-4 h-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48">
-                              <DropdownMenuLabel>إجراءات</DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              
-                              <DropdownMenuItem onClick={() => {
-                                  setEditingUser(user);
-                                  editUserForm.reset({
-                                    full_name: user.full_name,
-                                    email: user.email,
-                                    phone: user.phone,
-                                    academic_number: user.academic_number,
-                                    gender: String(user.gender) as "0"|"1",
-                                    user_type_id: String(user.user_type_id),
-                                    college_id: String(user.college_id || "")
-                                  });
-                                  setIsEditUserOpen(true);
-                              }}>
-                                <Edit className="w-4 h-4 mr-2" /> تعديل البيانات
-                              </DropdownMenuItem>
+                          {/* ✅ 4. إظهار القائمة المنسدلة فقط إذا كان هناك إجراء واحد متاح على الأقل */}
+                          {(can('users.update') || can('users.delete')) && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuLabel>إجراءات</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                
+                                {/* حماية زر التعديل */}
+                                {can('users.update') && (
+                                  <DropdownMenuItem onClick={() => {
+                                      setEditingUser(user);
+                                      editUserForm.reset({
+                                        full_name: user.full_name,
+                                        email: user.email,
+                                        phone: user.phone,
+                                        academic_number: user.academic_number,
+                                        gender: String(user.gender) as "0"|"1",
+                                        user_type_id: String(user.user_type_id),
+                                        college_id: String(user.college_id || "")
+                                      });
+                                      setIsEditUserOpen(true);
+                                  }}>
+                                    <Edit className="w-4 h-4 mr-2" /> تعديل البيانات
+                                  </DropdownMenuItem>
+                                )}
 
-                              <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => handleDeleteUser(user.user_id)}>
-                                <Trash2 className="w-4 h-4 mr-2" /> حذف الحساب
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                                {/* حماية زر الحذف */}
+                                {can('users.delete') && (
+                                  <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => handleDeleteUser(user.user_id)}>
+                                    <Trash2 className="w-4 h-4 mr-2" /> حذف الحساب
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -583,7 +566,7 @@ export function UserManagement() {
         </CardContent>
       </Card>
 
-      {/* Edit User Dialog (Similar to Add) */}
+      {/* Edit User Dialog */}
       <Dialog open={isEditUserOpen} onOpenChange={setIsEditUserOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>

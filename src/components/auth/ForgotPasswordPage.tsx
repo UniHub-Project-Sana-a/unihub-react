@@ -1,11 +1,12 @@
 import { useState } from "react";
-import axios from "axios";
 import { Link, useNavigate } from "react-router-dom"; // 1. استيراد useNavigate
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import logoFull from "@/assets/logo-full.png";
+import { api } from "@/lib/api";
+import { Eye, EyeOff, CheckCircle, XCircle, MailCheck } from "lucide-react"; 
 
 const ForgotPasswordPage = () => {
   const [email, setEmail] = useState("");
@@ -15,7 +16,7 @@ const ForgotPasswordPage = () => {
 
   const navigate = useNavigate(); // 2. تعريف الهوك
 
-    const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
 
@@ -23,22 +24,18 @@ const ForgotPasswordPage = () => {
     setIsLoading(true);
 
     try {
-      const res = await axios.post(
-        "http://127.0.0.1:8000/api/v1/auth/forgot-password", // تأكد من الرابط
-        { email },
-        { headers: { Accept: "application/json" } }
-      );
+     const res = await api.post("/v1/auth/forgot-password", { email });
       
       setIsSubmitted(true);
 
       // ✅ الآن الباك إند سيرسل التوكن، فسيتحقق الشرط ويتم التوجيه
-      if (res.data?.token) {
-        // توجيه مباشر وسريع
-        navigate(`/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(res.data.token)}`);
-      } else {
-        // في حالة لم يرجع التوكن (مثلاً إيميل غير موجود)
-        setError("لم يتم إرجاع رمز التحقق، تأكد من صحة البريد الإلكتروني.");
-      }
+      // if (res.data?.token) {
+      //   // توجيه مباشر وسريع
+      //   navigate(`/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(res.data.token)}`);
+      // } else {
+      //   // في حالة لم يرجع التوكن (مثلاً إيميل غير موجود)
+      //   setError("لم يتم إرجاع رمز التحقق، تأكد من صحة البريد الإلكتروني.");
+      // }
 
     } catch (err: any) {
       const msg = err?.response?.data?.message || "حدث خطأ أثناء إرسال طلب الاسترجاع.";
@@ -86,30 +83,39 @@ const ForgotPasswordPage = () => {
               </Button>
             </form>
           ) : (
-            <div className="space-y-4 text-center">
-              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-green-800 font-medium">
-                  تم إرسال الطلب بنجاح!
-                </p>
-                <p className="text-sm text-green-700 mt-2">
-                  جاري تحويلك لصفحة تعيين كلمة المرور...
+                        // ✅ الواجهة الجديدة عند النجاح
+            <div className="space-y-6 text-center animate-in fade-in slide-in-from-bottom-2 duration-500">
+              
+              <div className="flex justify-center">
+                <div className="h-20 w-20 bg-green-50 rounded-full flex items-center justify-center border border-green-100 shadow-sm">
+                  <MailCheck className="h-10 w-10 text-green-600" />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-xl font-bold text-foreground">تحقق من بريدك الإلكتروني</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  لقد أرسلنا تعليمات إعادة تعيين كلمة المرور إلى:
+                  <br />
+                  <span className="font-semibold text-primary block mt-1">{email}</span>
                 </p>
               </div>
-              {/* Spinner loader */}
-              <div className="flex justify-center mt-4">
-                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+
+              <div className="p-3 bg-muted/30 rounded-lg border border-border/50 text-xs text-muted-foreground">
+                لم يصلك البريد؟ تأكد من مجلد الرسائل غير المرغوب فيها (Spam) أو حاول مرة أخرى لاحقاً.
               </div>
+
+              
             </div>
           )}
 
-          <div className="text-center">
-            <Link
-              to="/login"
-              className="text-primary hover:text-primary/80 text-sm font-medium underline-offset-4 hover:underline"
-            >
-              الرجوع إلى تسجيل الدخول
-            </Link>
-          </div>
+          <div className="pt-2">
+                <Link to="/login" className="block w-full">
+                  <Button variant="outline" className="w-full border-primary/20 hover:border-primary hover:bg-primary/5">
+                    العودة إلى صفحة تسجيل الدخول
+                  </Button>
+                </Link>
+              </div>
         </CardContent>
       </Card>
     </div>

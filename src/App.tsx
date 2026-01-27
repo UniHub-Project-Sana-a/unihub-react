@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, HashRouter } from "react-router-dom";
 import "./i18n/config";
 
 // استيراد الصفحات
@@ -34,6 +34,7 @@ import RequireAuth from "@/auth/RequireAuth";
 import RedirectIfAuthed from "@/auth/RedirectIfAuthed";
 import RequireRole from "@/auth/RequireRole"; // <-- استيراد المكون الجديد
 import ChangePasswordPage from '@/components/auth/ChangePasswordPage';
+import RequirePermission from "@/auth/RequirePermission";
 
 const queryClient = new QueryClient();
 
@@ -43,7 +44,7 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter basename="/react-app"
+        <HashRouter 
          future={{
             v7_startTransition: true,
             v7_relativeSplatPath: true,
@@ -82,7 +83,7 @@ const App = () => (
                 <Route element={<RequireRole allowedRoles={['presidency', 'admin', 'dean']} />}>
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/users/roles" element={<RolesPage />} />
-                  {/* <Route path="/users/access-control" element={<AccessControlPage />} /> */}
+                  <Route path="/users/access-control" element={<AccessControlPage />} />
                 </Route>
   
                 {/* 🔒 ب) منطقة الكليات (مشتركة بين الرئاسة وإدارة الكلية) */}
@@ -116,7 +117,7 @@ const App = () => (
               <Route path="*" element={<NotFound />} />
             </Routes>
           </AuthProvider>
-        </BrowserRouter>
+        </HashRouter>
       </TooltipProvider>
     </QueryClientProvider>
   </div>

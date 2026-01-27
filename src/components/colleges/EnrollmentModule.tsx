@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { usePermission } from "@/hooks/usePermission";
 
 // --- Types ---
 type ApiDepartment = { department_id: number; department_name: string; };
@@ -28,6 +29,7 @@ interface EnrollmentModuleProps {
 }
 
 export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
+  const { can } = usePermission();
   const { toast } = useToast();
   const csvInputRef = useRef<HTMLInputElement>(null);
 
@@ -560,68 +562,8 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     <div className="space-y-6">
       <Tabs defaultValue="groups" className="w-full" dir="rtl">
         <TabsList className="grid w-full grid-cols-1 bg-card/50 backdrop-blur-sm">
-          {/* <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">استيراد الطلاب</TabsTrigger> */}
           <TabsTrigger value="groups" className="data-[state=active]:bg-primary/10">إدارة المجموعات</TabsTrigger>
         </TabsList>
-
-        {/* --- Import Students Tab --- */}
-        {/* <TabsContent value="import" className="space-y-6">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                {steps.map((step, idx) => (
-                  <div key={step.num} className="flex items-center">
-                    <div className={`flex items-center gap-2 ${importStep >= step.num ? 'text-primary' : 'text-muted-foreground'}`}>
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${importStep >= step.num ? 'bg-primary text-primary-foreground' : 'bg-card border-2'}`}>
-                        {importStep > step.num ? <CheckCircle2 /> : step.num}
-                      </div>
-                      <span className="text-sm font-medium hidden md:block">{step.label}</span>
-                    </div>
-                    {idx < steps.length - 1 && <div className={`h-0.5 w-12 mx-2 ${importStep > step.num ? 'bg-primary' : 'bg-border'}`}></div>}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {importStep < 6 && (
-            <Card>
-              <CardHeader><CardTitle>{steps[importStep - 1].label}</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <Select value={currentStepValue} onValueChange={handleCurrentStepChange}>
-                  <SelectTrigger><SelectValue placeholder="اختر..." /></SelectTrigger>
-                  <SelectContent>{currentStepList.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}</SelectContent>
-                </Select>
-                <div className="flex gap-2">
-                  <Button variant="outline" onClick={() => setImportStep(Math.max(1, importStep - 1))}>السابق</Button>
-                  <Button onClick={() => setImportStep(Math.min(6, importStep + 1))}>التالي</Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {importStep === 6 && (
-            <Card>
-              <CardHeader><CardTitle>الطلاب الراسبون (السنوات السابقة)</CardTitle></CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader><TableRow><TableHead><Checkbox /></TableHead><TableHead>رقم الطالب</TableHead><TableHead>الاسم</TableHead><TableHead>المعدل</TableHead><TableHead>ملاحظات</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {mockFailingStudents.map(student => (
-                      <TableRow key={student.id}>
-                        <TableCell><Checkbox checked={selectedFailingStudents.includes(student.id)} onCheckedChange={() => toggleFailingStudentSelection(student.id)} /></TableCell>
-                        <TableCell>{student.id}</TableCell>
-                        <TableCell>{student.name}</TableCell>
-                        <TableCell><Badge variant={student.gpa < 2.0 ? "destructive" : "default"}>{student.gpa}</Badge></TableCell>
-                        <TableCell>{student.notes}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent> */}
 
         {/* --- Manage Groups Tab --- */}
         <TabsContent value="groups" className="space-y-6">
@@ -642,6 +584,7 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
             <CardHeader><CardTitle>2. إدارة المجموعات</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
+                {can('groups.create') && (
                 <Input 
                   placeholder="اسم المجموعة الجديدة..." 
                   value={newGroupName} 
@@ -653,9 +596,12 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                     }
                   }}
                 />
+                )}
+                {can('groups.create') && (
                 <Button onClick={handleCreateGroup} disabled={isCreatingGroup || !selectedSemesterId}>
                   {isCreatingGroup && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} إنشاء
                 </Button>
+                )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {groups.map(group => (
@@ -680,71 +626,80 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                   <Label className="text-base font-semibold ml-2">أدوات الإضافة:</Label>
                   
                   {/* زر إضافة طالب يدوياً */}
-                  <Button onClick={() => setIsAddStudentOpen(true)}>
-                    <UserPlus className="w-4 h-4 ml-2" /> إضافة طالب يدوياً
-                  </Button>
+                  {can('students.add') && (
+                    <Button onClick={() => setIsAddStudentOpen(true)}>
+                      <UserPlus className="w-4 h-4 ml-2" /> إضافة طالب يدوياً
+                    </Button>
+                  )}
 
                   {/* فاصل عمودي */}
                   <div className="h-8 w-px bg-border mx-2 hidden md:block"></div>
 
                   {/* زر استيراد CSV */}
-                  <Button variant="outline" onClick={() => csvInputRef.current?.click()} disabled={isImporting}>
-                    {isImporting && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
-                    <Upload className="w-4 h-4 ml-2" /> استيراد CSV
-                  </Button>
+                  {can('students.add') && (
+                    <Button variant="outline" onClick={() => csvInputRef.current?.click()} disabled={isImporting}>
+                      {isImporting && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                      <Upload className="w-4 h-4 ml-2" /> استيراد CSV
+                    </Button>
+                  )}
                   <input ref={csvInputRef} type="file" className="hidden" accept=".csv" onChange={handleCsvChange} />
-                  
-                  {/* زر استيراد API (يمكنك إلغاء تعليقه لاحقاً) */}
-                  {/* <input ref={csvInputRef} type="file" className="hidden" accept=".csv" onChange={handleCsvChange} />
-                  <Button variant="outline" onClick={() => setIsApiDialogOpen(true)}><Link2 className="w-4 h-4 ml-2" /> استيراد من API</Button> */}
                 </div>
                 {/* شبكة عرض الطلاب */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                  {groupMembers.map(student => (
-                    <Card 
-                      key={student.id} 
-                      className="cursor-pointer hover:border-primary transition-colors relative group"
-                      onClick={() => handleStudentClick(student)} // <--- فتح المودال عند الضغط
-                    >
-                      <CardContent className="p-3 text-center">
-                        {/* زر الحذف مع stopPropagation لمنع فتح المودال عند الحذف */}
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" 
-                          onClick={(e) => {
-                            e.stopPropagation(); 
-                            handleRemoveStudentFromGroup(student.studentDbId);
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
+                {groupMembers.map(student => {
+                    // 1. تحديد ما إذا كان المستخدم يملك صلاحية التعديل
+                    const canUpdate = can('students.update');
+                
+                    return (
+                      <Card 
+                        key={student.id} 
+                        // 2. التحكم في التصميم:
+                        // إذا كان لديه صلاحية: يظهر مؤشر اليد + حدود ملونة عند التحويم
+                        // إذا لم يكن لديه: مؤشر عادي ولا يوجد تأثير حدود
+                        className={`transition-colors relative group ${
+                          canUpdate 
+                            ? "cursor-pointer hover:border-primary" 
+                            : "cursor-default"
+                        }`}
                         
-                        <Users className="w-8 h-8 mx-auto mb-2 text-primary" />
-                        <div className="font-medium text-sm truncate" title={student.name}>{student.name}</div>
-                        <div className="text-xs text-muted-foreground">{student.id}</div>
-                        <Badge variant="outline" className="mt-2 text-xs">{student.gender}</Badge>
-                      </CardContent>
-                    </Card>
-                  ))}
+                        // 3. التحكم في النقر: تنفيذ الدالة فقط عند توفر الصلاحية
+                        onClick={() => {
+                          if (canUpdate) {
+                            handleStudentClick(student);
+                          }
+                        }} 
+                      >
+                        <CardContent className="p-3 text-center">
+                          
+                          {/* زر الحذف (يخضع لصلاحية students.delete بشكل منفصل) */}
+                          {can('students.delete') && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" 
+                              onClick={(e) => {
+                                e.stopPropagation(); 
+                                handleRemoveStudentFromGroup(student.studentDbId);
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          )}
+                          
+                          <Users className="w-8 h-8 mx-auto mb-2 text-primary" />
+                          <div className="font-medium text-sm truncate" title={student.name}>{student.name}</div>
+                          <div className="text-xs text-muted-foreground">{student.id}</div>
+                          <Badge variant="outline" className="mt-2 text-xs">{student.gender}</Badge>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                  
                   {groupMembers.length === 0 && <p className="text-muted-foreground col-span-full">لا يوجد طلاب في هذه المجموعة بعد.</p>}
                 </div>
               </CardContent>
             </Card>
           )}
-
-          {/* <Dialog open={isApiDialogOpen} onOpenChange={setIsApiDialogOpen}>
-            <DialogContent>
-                <DialogHeader><DialogTitle>استيراد من API</DialogTitle></DialogHeader>
-                <div className="space-y-2"><Label>رابط API</Label><Input value={apiImportUrl} onChange={(e) => setApiImportUrl(e.target.value)} /></div>
-                <div className="flex justify-end gap-2 mt-4">
-                    <Button variant="outline" onClick={() => setIsApiDialogOpen(false)}>إلغاء</Button>
-                    <Button onClick={handleImportFromApi} disabled={isImporting}>
-                        {isImporting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} استيراد
-                    </Button>
-                </div>
-            </DialogContent>
-          </Dialog> */}
           {/* --- Dialog تعديل الطالب --- */}
           <Dialog open={isEditStudentOpen} onOpenChange={setIsEditStudentOpen}>
             <DialogContent className="sm:max-w-[500px]">

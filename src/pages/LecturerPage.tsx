@@ -29,9 +29,11 @@ export interface ClassroomInfo {
   longitude: number | null;
   allowed_distance: number | null;
 }
+
 export interface LectureSession {
   id: string; // session_id
   timetableId: string; // timetable_id
+  courseId?: number; // ✅ تأكدنا أنه number أو string حسب الباك إند (يفضل number للـ IDs)
   title: string;
   groupName: string;
   groupId: string;
@@ -47,6 +49,13 @@ export interface LectureSession {
   expectedStudents: number;
   sessionCode?: string;
   isMakeup?: boolean;
+  
+  // ✅ الحقل الجديد المسبب للخطأ
+  makeupRequest?: {
+    id: number;
+    status: number; // 0: Pending, 1: Approved, 2: Rejected
+    requestedDate: string;
+  } | null;
 }
 export interface AttendanceRecord {
   studentName: string;
@@ -139,7 +148,9 @@ export default function LecturerPage() {
           sessionCode: session.session_code,
           title: session.timetable?.course?.course_name || 'مادة غير محددة',
           groupName: session.timetable?.group?.group_name || 'مجموعة غير محددة',
+          courseId: session.timetable?.course_id,
           groupId: String(session.timetable?.group?.group_id),
+          makeupRequest: session.makeupRequest,
           date: session.session_date.slice(0, 10),
           
           expectedStudents: capacity, 
@@ -197,7 +208,6 @@ export default function LecturerPage() {
         latitude: settings.latitude,
         longitude: settings.longitude,
         allowed_distance: settings.allowedDistance,
-        topics: settings.selectedTopics
       };
       const res = await api.post('/v1/qr-codes/start-session', payload);
       const firstQrCode = res.data.data || res.data;
@@ -259,6 +269,7 @@ export default function LecturerPage() {
                     setViewDate={setViewDate}
                     onRefresh={() => fetchLecturerInfoAndSchedule(viewDate)}
                     lecturerName={lecturerName}
+                    lecturerId={currentLecturer?.lecturer_id} 
                     collegeId={currentLecturer?.college_id}
                 />
                 {isStartingSession && (

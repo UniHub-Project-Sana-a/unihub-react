@@ -8,13 +8,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Eye, EyeOff, CheckCircle, XCircle } from "lucide-react";
 import logoFull from "@/assets/logo-full.png";
 import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 type PasswordPolicy = {
-  min_length: number;
-  require_uppercase: boolean;
-  require_lowercase: boolean;
-  require_numbers: boolean;
-  require_symbols: boolean;
+  minPasswordLength: number;
+  requireUppercase: boolean;
+  requireNumbers: boolean;
+  requireLowercase?: boolean; 
+  requireSymbols?: boolean;
 };
 
 const ResetPasswordPage = () => {
@@ -33,30 +34,74 @@ const ResetPasswordPage = () => {
   const [serverError, setServerError] = useState<string>('');
   const [serverSuccess, setServerSuccess] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const { logout } = useAuth();
 
   const navigate = useNavigate();
 
   useEffect(() => {
+    // عند فتح صفحة إعادة التعيين، نتأكد من تسجيل الخروج
+    // لتجنب أي تضارب مع جلسات سابقة
+    logout();
+    
+    // (اختياري) مسح التوكن يدوياً للتأكد 100%
+    localStorage.removeItem('token'); 
+    localStorage.removeItem('user');
+  }, []);
+
+    useEffect(() => {
     const fetchPolicy = async () => {
       try {
         const res = await api.get("/v1/admin/security/policy");
-        setPolicy(res.data?.password);
+        // ✅ التعديل: البيانات موجودة داخل security وليس password
+        if (res.data?.security) {
+            setPolicy(res.data.security);
+        } else {
+            throw new Error("No policy found");
+        }
       } catch {
-        setPolicy({ min_length: 8, require_uppercase: true, require_lowercase: true, require_numbers: true, require_symbols: false });
+        // القيم الافتراضية في حال الفشل
+        setPolicy({ 
+            minPasswordLength: 8, 
+            requireUppercase: true, 
+            requireNumbers: true, 
+            requireLowercase: true, 
+            requireSymbols: false 
+        });
       }
     };
     fetchPolicy();
   }, []);
 
-  const passwordValidations = useMemo(() => {
+    const passwordValidations = useMemo(() => {
     if (!policy) return [];
+    
+    // ✅ التعديل: استخدام المفاتيح الصحيحة (camelCase)
     return [
-      { text: `على الأقل ${policy.min_length} أحرف`, valid: newPassword.length >= policy.min_length },
-      policy.require_uppercase && { text: "حرف كبير واحد على الأقل", valid: /[A-Z]/.test(newPassword) },
-      policy.require_lowercase && { text: "حرف صغير واحد على الأقل", valid: /[a-z]/.test(newPassword) },
-      policy.require_numbers && { text: "رقم واحد على الأقل", valid: /\d/.test(newPassword) },
-      policy.require_symbols && { text: "رمز واحد على الأقل", valid: /[\W_]/.test(newPassword) },
-      { text: "تطابق كلمتي المرور", valid: newPassword === confirmPassword && confirmPassword !== "" },
+      { 
+          text: `على الأقل ${policy.minPasswordLength} أحرف`, 
+          valid: newPassword.length >= policy.minPasswordLength 
+      },
+      policy.requireUppercase && { 
+          text: "حرف كبير واحد على الأقل", 
+          valid: /[A-Z]/.test(newPassword) 
+      },
+      // نتأكد أن الحقل موجود قبل فحصه (لأنه قد لا يأتي من الـ API)
+      (policy.requireLowercase ?? true) && { 
+          text: "حرف صغير واحد على الأقل", 
+          valid: /[a-z]/.test(newPassword) 
+      },
+      policy.requireNumbers && { 
+          text: "رقم واحد على الأقل", 
+          valid: /\d/.test(newPassword) 
+      },
+      (policy.requireSymbols ?? false) && { 
+          text: "رمز واحد على الأقل", 
+          valid: /[\W_]/.test(newPassword) 
+      },
+      { 
+          text: "تطابق كلمتي المرور", 
+          valid: newPassword === confirmPassword && confirmPassword !== "" 
+      },
     ].filter(Boolean) as { text: string; valid: boolean }[];
   }, [newPassword, confirmPassword, policy]);
 

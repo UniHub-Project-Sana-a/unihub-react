@@ -7,18 +7,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Loader2, 
-  ArrowRight, 
-  Plus, 
-  Search, 
-  BookOpen, 
-  Users, 
-  CalendarDays,
-  Save,
-  Trash2
-} from "lucide-react";
+import {  Loader2, ArrowRight,  Plus,  Search,  BookOpen,  Users,  CalendarDays, Save, Trash2 , Bell, Send, Mail, History, Pencil, Eye, FileText, CheckCircle2, XCircle, AlertCircle} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea";
 
 // --- Types: Based on Controller Response ---
 
@@ -43,6 +34,14 @@ interface AssessmentColumn {
   weight: number;
 }
 
+interface StudentExcuse {
+  id: number;
+  reason: string;
+  date: string;
+  status: number;
+  comment?: string;
+}
+
 interface StudentRow {
   student_id: number;
   academic_number: string;
@@ -54,6 +53,7 @@ interface StudentRow {
     total_sessions: number;
     percentage: number;
   };
+  excuse?: StudentExcuse | null;
 }
 
 interface GradebookMeta {
@@ -87,6 +87,22 @@ export function GradesManager() {
   const [isAddColOpen, setIsAddColOpen] = useState(false);
   const [newColName, setNewColName] = useState("");
   const [newColMax, setNewColMax] = useState("20");
+
+  // States for Notification Modal
+  const [isNotifyOpen, setIsNotifyOpen] = useState(false);
+  const [notifyGroup, setNotifyGroup] = useState<RawCourseEntry | null>(null); // المجموعة المستهدفة
+  const [notifyData, setNotifyData] = useState({ subject: "", body: "" });
+  const [isSending, setIsSending] = useState(false);
+
+  // States for Notifications History
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [historyNotifications, setHistoryNotifications] = useState<any[]>([]);
+  const [editingNotification, setEditingNotification] = useState<any>(null); // للإشعار الجاري تعديله
+
+  // State للمودال
+  const [selectedExcuse, setSelectedExcuse] = useState<StudentExcuse | null>(null);
+  const [excuseResponse, setExcuseResponse] = useState({ status: 0, comment: "" });
+  const [isExcuseDialogOpen, setIsExcuseDialogOpen] = useState(false);
 
   // --- Helpers to Process Raw Data ---
 
@@ -250,6 +266,94 @@ export function GradesManager() {
     }
   };
 
+  const handleSendNotification = async () => {
+      if (!notifyGroup || !notifyData.subject || !notifyData.body) {
+          toast({ title: "خطأ", description: "يرجى ملء العنوان ونص الرسالة", variant: "destructive" });
+          return;
+      }
+  
+      setIsSending(true);
+      try {
+          await api.post('/v1/notifications', { // تأكد من توافق هذا المسار مع الباك إند لاحقاً
+              group_id: notifyGroup.group_id,
+              subject: notifyData.subject,
+              message_body: notifyData.body,
+              // يمكن إضافة course_id إذا لزم الأمر في الباك إند
+          });
+          toast({ title: "تم الإرسال", description: "تم إرسال الإشعار للطلاب بنجاح" });
+          setIsNotifyOpen(false);
+          setNotifyData({ subject: "", body: "" });
+      } catch (error) {
+          toast({ title: "فشل الإرسال", description: "تعذر إرسال الإشعار", variant: "destructive" });
+      } finally {
+          setIsSending(false);
+      }
+  };
+  
+  const handleOpenHistory = async (group: RawCourseEntry) => {
+      setNotifyGroup(group);
+      setIsHistoryOpen(true);
+      fetchNotificationsHistory(group.group_id);
+  };
+  
+  const fetchNotificationsHistory = async (groupId: number) => {
+      try {
+          const res = await api.get('/v1/notifications', { params: { group_id: groupId } });
+          setHistoryNotifications(res.data.data);
+      } catch {
+          toast({ title: "خطأ", description: "فشل تحميل السجل", variant: "destructive" });
+      }
+  };
+  
+  const handleDeleteNotification = async (id: number) => {
+      if(!confirm("هل أنت متأكد من الحذف؟")) return;
+      try {
+          await api.delete(`/v1/notifications/${id}`);
+          toast({ title: "تم الحذف" });
+          if(notifyGroup) fetchNotificationsHistory(notifyGroup.group_id);
+      } catch {
+          toast({ title: "خطأ", variant: "destructive" });
+      }
+  };
+  
+  const handleUpdateNotification = async () => {
+      if(!editingNotification) return;
+      try {
+          await api.put(`/v1/notifications/${editingNotification.notification_id}`, {
+              subject: notifyData.subject, // نستخدم نفس state الفورم للتعديل
+              message_body: notifyData.body
+          });
+          toast({ title: "تم التعديل" });
+          setEditingNotification(null); // إغلاق وضع التعديل
+          setNotifyData({subject:"", body:""}); // تصفير الفورم
+          if(notifyGroup) fetchNotificationsHistory(notifyGroup.group_id);
+      } catch {
+          toast({ title: "خطأ", variant: "destructive" });
+      }
+  };
+
+  const handleOpenExcuse = (excuse: StudentExcuse) => {
+      setSelectedExcuse(excuse);
+      setExcuseResponse({ status: excuse.status, comment: excuse.comment || "" });
+      setIsExcuseDialogOpen(true);
+  };
+  
+  const handleSubmitExcuseResponse = async () => {
+      if (!selectedExcuse) return;
+      try {
+           await api.put(`/v1/student-excuses/${selectedExcuse.id}/status`, {
+              status: excuseResponse.status,
+              comment: excuseResponse.comment
+          });
+          toast({ title: "تم التحديث", description: "تم تحديث حالة العذر بنجاح" });
+          setIsExcuseDialogOpen(false);
+          // تحديث البيانات محلياً أو إعادة جلب الجدول
+          if (selectedContext) fetchGradebook(selectedContext);
+      } catch {
+          toast({ title: "خطأ", variant: "destructive" });
+      }
+  };
+
   // --- Views Renderers ---
 
   // 1. عرض المواد
@@ -303,6 +407,8 @@ export function GradesManager() {
 
     return (
       <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        
+        {/* Header */}
         <div className="flex items-center gap-4 mb-6">
             <Button variant="ghost" size="icon" onClick={handleBack}>
                 <ArrowRight className="w-5 h-5" />
@@ -313,30 +419,179 @@ export function GradesManager() {
             </div>
         </div>
 
+        {/* Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {availableGroups.map((group) => (
                 <Card 
                     key={`${group.group_id}-${group.academic_year}-${group.semester_id}`}
-                    className="p-6 cursor-pointer hover:border-primary hover:shadow-md transition-all relative overflow-hidden"
-                    onClick={() => handleSelectGroup(group)}
+                    className="overflow-hidden hover:border-primary transition-all relative group flex flex-col"
                 >
-                    <div className="absolute top-0 right-0 w-2 h-full bg-primary/20" />
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2 text-lg font-bold">
-                            <Users className="w-5 h-5 text-muted-foreground" />
-                            {group.group_name}
+                    <div className="absolute top-0 right-0 w-1 h-full bg-primary/20" />
+                    
+                    {/* Card Content (Clickable for Gradebook) */}
+                    <div 
+                        className="p-6 cursor-pointer flex-1"
+                        onClick={() => handleSelectGroup(group)}
+                    >
+                        <div className="space-y-3">
+                            <div className="flex items-center gap-2 text-lg font-bold">
+                                <Users className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                                {group.group_name}
+                            </div>
+                            
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-2 rounded w-fit">
+                                <CalendarDays className="w-4 h-4" />
+                                <span>{group.academic_year}</span>
+                                <span className="mx-1">•</span>
+                                <span>{group.semester_name}</span>
+                            </div>
                         </div>
-                        
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/50 p-2 rounded">
-                            <CalendarDays className="w-4 h-4" />
-                            <span>{group.academic_year}</span>
-                            <span className="mx-1">•</span>
-                            <span>{group.semester_name}</span>
-                        </div>
+                    </div>
+
+                    {/* Card Footer (Actions) */}
+                    <div className="bg-muted/30 p-3 flex gap-2 border-t mt-auto">
+                        {/* الزر الأساسي: فتح سجل الدرجات */}
+                        <Button 
+                            className="flex-1 gap-2" 
+                            size="sm"
+                            onClick={() => handleSelectGroup(group)}
+                        >
+                            <BookOpen className="w-4 h-4" />
+                            سجل الدرجات
+                        </Button>
+
+                        {/* زر الإشعار الجديد */}
+                        <Button 
+                            variant="outline" 
+                            size="sm"
+                            className="gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                            onClick={(e) => {
+                                e.stopPropagation(); // منع فتح سجل الدرجات عند الضغط هنا
+                                setNotifyGroup(group);
+                                setIsNotifyOpen(true);
+                            }}
+                        >
+                            <Bell className="w-4 h-4" />
+                            تنبيه
+                        </Button>
+
+                        {/* ✅ زر السجل الجديد */}
+                        <Button variant="outline" size="sm" className="px-3" onClick={(e) => { e.stopPropagation(); handleOpenHistory(group); }} title="سجل الإشعارات">
+                            <History className="w-4 h-4" />
+                        </Button>
                     </div>
                 </Card>
             ))}
         </div>
+
+        {/* Notification Modal */}
+        <Dialog open={isNotifyOpen} onOpenChange={setIsNotifyOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <Mail className="w-5 h-5 text-primary" />
+                        مراسلة الطلاب
+                    </DialogTitle>
+                    <div className="text-sm text-muted-foreground mt-1">
+                        إرسال إشعار لطلاب مجموعة: <span className="font-bold text-foreground">{notifyGroup?.group_name}</span>
+                    </div>
+                </DialogHeader>
+                
+                <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                        <Label>عنوان الرسالة</Label>
+                        <Input 
+                            placeholder="مثال: تنويه بخصوص الاختبار النصفي"
+                            value={notifyData.subject}
+                            onChange={(e) => setNotifyData({ ...notifyData, subject: e.target.value })}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label>نص الرسالة</Label>
+                        <Textarea 
+                            placeholder="اكتب رسالتك هنا..."
+                            className="min-h-[120px]"
+                            value={notifyData.body}
+                            onChange={(e) => setNotifyData({ ...notifyData, body: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">سيصل هذا الإشعار لجميع الطلاب المسجلين في هذه المجموعة.</p>
+                    </div>
+                </div>
+
+                <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsNotifyOpen(false)}>إلغاء</Button>
+                    <Button onClick={handleSendNotification} disabled={isSending || !notifyData.subject}>
+                        {isSending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+                        إرسال
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+
+        {/* Notifications History Modal */}
+        <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
+            <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
+                <DialogHeader>
+                    <DialogTitle>سجل الإشعارات - {notifyGroup?.group_name}</DialogTitle>
+                </DialogHeader>
+                
+                {/* إذا كنا في وضع التعديل، نعرض فورم التعديل بدلاً من القائمة */}
+                {editingNotification ? (
+                    <div className="space-y-4 py-4">
+                        <h3 className="font-bold text-sm">تعديل الإشعار</h3>
+                        <div className="space-y-2">
+                            <Label>العنوان</Label>
+                            <Input value={notifyData.subject} onChange={e => setNotifyData({...notifyData, subject: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                            <Label>النص</Label>
+                            <Textarea value={notifyData.body} onChange={e => setNotifyData({...notifyData, body: e.target.value})} />
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                            <Button variant="outline" onClick={() => { setEditingNotification(null); setNotifyData({subject:"", body:""}); }}>إلغاء</Button>
+                            <Button onClick={handleUpdateNotification}>حفظ التعديلات</Button>
+                        </div>
+                    </div>
+                ) : (
+                    /* قائمة الإشعارات */
+                    <div className="flex-1 overflow-y-auto space-y-3 py-2 pr-2">
+                        {historyNotifications.length === 0 ? (
+                            <p className="text-center text-muted-foreground py-8">لا توجد إشعارات سابقة.</p>
+                        ) : (
+                            historyNotifications.map(notif => (
+                                <div key={notif.notification_id} className="border rounded-lg p-3 bg-card hover:bg-accent/5 transition-colors">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <h4 className="font-bold text-sm">{notif.subject}</h4>
+                                            <span className="text-[10px] text-muted-foreground">{new Date(notif.send_at).toLocaleString('ar-EG')}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1">
+                                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => {
+                                                setEditingNotification(notif);
+                                                setNotifyData({ subject: notif.subject, body: notif.message_body });
+                                            }}>
+                                                <Pencil className="w-3.5 h-3.5" />
+                                            </Button>
+                                            <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => handleDeleteNotification(notif.notification_id)}>
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{notif.message_body}</p>
+                                    
+                                    {/* إحصائيات المشاهدة (بسيطة حالياً) */}
+                                    <div className="flex items-center gap-2 text-[10px] bg-muted/50 p-1.5 rounded w-fit">
+                                        <Eye className="w-3 h-3 text-blue-500" />
+                                        <span>الحالة: {notif.is_seen ? 'تمت المشاهدة' : 'لم يشاهد بعد'}</span>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
+
       </div>
     );
   }
@@ -462,12 +717,47 @@ export function GradesManager() {
                     ) : filteredStudents.length > 0 ? (
                         filteredStudents.map((student, idx) => (
                             <TableRow key={student.student_id} className="hover:bg-muted/5 group transition-colors">
-                                {/* Fixed Columns */}
-                                <TableCell className="text-center font-medium text-muted-foreground sticky right-0 z-10 bg-white group-hover:bg-muted/5 border-l">{idx + 1}</TableCell>
-                                <TableCell className="font-mono text-xs text-muted-foreground sticky right-[50px] z-10 bg-white group-hover:bg-muted/5 border-l">{student.academic_number}</TableCell>
-                                <TableCell className="font-medium text-foreground sticky right-[170px] z-10 bg-white group-hover:bg-muted/5 border-l shadow-sm">{student.full_name}</TableCell>
                                 
-                                {/* Attendance Cell */}
+                                {/* 1. الرقم التسلسلي */}
+                                <TableCell className="text-center font-medium text-muted-foreground sticky right-0 z-10 bg-white group-hover:bg-muted/5 border-l">
+                                    {idx + 1}
+                                </TableCell>
+                                
+                                {/* 2. رقم القيد */}
+                                <TableCell className="font-mono text-xs text-muted-foreground sticky right-[50px] z-10 bg-white group-hover:bg-muted/5 border-l">
+                                    {student.academic_number}
+                                </TableCell>
+                                
+                                {/* 3. اسم الطالب + أيقونة العذر ✅ (تم التعديل هنا) */}
+                                <TableCell className="sticky right-[170px] z-10 bg-white group-hover:bg-muted/5 border-l shadow-sm p-2">
+                                    <div className="flex justify-between items-center gap-2">
+                                        <span className="font-medium text-foreground truncate max-w-[140px]" title={student.full_name}>
+                                            {student.full_name}
+                                        </span>
+                                        
+                                        {/* زر العذر يظهر فقط إذا وجد عذر */}
+                                        {student.excuse && (
+                                            <Button 
+                                                size="icon" 
+                                                variant="ghost" 
+                                                className={`h-6 w-6 shrink-0 transition-all ${
+                                                    student.excuse.status === 0 ? "text-orange-500 animate-pulse hover:text-orange-600 hover:bg-orange-50" : 
+                                                    student.excuse.status === 1 ? "text-green-600 hover:text-green-700 hover:bg-green-50" : 
+                                                    "text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                }`}
+                                                onClick={() => handleOpenExcuse(student.excuse!)}
+                                                title={
+                                                    student.excuse.status === 0 ? "عذر معلق - انقر للمراجعة" : 
+                                                    student.excuse.status === 1 ? "عذر مقبول" : "عذر مرفوض"
+                                                }
+                                            >
+                                                <FileText className="w-4 h-4" />
+                                            </Button>
+                                        )}
+                                    </div>
+                                </TableCell>
+                                
+                                {/* 4. الحضور */}
                                 <TableCell className="text-center bg-blue-50/30 border-l border-blue-100 group-hover:bg-blue-50/50">
                                     <div className="flex flex-col items-center">
                                         <span className={`font-bold ${student.attendance.percentage < 75 ? 'text-destructive' : 'text-blue-700'}`}>
@@ -478,13 +768,13 @@ export function GradesManager() {
                                         </span>
                                     </div>
                                 </TableCell>
-
-                                {/* Grade Inputs Cells */}
+                
+                                {/* 5. خانات الدرجات (ديناميكية) */}
                                 {columns.map(col => (
                                     <TableCell key={col.assessment_id} className="p-1 border-l">
                                         <Input 
                                             type="number" 
-                                            className="h-9 w-full text-center border-transparent hover:border-input focus:border-primary bg-transparent focus:bg-white transition-all text-base"
+                                            className="h-9 w-full text-center border-transparent hover:border-input focus:border-primary bg-transparent focus:bg-white transition-all text-base font-mono"
                                             placeholder="-"
                                             dir="ltr"
                                             value={student.grades[col.assessment_id] ?? ""}
@@ -515,6 +805,66 @@ export function GradesManager() {
                 <div>إجمالي الجلسات: <span className="font-medium text-foreground">{meta.total_sessions}</span></div>
             </div>
         )}
+
+        <Dialog open={isExcuseDialogOpen} onOpenChange={setIsExcuseDialogOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                    <DialogTitle>مراجعة عذر الطالب</DialogTitle>
+                </DialogHeader>
+                
+                {selectedExcuse && (
+                    <div className="space-y-4 py-2">
+                        <div className="bg-muted/30 p-3 rounded-md border text-sm">
+                            <div className="flex justify-between mb-2">
+                                <span className="font-bold">تاريخ العذر:</span>
+                                <span>{selectedExcuse.date}</span>
+                            </div>
+                            <div className="font-bold mb-1">سبب العذر:</div>
+                            <p className="text-muted-foreground">{selectedExcuse.reason}</p>
+                        </div>
+        
+                        <div className="space-y-2">
+                            <Label>قرار المحاضر</Label>
+                            <div className="flex gap-2">
+                                <Button 
+                                    variant={excuseResponse.status === 1 ? "default" : "outline"} 
+                                    className={excuseResponse.status === 1 ? "bg-green-600 hover:bg-green-700" : ""}
+                                    onClick={() => setExcuseResponse({ ...excuseResponse, status: 1 })}
+                                >
+                                    <CheckCircle2 className="w-4 h-4 mr-2" /> قبول
+                                </Button>
+                                <Button 
+                                    variant={excuseResponse.status === 2 ? "destructive" : "outline"} 
+                                    onClick={() => setExcuseResponse({ ...excuseResponse, status: 2 })}
+                                >
+                                    <XCircle className="w-4 h-4 mr-2" /> رفض
+                                </Button>
+                                <Button 
+                                    variant={excuseResponse.status === 0 ? "secondary" : "outline"} 
+                                    onClick={() => setExcuseResponse({ ...excuseResponse, status: 0 })}
+                                >
+                                    <AlertCircle className="w-4 h-4 mr-2" /> معلق
+                                </Button>
+                            </div>
+                        </div>
+        
+                        <div className="space-y-2">
+                            <Label>ملاحظات (اختياري)</Label>
+                            <Textarea 
+                                placeholder="اكتب سبب الرفض أو القبول..." 
+                                value={excuseResponse.comment}
+                                onChange={(e) => setExcuseResponse({ ...excuseResponse, comment: e.target.value })}
+                            />
+                        </div>
+        
+                        <DialogFooter>
+                            <Button variant="outline" onClick={() => setIsExcuseDialogOpen(false)}>إلغاء</Button>
+                            <Button onClick={handleSubmitExcuseResponse}>حفظ القرار</Button>
+                        </DialogFooter>
+                    </div>
+                )}
+            </DialogContent>
+        </Dialog>
     </div>
   );
 }

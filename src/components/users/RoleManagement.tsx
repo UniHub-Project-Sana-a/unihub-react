@@ -6,8 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Textarea } from "@/components/ui/textarea";
-import { Shield, Settings, Edit, Trash2, Plus, UserPlus, Loader2, Lock } from "lucide-react";
+import { Shield, Settings, Edit, Trash2, Plus, UserPlus, Loader2, Lock, FolderKey, CheckSquare, Search } from "lucide-react";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,6 +14,7 @@ import * as z from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 // --- Types ---
 type ApiUserType = {
@@ -60,7 +60,7 @@ type AssignRoleFormData = z.infer<typeof assignRoleSchema>;
 
 export function RoleManagement() {
   const { toast } = useToast();
-  const { user: me } = useAuth(); // للحصول على صلاحيات المستخدم الحالي
+  const { user: me } = useAuth(); 
 
   // --- States ---
   const [userTypes, setUserTypes] = useState<ApiUserType[]>([]);
@@ -84,6 +84,7 @@ export function RoleManagement() {
   const createRoleForm = useForm<RoleFormData>({ resolver: zodResolver(roleSchema), defaultValues: { name: "", code: "" } });
   const editRoleForm = useForm<RoleFormData>({ resolver: zodResolver(roleSchema), defaultValues: { name: "", code: "" } });
   const assignRoleForm = useForm<AssignRoleFormData>({ resolver: zodResolver(assignRoleSchema), defaultValues: { userId: "", roleId: "", collegeId: "" } });
+  const [permissionSearch, setPermissionSearch] = useState("");
 
   // --- Helpers ---
   const myUserType = useMemo(() => {
@@ -92,28 +93,16 @@ export function RoleManagement() {
     return userTypes.find(t => t.user_type_id === Number(typeId)) || null;
   }, [me, userTypes]);
 
-  // تصفية الأدوار (استثناء الطلاب)
-  const filteredUserTypes = useMemo(() => {
-    return userTypes.filter(t => t.user_type_code !== 'student');
-  }, [userTypes]);
+  const filteredUserTypes = useMemo(() => userTypes.filter(t => t.user_type_code !== 'student'), [userTypes]);
 
-  // تصفية المستخدمين بناءً على الصلاحية (المشرف يرى الكل، العميد يرى كليته فقط)
   const filteredUsers = useMemo(() => {
     if (!me) return [];
     const code = myUserType?.user_type_code || "";
-    
-    if (code === "admin" || code === "presidency") {
-      return users; // يرى الجميع
-    }
-    
-    if (code === "dean") {
-      return users.filter(u => u.college_id === me.college_id); // يرى كليته فقط
-    }
-    
-    return []; // أدوار أخرى لا ترى شيئاً
+    if (code === "admin" || code === "presidency") return users;
+    if (code === "dean") return users.filter(u => u.college_id === me.college_id);
+    return [];
   }, [users, me, myUserType]);
 
-  // تحديد الكلية الافتراضية للعميد
   useEffect(() => {
     if (myUserType?.user_type_code === 'dean' && me?.college_id) {
         setSelectedCollegeId(String(me.college_id));
@@ -144,6 +133,44 @@ export function RoleManagement() {
     }
   };
 
+  // ✅ تجميع الصلاحيات (Grouped Permissions)
+  const groupedPermissions = useMemo(() => {
+    const groups: Record<string, ApiPermission[]> = {};
+    
+    // قاموس لترجمة أسماء المجموعات (اختياري، يمكن استخدام الاسم الإنجليزي)
+    const groupNames: Record<string, string> = {
+        'users': 'المستخدمين', 'roles': 'الأدوار', 'colleges': 'الكليات', 
+        'departments': 'الأقسام', 'programs': 'البرامج', 'levels': 'المستويات', 
+        'semesters': 'الفصول', 'courses': 'المقررات', 'buildings': 'المباني',
+        'classrooms': 'القاعات', 'periods': 'الفترات', 'lecturers': 'المحاضرين',
+        'students': 'الطلاب', 'groups': 'المجموعات', 'timetable': 'الجدول الدراسي',
+        'financial': 'الشؤون المالية', 'financial_cycles': 'الكشوف المالية',
+        'attendance': 'الحضور', 'sessions': 'الجلسات', 'makeup': 'التعويض',
+        'excuses': 'الأعذار', 'grades': 'الدرجات', 'assessments': 'التقييمات',
+        'settings': 'الإعدادات', 'audit_logs': 'السجلات', 'devices': 'الأجهزة',
+        'dashboard': 'لوحة التحكم'
+    };
+
+    permissions
+      .filter(perm => {
+          const q = permissionSearch.toLowerCase();
+          return perm.permission_name.toLowerCase().includes(q) || 
+                 perm.permission_key.toLowerCase().includes(q);
+      })
+      .forEach(perm => {
+        const keyParts = perm.permission_key.split('.');
+        const groupKey = keyParts[0]; 
+        const groupName = groupNames[groupKey] || groupKey.charAt(0).toUpperCase() + groupKey.slice(1);
+        
+        if (!groups[groupName]) {
+            groups[groupName] = [];
+        }
+        groups[groupName].push(perm);
+    });
+
+    return groups;
+  }, [permissions, permissionSearch]);
+
   // --- API Calls ---
   const fetchData = async () => {
     try {
@@ -157,7 +184,6 @@ export function RoleManagement() {
       const typesData = typesRes.data?.data ?? typesRes.data;
       setUserTypes(typesData);
       
-      // تعيين أول دور افتراضي إذا لم يكن محدداً
       if (!selectedRole && typesData.length > 0) {
           const firstValid = typesData.find((t: any) => t.user_type_code !== 'student');
           if (firstValid) setSelectedRole(firstValid);
@@ -176,7 +202,6 @@ export function RoleManagement() {
     fetchData();
   }, []);
 
-  // تحميل الصلاحيات المعينة
   useEffect(() => {
     const loadPermissions = async () => {
         if (!selectedRole || !selectedCollegeId) {
@@ -204,7 +229,7 @@ export function RoleManagement() {
       toast({ title: "تم بنجاح", description: "تم إنشاء الدور الجديد" });
       createRoleForm.reset();
       setIsCreateRoleOpen(false);
-      fetchData(); // Refresh list
+      fetchData(); 
     } catch (error: any) {
       toast({ title: "خطأ", description: error.response?.data?.message || "فشل الإنشاء", variant: "destructive" });
     } finally {
@@ -237,7 +262,7 @@ export function RoleManagement() {
       if (selectedRole?.user_type_id === roleId) setSelectedRole(null);
       fetchData();
     } catch {
-      toast({ title: "خطأ", description: "فشل الحذف (قد يكون الدور مرتبطاً بمستخدمين)", variant: "destructive" });
+      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
     }
   };
 
@@ -350,7 +375,7 @@ export function RoleManagement() {
             </DialogContent>
           </Dialog>
 
-          {/* زر إنشاء دور (للمشرف فقط) */}
+          {/* زر إنشاء دور */}
           {(myUserType?.user_type_code === "admin" || myUserType?.user_type_code === "presidency") && (
             <Dialog open={isCreateRoleOpen} onOpenChange={setIsCreateRoleOpen}>
               <DialogTrigger asChild>
@@ -384,41 +409,35 @@ export function RoleManagement() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         {/* Sidebar: Roles List */}
-        <div className="lg:col-span-4 space-y-4">
-            <Card className="h-full">
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-lg flex items-center gap-2">
-                        <Shield className="w-5 h-5 text-primary" /> قائمة الأدوار
+        <div className="lg:col-span-3 space-y-4">
+            <Card className="h-full border-l-4 border-l-primary/50 shadow-sm">
+                <CardHeader className="pb-3 bg-muted/10">
+                    <CardTitle className="text-base flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-primary" /> قائمة الأدوار
                     </CardTitle>
-                    <CardDescription>اختر دوراً لعرض وتعديل صلاحياته</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-2 max-h-[600px] overflow-y-auto pr-2">
+                <CardContent className="space-y-2 p-3 max-h-[600px] overflow-y-auto">
                     {filteredUserTypes.map(role => (
                         <div 
                             key={role.user_type_id}
                             onClick={() => setSelectedRole(role)}
-                            className={`p-3 rounded-lg border cursor-pointer transition-all flex items-center justify-between group ${
+                            className={`p-2.5 rounded-md border cursor-pointer transition-all flex items-center justify-between group text-sm ${
                                 selectedRole?.user_type_id === role.user_type_id 
-                                ? 'bg-primary/10 border-primary shadow-sm' 
-                                : 'hover:bg-muted hover:border-primary/30'
+                                ? 'bg-primary text-primary-foreground border-primary shadow-md' 
+                                : 'hover:bg-muted hover:border-primary/30 bg-card'
                             }`}
                         >
-                            <div className="flex items-center gap-3">
-                                <Badge variant="outline" className={getRoleColor(role.user_type_code)}>
-                                    {role.user_type_code}
-                                </Badge>
-                                <span className="font-medium text-sm">
-                                    {displayRoleName(role.user_type_code, role.user_type_name)}
-                                </span>
-                            </div>
+                            <span className="font-medium truncate">
+                                {displayRoleName(role.user_type_code, role.user_type_name)}
+                            </span>
                             
                             {/* أزرار التعديل والحذف (للمشرف فقط) */}
                             {(myUserType?.user_type_code === 'admin' || myUserType?.user_type_code === 'presidency') && (
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); setEditingRole(role); editRoleForm.reset({name: role.user_type_name, code: role.user_type_code}); setIsEditRoleOpen(true); }}>
-                                        <Edit className="w-3 h-3 text-muted-foreground" />
+                                    <Button variant="ghost" size="icon" className={`h-6 w-6 ${selectedRole?.user_type_id === role.user_type_id ? 'text-white hover:text-white/80 hover:bg-white/20' : 'text-muted-foreground'}`} onClick={(e) => { e.stopPropagation(); setEditingRole(role); editRoleForm.reset({name: role.user_type_name, code: role.user_type_code}); setIsEditRoleOpen(true); }}>
+                                        <Edit className="w-3 h-3" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:text-red-700" onClick={(e) => { e.stopPropagation(); handleDeleteRole(role.user_type_id); }}>
+                                    <Button variant="ghost" size="icon" className={`h-6 w-6 ${selectedRole?.user_type_id === role.user_type_id ? 'text-white hover:text-white/80 hover:bg-white/20' : 'text-destructive hover:bg-destructive/10'}`} onClick={(e) => { e.stopPropagation(); handleDeleteRole(role.user_type_id); }}>
                                         <Trash2 className="w-3 h-3" />
                                     </Button>
                                 </div>
@@ -430,90 +449,127 @@ export function RoleManagement() {
         </div>
 
         {/* Main Content: Permissions Matrix */}
-        <div className="lg:col-span-8">
-            <Card className="h-full border-t-4 border-t-primary/60">
-                <CardHeader className="pb-4 border-b bg-muted/10">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <div>
-                            <CardTitle className="flex items-center gap-2">
-                                <Settings className="w-5 h-5 text-primary" />
-                                صلاحيات الدور: <span className="text-primary font-bold underline decoration-dotted underline-offset-4">{selectedRole ? displayRoleName(selectedRole.user_type_code, selectedRole.user_type_name) : "—"}</span>
-                            </CardTitle>
-                            <CardDescription className="mt-1">
-                                {selectedRole ? "حدد الصلاحيات المسموحة لهذا الدور داخل الكلية المحددة." : "الرجاء اختيار دور من القائمة الجانبية."}
-                            </CardDescription>
-                        </div>
-
-                        {/* College Selector (Context) */}
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                            {(myUserType?.user_type_code === 'admin' || myUserType?.user_type_code === 'presidency') ? (
-                                <Select value={selectedCollegeId} onValueChange={setSelectedCollegeId}>
-                                    <SelectTrigger className="w-[200px] bg-background">
-                                        <SelectValue placeholder="اختر الكلية للسياق" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {colleges.map(c => <SelectItem key={c.college_id} value={String(c.college_id)}>{c.college_name}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            ) : (
-                                // للعميد: عرض اسم الكلية فقط (ثابت)
-                                <Badge variant="secondary" className="text-sm px-3 py-1">
-                                    {colleges.find(c => String(c.college_id) === selectedCollegeId)?.college_name || "كليتك"}
-                                </Badge>
-                            )}
-                            
-                            <Button onClick={savePermissions} disabled={!selectedRole || !selectedCollegeId} className="shadow-sm">
-                                حفظ التغييرات
-                            </Button>
-                        </div>
-                    </div>
+        <div className="lg:col-span-9">
+            <Card className="h-full border shadow-sm">
+                <CardHeader className="pb-4 border-b bg-muted/5">
+                  <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                      
+                      {/* العنوان والوصف */}
+                      <div className="min-w-[200px]">
+                          <CardTitle className="flex items-center gap-2 text-lg">
+                              <Settings className="w-5 h-5 text-primary" />
+                              مصفوفة الصلاحيات
+                          </CardTitle>
+                          <CardDescription className="mt-1 flex items-center gap-2">
+                              الدور الحالي: 
+                              <Badge variant="outline" className="text-primary border-primary/30">
+                                  {selectedRole ? displayRoleName(selectedRole.user_type_code, selectedRole.user_type_name) : "—"}
+                              </Badge>
+                          </CardDescription>
+                      </div>
+                      {/* ✅ خانة البحث الجديدة (في الوسط) */}
+                      <div className="relative w-full xl:w-96 order-last xl:order-none">
+                          <Search className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <Input 
+                              placeholder="بحث سريع في الصلاحيات..." 
+                              value={permissionSearch}
+                              onChange={(e) => setPermissionSearch(e.target.value)}
+                              className="pr-9 bg-background focus-visible:ring-primary/20 transition-all"
+                          />
+                      </div>
+                      {/* College Selector & Save */}
+                      <div className="flex items-center gap-3 w-full sm:w-auto bg-card p-1.5 rounded-lg border shadow-sm shrink-0">
+                          {(myUserType?.user_type_code === 'admin' || myUserType?.user_type_code === 'presidency') ? (
+                              <Select value={selectedCollegeId} onValueChange={setSelectedCollegeId}>
+                                  <SelectTrigger className="w-full sm:w-[180px] h-9 border-none focus:ring-0 shadow-none bg-transparent">
+                                      <div className="flex items-center gap-2 text-muted-foreground">
+                                          <FolderKey className="w-4 h-4" />
+                                          <SelectValue placeholder="اختر الكلية..." />
+                                      </div>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                      {colleges.map(c => <SelectItem key={c.college_id} value={String(c.college_id)}>{c.college_name}</SelectItem>)}
+                                  </SelectContent>
+                              </Select>
+                          ) : (
+                              <div className="flex items-center gap-2 px-3 text-sm font-medium text-muted-foreground">
+                                  <FolderKey className="w-4 h-4" />
+                                  {colleges.find(c => String(c.college_id) === selectedCollegeId)?.college_name || "كليتك"}
+                              </div>
+                          )}
+                          
+                          <div className="h-6 w-px bg-border mx-1"></div>
+                          <Button size="sm" onClick={savePermissions} disabled={!selectedRole || !selectedCollegeId}>
+                              حفظ التغييرات
+                          </Button>
+                      </div>
+                  </div>
                 </CardHeader>
 
-                <CardContent className="p-6">
+                <CardContent className="p-6 bg-slate-50/30 min-h-[500px]">
                     {!selectedRole ? (
                         <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                             <Shield className="w-16 h-16 opacity-10 mb-4" />
-                            <p>اختر دوراً من القائمة للبدء.</p>
+                            <p>اختر دوراً من القائمة الجانبية للبدء.</p>
                         </div>
                     ) : !selectedCollegeId ? (
                         <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                             <Lock className="w-16 h-16 opacity-10 mb-4" />
-                            <p>يجب تحديد الكلية أولاً لعرض الصلاحيات الخاصة بها.</p>
+                            <p>يجب تحديد الكلية أولاً (سياق الصلاحية) لعرض الخيارات.</p>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                            {permissions.map((perm) => {
-                                const isChecked = assignedPermIds.includes(perm.permission_id);
-                                return (
-                                    <div 
-                                        key={perm.permission_id} 
-                                        className={`flex items-start gap-3 p-3 rounded-lg border transition-all ${isChecked ? 'bg-primary/5 border-primary/40' : 'hover:bg-muted/50'}`}
-                                    >
-                                        <Checkbox 
-                                            id={`perm-${perm.permission_id}`} 
-                                            checked={isChecked}
-                                            onCheckedChange={(checked) => {
-                                                const next = new Set(assignedPermIds);
-                                                if(checked) next.add(perm.permission_id);
-                                                else next.delete(perm.permission_id);
-                                                setAssignedPermIds(Array.from(next));
-                                            }}
-                                            className="mt-1"
-                                        />
-                                        <div className="grid gap-1.5 leading-none">
-                                            <label 
-                                                htmlFor={`perm-${perm.permission_id}`}
-                                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                                            >
-                                                {perm.permission_name}
-                                            </label>
-                                            <p className="text-[11px] text-muted-foreground">
-                                                {perm.description || perm.permission_key}
-                                            </p>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                        // ✅ العرض المحسن (Accordion Groups)
+                        <div className="space-y-4">
+                            {Object.entries(groupedPermissions).map(([groupName, groupPerms], idx) => (
+                                <Accordion type="single" collapsible defaultValue={`item-${idx}`} key={groupName} className="bg-white border rounded-lg shadow-sm">
+                                    <AccordionItem value={`item-${idx}`} className="border-0">
+                                        <AccordionTrigger className="px-4 hover:no-underline hover:bg-muted/20 rounded-t-lg py-3">
+                                            <div className="flex items-center gap-2">
+                                                <FolderKey className="w-4 h-4 text-primary/70" />
+                                                <span className="font-bold text-sm text-foreground">{groupName}</span>
+                                                <Badge variant="secondary" className="text-[10px] h-5 px-1.5 ml-2">
+                                                    {groupPerms.filter(p => assignedPermIds.includes(p.permission_id)).length} / {groupPerms.length}
+                                                </Badge>
+                                            </div>
+                                        </AccordionTrigger>
+                                        <AccordionContent className="px-4 pb-4 pt-2 border-t">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                                {groupPerms.map((perm) => {
+                                                    const isChecked = assignedPermIds.includes(perm.permission_id);
+                                                    return (
+                                                        <div 
+                                                            key={perm.permission_id} 
+                                                            className={`flex items-start gap-3 p-2.5 rounded-md border cursor-pointer transition-all group ${
+                                                                isChecked 
+                                                                ? 'bg-primary/5 border-primary/30 shadow-sm' 
+                                                                : 'bg-gray-50/50 border-transparent hover:bg-white hover:border-gray-200'
+                                                            }`}
+                                                            onClick={() => {
+                                                                const next = new Set(assignedPermIds);
+                                                                if(!isChecked) next.add(perm.permission_id);
+                                                                else next.delete(perm.permission_id);
+                                                                setAssignedPermIds(Array.from(next));
+                                                            }}
+                                                        >
+                                                            <div className={`mt-0.5 w-4 h-4 rounded border flex items-center justify-center transition-colors ${isChecked ? 'bg-primary border-primary' : 'border-muted-foreground/40 group-hover:border-primary/50'}`}>
+                                                                {isChecked && <CheckSquare className="w-3 h-3 text-white" />}
+                                                            </div>
+                                                            <div className="grid gap-0.5 leading-none select-none">
+                                                                <span className={`text-sm font-medium ${isChecked ? 'text-primary' : 'text-foreground/80'}`}>
+                                                                    {perm.permission_name}
+                                                                </span>
+                                                                <span className="text-[10px] text-muted-foreground/70 font-mono">
+                                                                    {perm.permission_key}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </AccordionContent>
+                                    </AccordionItem>
+                                </Accordion>
+                            ))}
                         </div>
                     )}
                 </CardContent>

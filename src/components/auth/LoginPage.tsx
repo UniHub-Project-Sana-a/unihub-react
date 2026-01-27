@@ -340,18 +340,6 @@ export default function LoginPage() {
                   </Button>
                 </div>
               </CardContent>
-
-              <CardFooter className="border-t pt-4 pb-4 bg-muted/30 flex justify-center">
-                <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="text-muted-foreground hover:text-primary gap-2 text-xs"
-                    onClick={() => navigate('/install-cert')}
-                >
-                    <ShieldCheck className="w-4 h-4" />
-                    هل تواجه مشكلة في الاتصال الآمن؟ ثبت الشهادة
-                </Button>
-              </CardFooter>
             </>
           )}
         </Card>

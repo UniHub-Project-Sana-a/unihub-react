@@ -25,8 +25,9 @@ api.interceptors.response.use(
   (error) => {
     if (error.response && error.response.status === 401 && !error.config.url.endsWith('/auth/login')) {
       setAuthToken(undefined);
-      const next = window.location.pathname + window.location.search;
-      window.location.href = `/login?next=${encodeURIComponent(next)}`;
+      // const next = window.location.pathname + window.location.search;
+      // window.location.href = `/login?next=${encodeURIComponent(next)}`;
+      window.location.hash = '#/login';
     }
     return Promise.reject(error);
   }

@@ -15,7 +15,8 @@ import { cn } from "@/lib/utils";
 import { addDays, format, getDay, subDays, startOfWeek, endOfWeek, eachDayOfInterval, isToday  } from "date-fns";
 import { ar } from 'date-fns/locale';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Checkbox } from "@/components/ui/checkbox"
+import { Checkbox } from "@/components/ui/checkbox";
+import { usePermission } from "@/hooks/usePermission";
 
 // --- Types ---
 type ImportLog = { id: number; created_at: string; source: string; items: number; status: string; notes?: string; };
@@ -43,6 +44,7 @@ interface TimetableModuleProps {
 
 export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   // ========================= الإعدادات العامة =========================
+  const { can } = usePermission();
   
   // --- ✅ حالات ودوال خاصة بمودال عرض الجلسات المتعددة ---
   const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
@@ -82,6 +84,10 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "conflict">("idle");
   const [viewDate, setViewDate] = useState(new Date());
   
+  // قائمة قاعات مخصصة لمودال التعويض (تحتوي على خاصية is_busy)
+  const [makeupClassrooms, setMakeupClassrooms] = useState<any[]>([]);
+  const [isLoadingMakeupRooms, setIsLoadingMakeupRooms] = useState(false);
+  
   // ربط axios instance المركزي
   const apiJson = async (path: string, init?: RequestInit) => {
     const method = (init?.method || "GET").toUpperCase();
@@ -108,7 +114,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [editingSession, setEditingSession] = useState<any>(null);
 
   // --- ✅ دالة جلب تفاصيل الجلسة وفتح المودال ---
-    const handleSessionClick = async (sessionId: number) => {
+  const handleSessionClick = async (sessionId: number) => {
     try {
       setIsEditLoading(true);
       setIsEditModalOpen(true);
@@ -304,6 +310,42 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
 
   }, [isExternalLecturer, externalCollegeId, collegeIdNum]); // <-- يعتمد على هذه القيم
 
+    //  مراقب لتحديث قاعات التعويض عند تغيير الوقت
+  useEffect(() => {
+    const fetchMakeupRooms = async () => {
+        // إذا لم يكن الوضع تعويض، أو البيانات ناقصة، لا تفعل شيئاً مكلفاً
+        if (!isMakeupSession || !sessionDate || !makeupStartTime || !makeupEndTime) {
+            // كحالة افتراضية، نضع القاعات العادية (كلها متاحة)
+            setMakeupClassrooms(classrooms.map(c => ({ ...c, is_busy: false })));
+            return;
+        }
+
+        setIsLoadingMakeupRooms(true);
+        try {
+            const res = await api.get('/v1/classrooms/availability', {
+                params: {
+                    college_id: collegeIdNum,
+                    date: sessionDate,
+                    start_time: makeupStartTime,
+                    end_time: makeupEndTime
+                }
+            });
+            setMakeupClassrooms(res.data.data || []);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setIsLoadingMakeupRooms(false);
+        }
+    };
+
+    // Debounce خفيف
+    const timer = setTimeout(() => {
+        fetchMakeupRooms();
+    }, 300);
+    return () => clearTimeout(timer);
+
+  }, [isMakeupSession, sessionDate, makeupStartTime, makeupEndTime, collegeIdNum, classrooms]);
+
   // ============================ الإدخال اليدوي (timetable) ============================
   interface ManualForm {
     course_id: number | "";
@@ -450,26 +492,30 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   };
 
   // ✅ --- الدالة الجديدة لجلب البيانات --- ✅
-  const fetchSchedulableLectures = async () => {
-      try {
-          const res = await api.get('/v1/schedulable-lectures');
-          const lectures = res.data?.data || [];
-          setSchedulableLectures(lectures);
-          return lectures; // إرجاع البيانات للاستخدام الفوري
-      } catch (error: any) {
-          console.error("Failed to fetch schedulable lectures:", error.response?.data || error);
-          toast({
-              title: "خطأ في جلب البيانات",
-              description: "فشل جلب المحاضرات القابلة للجدولة.",
-              variant: "destructive",
-          });
-          setSchedulableLectures([]); // أفرغ القائمة عند حدوث خطأ
-          return [];
-      }
-  };
+const fetchSchedulableLectures = async () => {
+  try {
+      // التعديل هنا: إرسال collegeId كـ parameter
+      const res = await api.get('/v1/schedulable-lectures', { 
+          params: { college_id: collegeId } 
+      });
+      
+      const lectures = res.data?.data || [];
+      setSchedulableLectures(lectures);
+      return lectures;
+  } catch (error: any) {
+      console.error("Failed to fetch schedulable lectures:", error.response?.data || error);
+      toast({
+          title: "خطأ في جلب البيانات",
+          description: "فشل جلب المحاضرات القابلة للجدولة.",
+          variant: "destructive",
+      });
+      setSchedulableLectures([]); 
+      return [];
+  }
+};
   
   // ✅ --- تعديل دالة فتح النموذج --- ✅
-  const openCreateSessionModal = async () => {
+const openCreateSessionModal = async () => {
     // الآن، هذه الدالة مسؤولة فقط عن جلب البيانات وفتح النموذج
     await fetchSchedulableLectures();
     setIsMakeupSession(false);
@@ -881,12 +927,65 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     // إذا لم يتم العثور على أي تطابق، أرجع الاسم الأصلي
     return name;
   };
-  // console.log("Lectures available for scheduling:", schedulableLectures);
+
+  // ============================ إدارة طلبات التعويض (جاهزة للجدولة) ============================
+  const [readyMakeupRequests, setReadyMakeupRequests] = useState<any[]>([]);
+  const [isLoadingMakeupList, setIsLoadingMakeupList] = useState(false);
+  const [processingMakeupId, setProcessingMakeupId] = useState<number | null>(null);
+
+  // جلب الطلبات
+  const fetchReadyMakeupRequests = async () => {
+    setIsLoadingMakeupList(true);
+    try {
+      // status_group=ready تعيد الطلبات بحالة 3
+      const res = await api.get(`/v1/colleges/${collegeIdNum}/makeup-requests`, {
+        params: { status_group: 'ready' }
+      });
+      setReadyMakeupRequests(res.data.data || []);
+    } catch (error) {
+      console.error("Failed to fetch makeup requests", error);
+    } finally {
+      setIsLoadingMakeupList(false);
+    }
+  };
+
+  // تحميل القائمة عند فتح الصفحة
+  useEffect(() => {
+    if (collegeIdNum) fetchReadyMakeupRequests();
+  }, [collegeIdNum]);
+
+  // دالة تحديث الحالة إلى "مجدولة" (4)
+  const markAsScheduled = async (requestId: number) => {
+    // تأكيد بسيط
+    if (!confirm("هل قمت بإضافة المحاضرة للجدول يدوياً وتود إغلاق هذا الطلب؟")) return;
+
+    setProcessingMakeupId(requestId);
+    try {
+        // نستخدم نفس راوت المراجعة، ونرسل الحالة 4
+        await api.put(`/v1/makeup-lectures/${requestId}/review`, {
+            status: 4, 
+            notes: "تمت الجدولة يدوياً بواسطة مسؤول الجدول"
+        });
+
+        toast({ 
+            title: "تم التحديث", 
+            description: "تم نقل الطلب إلى الأرشيف (مجدولة) بنجاح.",
+            className: "bg-green-600 text-white"
+        });
+        
+        // تحديث القائمة محلياً (حذف العنصر المعالج)
+        setReadyMakeupRequests(prev => prev.filter(req => req.request_id !== requestId));
+        
+    } catch (error) {
+        toast({ title: "خطأ", description: "فشل تحديث حالة الطلب.", variant: "destructive" });
+    } finally {
+        setProcessingMakeupId(null);
+    }
+  };
    return (
     <div className="space-y-6" >
       <Tabs defaultValue="import" className="w-full" dir="rtl">
          {/* ✅ --- قسم الشرح والإرشادات --- ✅ */}
-        {/* ✅ --- أيقونة ومودال الشرح (جديد) --- ✅ */}
         <div className="flex justify-end mb-2">
           {/* الزر الذي يحتوي على الأيقونة */}
           <Button variant="ghost" size="icon" onClick={() => setIsInfoModalOpen(true)}>
@@ -960,35 +1059,123 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
         {/* === IMPORT TAB ======== */}
         {/* ======================= */}
         <TabsContent value="import" className="space-y-6">
-          {/* === Source Selector (المُعدّل) === */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            {/* البطاقة الأولى: الإدخال اليدوي للجدول */}
-            <Card
-              className={`cursor-pointer transition-all duration-300 hover:scale-105 backdrop-blur-sm ${
-                importSource === "manual" ? "border-primary shadow-lg shadow-primary/20" : "border-border/50"
-              }`}
-              onClick={() => setImportSource("manual")}
-            >
-              <CardContent className="pt-6 text-center">
-                <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <h3 className="font-bold text-lg mb-2">إضافة للجدول الرئيسي</h3>
-                <p className="text-sm text-muted-foreground">إضافة محاضرة جديدة إلى قالب الجدول الدراسي.</p>
-              </CardContent>
+
+          {/* 1. قائمة طلبات التعويض بانتظار الجدولة (تظهر فقط إذا وجدت طلبات) */}
+          {readyMakeupRequests.length > 0 && (
+            <Card className="border-amber-200 bg-amber-50/40 shadow-sm animate-in fade-in slide-in-from-top-4">
+                <CardHeader className="pb-3 border-b border-amber-100">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2 text-amber-900">
+                            <AlertCircle className="w-5 h-5 text-amber-600" />
+                            <CardTitle className="text-lg">طلبات تعويض معتمدة (بانتظار الجدولة)</CardTitle>
+                        </div>
+                        <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">
+                            {readyMakeupRequests.length} طلبات
+                        </Badge>
+                    </div>
+                    <CardDescription>
+                        يرجى إضافة هذه المحاضرات للجدول يدوياً أدناه، ثم الضغط على زر "تمت الجدولة" لإغلاق الطلب.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <Table>
+                        <TableHeader>
+                            <TableRow className="bg-amber-100/30 hover:bg-amber-100/30">
+                                <TableHead className="text-right font-bold text-amber-900">المحاضر</TableHead>
+                                <TableHead className="text-right font-bold text-amber-900">المادة / المجموعة</TableHead>
+                                <TableHead className="text-right font-bold text-amber-900">الموعد المقترح</TableHead>
+                                <TableHead className="text-right font-bold text-amber-900">القاعة</TableHead>
+                                <TableHead className="text-left font-bold text-amber-900 px-4">الإجراء</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {readyMakeupRequests.map((req) => (
+                                <TableRow key={req.request_id} className="hover:bg-amber-100/20">
+                                    <TableCell className="font-medium">{req.lecturer_name}</TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col text-xs">
+                                            <span className="font-bold">{req.course_name}</span>
+                                            <span className="text-muted-foreground">{req.group_name}</span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex flex-col gap-1 text-xs">
+                                            <div className="flex items-center gap-1 font-bold text-amber-800">
+                                                {/* ✅ التعديل هنا: قمنا بإضافة split('T')[0] لأخذ التاريخ فقط */}
+                                                <span className="font-mono">
+                                                    {req.requested_date ? req.requested_date.split('T')[0] : '-'}
+                                                </span>
+                                            </div>
+                                            <span className="font-mono text-muted-foreground dir-ltr text-right">
+                                                {req.start_time?.slice(0,5)} - {req.end_time?.slice(0,5)}
+                                            </span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <Badge variant="outline" className="bg-white">
+                                            {req.classroom_name || "غير محدد"}
+                                        </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-left px-4">
+                                      {can('requests.schedule_makeup') && (
+                                        <Button 
+                                            size="sm" 
+                                            className="h-8 bg-green-600 hover:bg-green-700 text-white gap-2 shadow-sm"
+                                            onClick={() => markAsScheduled(req.request_id)}
+                                            disabled={processingMakeupId === req.request_id}
+                                        >
+                                            {processingMakeupId === req.request_id ? (
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                            ) : (
+                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                            )}
+                                            تمت الجدولة
+                                        </Button>
+                                      )}
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </CardContent>
             </Card>
-  
-            {/* ✅ البطاقة الثانية: إنشاء جلسة فعلية */}
-            <Card
-              className="cursor-pointer transition-all duration-300 hover:scale-105 backdrop-blur-sm border-border/50 hover:border-primary"
-              onClick={openCreateSessionModal}
-            >
-              <CardContent className="pt-6 text-center">
-                <PlusCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                <h3 className="font-bold text-lg mb-2">إنشاء جلسة محاضرة</h3>
-                <p className="text-sm text-muted-foreground">توليد جلسة فعلية لمحاضرة في تاريخ محدد.</p>
-              </CardContent>
-            </Card>
-  
+          )}
+
+          {/* === Source Selector */}
+          <div className="flex flex-col md:flex-row gap-4">
+                      
+            {/* البطاقة الأولى */}
+            {can('timetable.create_table') && (
+              <Card
+                // نضيف flex-1 لتأخذ البطاقة المساحة المتاحة بالتساوي
+                className={`flex-1 cursor-pointer transition-all duration-300 hover:scale-105 backdrop-blur-sm ${
+                  importSource === "manual" ? "border-primary shadow-lg shadow-primary/20" : "border-border/50"
+                }`}
+                onClick={() => setImportSource("manual")}
+              >
+                <CardContent className="pt-6 text-center">
+                  <FileText className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                  <h3 className="font-bold text-lg mb-2">إضافة للجدول الرئيسي</h3>
+                  <p className="text-sm text-muted-foreground">إضافة محاضرة جديدة إلى قالب الجدول الدراسي.</p>
+                </CardContent>
+              </Card>
+            )}
+          
+            {/* البطاقة الثانية */}
+            {can('timetable.create_lecture') && (
+              <Card
+                // نضيف flex-1 هنا أيضاً
+                className="flex-1 cursor-pointer transition-all duration-300 hover:scale-105 backdrop-blur-sm border-border/50 hover:border-primary"
+                onClick={openCreateSessionModal}
+              >
+                <CardContent className="pt-6 text-center">
+                  <PlusCircle className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                  <h3 className="font-bold text-lg mb-2">إنشاء جلسة محاضرة</h3>
+                  <p className="text-sm text-muted-foreground">توليد جلسة فعلية لمحاضرة في تاريخ محدد.</p>
+                </CardContent>
+              </Card>
+            )}
+          
           </div>
 
           {/* ======================================================== */}
@@ -1274,7 +1461,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
 
           {/* Success Banner, Conflicts Panel, and Import Log can be added here */}
   
-          </TabsContent>
+        </TabsContent>
   
           {/* ======================================= */}
           {/* === VIEW TAB (FINAL WITH MODAL) === */}
@@ -1383,17 +1570,35 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                                         }
                                     }
             
+                                    const canEdit = can('timetable.view_lectures');
                                     return (
                                       <Card 
-                                          onClick={() => handleSessionClick(session.id)}
-                                          className={cn("h-full border shadow-sm hover:shadow-md transition-shadow cursor-pointer group", cardClass)}
+                                          // التحكم في النقر: ينفذ فقط إذا كان لديه صلاحية التعديل
+                                          onClick={() => {
+                                              if (canEdit) {
+                                                  handleSessionClick(session.id);
+                                              }
+                                          }}
+                                          
+                                          // التحكم في الـ CSS:
+                                          // إذا كان يملك التعديل: مؤشر يد (pointer) وتأثير ظل.
+                                          // إذا كان عرض فقط: مؤشر عادي (default).
+                                          className={cn(
+                                              "h-full border shadow-sm transition-shadow group",
+                                              canEdit ? "cursor-pointer hover:shadow-md" : "cursor-default",
+                                              cardClass
+                                          )}
                                       >
                                           <CardContent className="p-2 text-right text-xs flex flex-col justify-between h-full">
                                               <div>
                                                   <div className="flex justify-between items-start flex-wrap gap-1">
-                                                      <span className="font-bold text-primary group-hover:underline">{session.code || 'N/A'}</span>
+                                                      {/* جعل تأثير الخط السفلي (underline) مرتبطاً بإمكانية التعديل */}
+                                                      <span className={`font-bold text-primary ${canEdit ? "group-hover:underline" : ""}`}>
+                                                          {session.code || 'N/A'}
+                                                      </span>
+                                                      
                                                       <div className="flex gap-1 flex-wrap justify-end">
-                                                        {/* ✅ شارة "تعويضية" تظهر فقط إذا كانت تعويضية */}
+                                                        {/* ✅ شارة "تعويضية" */}
                                                         {isMakeup && (
                                                             <Badge className="bg-amber-500 hover:bg-amber-600 border-0 text-[10px] px-1 h-5">تعويضية</Badge>
                                                         )}
@@ -1460,8 +1665,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
           </TabsContent>
         </Tabs>
 
-        {/* ✅ --- المودال الجديد لعرض الجلسات المتعددة --- ✅ */}
-        {/* ✅ --- مودال عرض الجلسات المتعددة (مع بحث وتلوين) --- ✅ */}
+        {/* ✅ --- المودال الجديد لعرض الجلسات المتعددة ---  */}
         <Dialog 
           open={isSlotModalOpen} 
           onOpenChange={(isOpen) => {
@@ -1589,10 +1793,8 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                     setAvailableSessionDates(availableDates);
         
                     // ✅ المنطق الذكي:
-                    // إذا كانت المحاضرة لا تملك تواريخ متاحة (مكتملة)، قم بتفعيل وضع التعويض تلقائياً
                     if (availableDates.length === 0) {
                         setIsMakeupSession(true);
-                        // تعبئة بيانات الوقت والقاعة تلقائياً للمساعدة
                         if (selected) {
                             setMakeupStartTime(selected.start_time || "");
                             setMakeupEndTime(selected.end_time || "");
@@ -1603,41 +1805,100 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
                             duration: 3000,
                         });
                     } else {
-                        // إذا كان بها تواريخ، اترك الخيار للمستخدم
                         setIsMakeupSession(false);
                     }
                   }}
                   value={selectedLectureForSession ? String(selectedLectureForSession.timetable_id) : ""}
                 >
-                  <SelectTrigger id="lecture-select">
+                  <SelectTrigger id="lecture-select" className="h-auto py-2">
                     <SelectValue placeholder="اختر محاضرة لجدولتها..." />
                   </SelectTrigger>
-                  <SelectContent>
-                    {/* <SelectItem value="" disabled>
-                      اختر محاضرة لجدولتها...
-                    </SelectItem> */}
+                  
+                  <SelectContent className="max-h-[300px]">
                     {schedulableLectures.length > 0 ? (
-                        schedulableLectures.map((lec) => {
-                            const count = lec.available_dates?.length || 0;
-                            return (
-                                <SelectItem 
-                                    key={lec.timetable_id} 
-                                    value={String(lec.timetable_id)}
-                                    className={cn(count === 0 && "text-muted-foreground")} // تمييز لوني للمنتهي
-                                >
-                                  <span>{lec.course?.course_name} - ({lec.group?.group_name})</span>
-                                  <span className="mx-2">-</span>
-                                  {count > 0 ? (
-                                      <Badge variant="secondary" className="text-xs h-5">{count} متاحة</Badge>
-                                  ) : (
-                                      <Badge variant="outline" className="text-xs h-5">مكتملة (للتعويض)</Badge>
+                      schedulableLectures.map((lec) => {
+                          const count = lec.available_dates?.length || 0;
+                          const isCompleted = count === 0;
+                          // 1. استخراج اسم المادة والمجموعة
+                          const courseName = lec.course_name || lec.course?.course_name || "مادة غير محددة";
+                          const groupName = lec.group_name || lec.group?.group_name || "مجموعة ؟";
+                          // 2. إصلاح اسم المحاضر (يبحث في عدة مسارات محتملة)
+                          const lecturerName = 
+                              lec.lecturer_name || 
+                              lec.lecturer?.user?.full_name || // المسار الأكثر شيوعاً في لارافيل
+                              lec.lecturer?.full_name || 
+                              lec.lecturer?.name || 
+                              "محاضر غير محدد";
+                          // 3. إصلاح اسم القاعة
+                          const classroomName = 
+                              lec.classroom_name || 
+                              lec.classroom?.classroom_name || 
+                              lec.classroom?.name || 
+                              "قاعة غير محددة";
+                          // 4. إصلاح اسم اليوم
+                          const dayName = 
+                              lec.day_name || 
+                              lec.day?.day_name || 
+                              lec.day?.name_ar || // أحياناً يكون الاسم العربي
+                              lec.day?.name || 
+                              "";
+                          // 5. إصلاح التوقيت (المشكلة الأكبر: غالباً الوقت داخل period)
+                          // نحاول جلبه من الجذر، وإذا لم نجد نبحث داخل period
+                          const rawStart = lec.start_time || lec.period?.start_time;
+                          const rawEnd = lec.end_time || lec.period?.end_time;
+                          
+                          const timeRange = (rawStart && rawEnd) 
+                              ? `${String(rawStart).slice(0, 5)} - ${String(rawEnd).slice(0, 5)}` 
+                              : "وقت غير محدد";
+                          return (
+                              <SelectItem 
+                                  key={lec.timetable_id} 
+                                  value={String(lec.timetable_id)}
+                                  className={cn(
+                                      "border-b last:border-0 py-3 cursor-pointer focus:bg-accent", 
+                                      isCompleted && "opacity-80 bg-muted/20"
                                   )}
-                                </SelectItem>
-                            );
-                        })
+                              >
+                                <div className="flex flex-col gap-1.5 w-full text-right">
+                                  {/* السطر الأول: اسم المادة والمجموعة والحالة */}
+                                  <div className="flex justify-between items-center w-full gap-4">
+                                      <div className="font-bold text-sm truncate max-w-[200px]" title={courseName}>
+                                          {courseName} <span className="text-muted-foreground font-normal">({groupName})</span>
+                                      </div>
+                                      {count > 0 ? (
+                                          <Badge variant="secondary" className="text-[10px] h-5 px-1.5 whitespace-nowrap bg-green-100 text-green-700 hover:bg-green-100">
+                                              {count} متاحة
+                                          </Badge>
+                                      ) : (
+                                          <Badge variant="outline" className="text-[10px] h-5 px-1.5 whitespace-nowrap text-muted-foreground">
+                                              للتعويض
+                                          </Badge>
+                                      )}
+                                  </div>
+                                  {/* السطر الثاني: اسم المحاضر */}
+                                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                      <User className="w-3 h-3" />
+                                      <span className="truncate">{lecturerName}</span>
+                                  </div>
+                                  {/* السطر الثالث: التفاصيل الزمنية والمكانية */}
+                                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                                      <div className="flex items-center gap-1 bg-slate-50 px-1.5 py-0.5 rounded border">
+                                          <Clock className="w-3 h-3" />
+                                          <span>{dayName} | <span dir="ltr">{timeRange}</span></span>
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                          <MapPin className="w-3 h-3" />
+                                          <span>{classroomName}</span>
+                                      </div>
+                                  </div>
+                                </div>
+                              </SelectItem>
+                          );
+                      })
                     ) : (
-                        <div className="p-4 text-center text-sm text-muted-foreground">
-                            لا توجد محاضرات في الجدول الدراسي.
+                        <div className="p-8 text-center text-sm text-muted-foreground flex flex-col items-center gap-2">
+                            <Info className="w-8 h-8 opacity-50" />
+                            <p>لا توجد محاضرات مضافة في الجدول الدراسي.</p>
                         </div>
                     )}
                   </SelectContent>
@@ -1741,53 +2002,92 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
         
                         {/* ✅ حقول إضافية تظهر فقط عند تفعيل التعويض */}
                         {isMakeupSession && (
-                            <div className="grid grid-cols-2 gap-3 p-3 bg-muted/20 rounded-lg border animate-in slide-in-from-top-2">
-                                
-                                {/* الفترة الزمنية */}
-                                <div className="space-y-2 col-span-2 sm:col-span-1">
-                                    <Label className="text-xs">الفترة الزمنية</Label>
-                                    <Select
-                                        value={periods.find(p => p.start_time === makeupStartTime)?.period_id.toString() || ""}
-                                        onValueChange={(val) => {
-                                            const selectedPeriod = periods.find(p => String(p.period_id) === val);
-                                            if (selectedPeriod) {
-                                                setMakeupStartTime(selectedPeriod.start_time || "");
-                                                setMakeupEndTime(selectedPeriod.end_time || "");
-                                            }
-                                        }}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="اختر وقت المحاضرة" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {periods.map((p) => (
-                                                <SelectItem key={p.period_id} value={String(p.period_id)}>
-                                                    {fmtHHMM(p.start_time)} - {fmtHHMM(p.end_time)}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-        
-                                {/* القاعة */}
-                                <div className="space-y-2 col-span-2 sm:col-span-1">
-                                    <Label className="text-xs">القاعة</Label>
-                                    <Select value={makeupRoomId} onValueChange={setMakeupRoomId}>
-                                        <SelectTrigger><SelectValue placeholder="اختر القاعة" /></SelectTrigger>
-                                        <SelectContent>
-                                            {classrooms.map((c) => (
-                                                <SelectItem key={c.classroom_id} value={String(c.classroom_id)}>
-                                                    {c.name} {c.capacity ? `(${c.capacity})` : ""}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-        
-                                <div className="col-span-2 text-xs text-muted-foreground flex justify-between px-1">
-                                    <span>الوقت المحدد: {makeupStartTime ? fmtHHMM(makeupStartTime) : "--:--"} - {makeupEndTime ? fmtHHMM(makeupEndTime) : "--:--"}</span>
-                                </div>
-                            </div>
+                          <div className="grid grid-cols-2 gap-3 p-3 bg-muted/20 rounded-lg border animate-in slide-in-from-top-2">
+                              
+                              {/* الفترة الزمنية */}
+                              <div className="space-y-2 col-span-2 sm:col-span-1">
+                                  <Label className="text-xs">الفترة الزمنية</Label>
+                                  <Select
+                                      value={periods.find(p => p.start_time === makeupStartTime)?.period_id.toString() || ""}
+                                      onValueChange={(val) => {
+                                          const selectedPeriod = periods.find(p => String(p.period_id) === val);
+                                          if (selectedPeriod) {
+                                              setMakeupStartTime(selectedPeriod.start_time || "");
+                                              setMakeupEndTime(selectedPeriod.end_time || "");
+                                          }
+                                      }}
+                                  >
+                                      <SelectTrigger>
+                                          <SelectValue placeholder="اختر وقت المحاضرة" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                          {periods.map((p) => (
+                                              <SelectItem key={p.period_id} value={String(p.period_id)}>
+                                                  {fmtHHMM(p.start_time)} - {fmtHHMM(p.end_time)}
+                                              </SelectItem>
+                                          ))}
+                                      </SelectContent>
+                                  </Select>
+                              </div>
+      
+                              {/* القاعة (المعدلة لعرض الحالة والاسم بشكل صحيح) */}
+                              <div className="space-y-2 col-span-2 sm:col-span-1">
+                                  <Label className="text-xs flex items-center justify-between">
+                                      <span>القاعة</span>
+                                      {/* مؤشر التحميل يظهر عند تغيير الوقت */}
+                                      {isLoadingMakeupRooms && <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />}
+                                  </Label>
+                                  
+                                  <Select value={makeupRoomId} onValueChange={setMakeupRoomId}>
+                                      <SelectTrigger className={cn(
+                                          // تغيير لون الإطار إذا كانت القاعة المختارة مشغولة
+                                          makeupClassrooms.find(c => String(c.classroom_id) === makeupRoomId)?.is_busy 
+                                          ? "border-red-500 text-red-600" : ""
+                                      )}>
+                                          <SelectValue placeholder={isLoadingMakeupRooms ? "جاري التحقق..." : "اختر القاعة"} />
+                                      </SelectTrigger>
+                                      
+                                      <SelectContent className="max-h-[200px]">
+                                          {makeupClassrooms.length > 0 ? (
+                                              makeupClassrooms.map((c) => (
+                                                  <SelectItem 
+                                                      key={c.classroom_id} 
+                                                      value={String(c.classroom_id)}
+                                                      disabled={c.is_busy} // تعطيل الاختيار إذا كانت مشغولة
+                                                      className={cn(
+                                                          "w-full cursor-pointer",
+                                                          c.is_busy && "opacity-70 bg-red-50/50" // خلفية خفيفة للمشغول
+                                                      )}
+                                                  >
+                                                      <div className="flex items-center justify-between w-full gap-2 min-w-[120px]">
+                                                          <span className="truncate font-medium">
+                                                              {/* ✅ التعديل هنا: فحص الاسم بأكثر من صيغة */}
+                                                              {c.name || c.classroom_name || "قاعة غير محددة"} 
+                                                              {c.capacity ? <span className="text-[10px] text-muted-foreground mr-1">({c.capacity})</span> : ""}
+                                                          </span>
+                                                          
+                                                          {/* شارة تظهر فقط للقاعات المشغولة */}
+                                                          {c.is_busy && (
+                                                              <Badge variant="destructive" className="h-5 px-1.5 text-[10px] shrink-0">
+                                                                  مشغولة
+                                                              </Badge>
+                                                          )}
+                                                      </div>
+                                                  </SelectItem>
+                                              ))
+                                          ) : (
+                                              <div className="p-3 text-center text-xs text-muted-foreground">
+                                                  {!makeupStartTime ? "يرجى تحديد الوقت أولاً" : "لا توجد قاعات متاحة"}
+                                              </div>
+                                          )}
+                                      </SelectContent>
+                                  </Select>
+                              </div>
+      
+                              <div className="col-span-2 text-xs text-muted-foreground flex justify-between px-1">
+                                  <span>الوقت المحدد: {makeupStartTime ? fmtHHMM(makeupStartTime) : "--:--"} - {makeupEndTime ? fmtHHMM(makeupEndTime) : "--:--"}</span>
+                              </div>
+                          </div>
                         )}
                     </div>
                   )}
@@ -1945,16 +2245,19 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
             ) : null}
         
             <DialogFooter className="flex justify-between sm:justify-between gap-2">
+              {can('timetable.delete_lecture') && (
                 <Button variant="destructive" onClick={handleDeleteSession} disabled={isSavingEdit || isEditLoading}>
                     <span className="sr-only">حذف</span> حذف الجلسة
                 </Button>
-                
+              )}
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>إلغاء</Button>
-                    <Button onClick={handleSaveChanges} disabled={isSavingEdit || isEditLoading}>
-                        {isSavingEdit && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
-                        حفظ التعديلات
-                    </Button>
+                    {can('timetable.update_lecture') && (
+                      <Button onClick={handleSaveChanges} disabled={isSavingEdit || isEditLoading}>
+                          {isSavingEdit && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                          حفظ التعديلات
+                      </Button>
+                    )}
                 </div>
             </DialogFooter>
           </DialogContent>
