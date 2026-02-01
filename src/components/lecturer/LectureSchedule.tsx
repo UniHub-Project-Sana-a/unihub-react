@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { 
   Calendar, Clock, Users, QrCode, CheckCircle, 
   BatteryCharging, Loader2, MapPin, Building, 
-  HeartHandshake, RefreshCw, Printer, CalendarPlus, CheckCircle2, XCircle, Info
+  HeartHandshake, RefreshCw, Printer, CalendarPlus, CheckCircle2, XCircle, Info,
+   Paperclip, Youtube, FileText, UploadCloud ,  Link as LinkIcon , Trash2, X , Plus
 } from "lucide-react";
 import { LectureSession } from "@/pages/LecturerPage";
 import { format, startOfWeek, endOfWeek, addDays, subDays, isToday } from 'date-fns';
@@ -16,6 +17,21 @@ import { AttendanceReportSheet, ReportStudent } from "@/components/reports/Atten
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { RequestMakeupDialog } from "@/components/lecturer/RequestMakeupDialog";
+import { 
+  Dialog, 
+  DialogContent, 
+  DialogDescription, 
+  DialogFooter, 
+  DialogHeader, 
+  DialogTitle, 
+  DialogTrigger 
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "@/components/ui/use-toast"; 
 
 interface LectureScheduleProps {
   sessions: LectureSession[];
@@ -49,6 +65,60 @@ export function LectureSchedule({
   // حالات الجلسة التعويضية
   const [isMakeupRequestOpen, setIsMakeupRequestOpen] = useState(false);
   const [makeupSession, setMakeupSession] = useState<any>(null); // الجلسة التي نريد تعويضها
+
+  // تعريف الحالات (States) - يفضل وضعها في بداية المكون
+const [isDialogOpen, setIsDialogOpen] = useState(false);
+const [attachments, setAttachments] = useState([]); // قائمة المرفقات المضافة
+const [videoInput, setVideoInput] = useState("");
+const [linkInput, setLinkInput] = useState("");
+const [isUploading, setIsUploading] = useState(false);
+const [isSaving, setIsSaving] = useState(false);
+const fileRef = useRef(null);
+
+// دوال المعالجة
+const addVideo = () => {
+    if (!videoInput) return;
+    setAttachments([...attachments, { id: Date.now(), type: 'video', name: 'فيديو شرح', value: videoInput }]);
+    setVideoInput("");
+};
+
+const addLink = () => {
+    if (!linkInput) return;
+    setAttachments([...attachments, { id: Date.now(), type: 'link', name: 'رابط خارجي', value: linkInput }]);
+    setLinkInput("");
+};
+
+const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    // محاكاة رفع الملف
+    setTimeout(() => {
+        setAttachments([...attachments, { 
+            id: Date.now(), 
+            type: 'file', 
+            name: file.name, 
+            value: (file.size / 1024 / 1024).toFixed(2) + ' MB' 
+        }]);
+        setIsUploading(false);
+    }, 1500);
+};
+
+const removeAttachment = (id) => {
+    setAttachments(attachments.filter(item => item.id !== id));
+};
+
+const handleSave = () => {
+    setIsSaving(true);
+    // محاكاة حفظ البيانات للسيرفر
+    setTimeout(() => {
+        setIsSaving(false);
+        setIsDialogOpen(false);
+        setAttachments([]);
+        toast({ title: "تم الحفظ", description: "تمت إضافة المرفقات بنجاح." });
+    }, 1500);
+};
   
   // ✅ تعديل الـ State ليحمل وقتين
   const [printData, setPrintData] = useState<{
@@ -377,109 +447,229 @@ export function LectureSchedule({
                           </div>
                           
                           <div className="shrink-0 w-full sm:w-auto flex flex-col items-end gap-2">
-                            
-                            {session.isAttended ? (
-                              <div className="flex gap-2 w-full sm:w-auto">
-                                <Button disabled variant="secondary" className="flex-1 gap-2 cursor-not-allowed">
-                                    <CheckCircle className="w-4 h-4" /> {badgeText}
-                                </Button>
-                                <Button 
-                                    variant="outline" 
-                                    size="icon" 
-                                    className="bg-background"
-                                    title="طباعة كشف الحضور" 
-                                    onClick={() => prepareAndPrint(session)}
-                                    disabled={isPrintingId !== null}
-                                >
-                                    {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-                                </Button>
-                              </div>
-                            
-                            ) : (isPast && !isWithinBuffer) ? (
-                              <div className="flex flex-col gap-2 w-full sm:w-auto">
-                                <div className="flex gap-2">
-                                    <Button disabled variant="outline" className="flex-1 gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
-                                        <Clock className="w-4 h-4" /> فاتت
-                                    </Button>
-                                    <Button 
-                                        variant="outline" 
-                                        size="icon" 
-                                        className="border-destructive/30 hover:bg-destructive/10 hover:text-destructive bg-background"
-                                        title="طباعة كشف الغياب"
-                                        onClick={() => prepareAndPrint(session)}
-                                        disabled={isPrintingId !== null}
-                                    >
-                                        {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+    
+                                    {/* ======================================================== */}
+    {/* ✅ زر المرفقات (التصميم الأول + تفاعلي + الترتيب الجديد) */}
+    {/* ======================================================== */}
+    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogTrigger asChild>
+            <Button 
+                variant="outline" 
+                size="sm" 
+                className="w-full sm:w-auto gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+            >
+                <Paperclip className="w-4 h-4" /> مرفقات المحاضرة
+            </Button>
+        </DialogTrigger>
+        <DialogContent className="sm:max-w-[500px]" dir="rtl">
+            <DialogHeader className="text-right">
+                <DialogTitle>إضافة مرفقات</DialogTitle>
+                <DialogDescription>
+                    قم بإضافة مصادر المحاضرة بالترتيب أدناه.
+                </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-5 py-4">
+                
+                {/* 1. قسم الفيديو */}
+                <div className="grid gap-2">
+                    <Label className="flex items-center gap-2 text-foreground/80">
+                        <Youtube className="w-4 h-4 text-red-500" /> فيديو
+                    </Label>
+                    <div className="flex gap-2">
+                        <Input 
+                            placeholder="ضع رابط الفيديو هنا..." 
+                            className="text-left ltr" 
+                            value={videoInput}
+                            onChange={(e) => setVideoInput(e.target.value)}
+                        />
+                        <Button variant="secondary" size="icon" onClick={addVideo} disabled={!videoInput}>
+                            <Plus className="w-4 h-4" />
+                        </Button>
+                    </div>
+                </div>
+
+                {/* 2. قسم ملف العرض (الرفع) */}
+                <div className="grid gap-2">
+                    <Label className="flex items-center gap-2 text-foreground/80">
+                        <FileText className="w-4 h-4 text-orange-500" /> ملف العرض
+                    </Label>
+                    <div 
+                        onClick={() => !isUploading && fileRef.current?.click()}
+                        className={`border-2 border-dashed rounded-lg p-6 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
+                            isUploading ? "bg-muted border-muted-foreground/20" : "border-muted-foreground/25 hover:bg-accent/50 hover:border-blue-400"
+                        }`}
+                    >
+                        <input type="file" className="hidden" ref={fileRef} onChange={handleFileUpload} />
+                        {isUploading ? (
+                            <div className="flex flex-col items-center gap-2 animate-pulse">
+                                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                                <span className="text-xs text-muted-foreground">جاري الرفع...</span>
+                            </div>
+                        ) : (
+                            <>
+                                <UploadCloud className="w-8 h-8 text-muted-foreground mb-2" />
+                                <p className="text-sm text-muted-foreground">اضغط لرفع ملف العرض (PPTX, PDF)</p>
+                            </>
+                        )}
+                    </div>
+                </div>
+
+                {/* 3. قسم الرابط */}
+                <div className="grid gap-2">
+                    <Label className="flex items-center gap-2 text-foreground/80">
+                        <LinkIcon className="w-4 h-4 text-blue-500" /> رابط
+                    </Label>
+                    <div className="flex gap-2">
+                        <Input 
+                            placeholder="https://example.com" 
+                            className="text-left ltr" 
+                            value={linkInput}
+                            onChange={(e) => setLinkInput(e.target.value)}
+                        />
+                        <Button variant="secondary" size="icon" onClick={addLink} disabled={!linkInput}>
+                            <Plus className="w-4 h-4" />
+                        </Button>
+                    </div>
+                </div>
+
+                {/* عرض القائمة المضافة (تفاعلي) */}
+                {attachments.length > 0 && (
+                    <div className="mt-2 space-y-2 border-t pt-4">
+                        <Label className="text-xs text-muted-foreground">تمت إضافتها ({attachments.length})</Label>
+                        <div className="space-y-2 max-h-[120px] overflow-y-auto pl-1">
+                            {attachments.map((item) => (
+                                <div key={item.id} className="flex items-center justify-between bg-muted/40 p-2 rounded-md border text-sm">
+                                    <div className="flex items-center gap-2 overflow-hidden">
+                                        {item.type === 'video' && <Youtube className="w-4 h-4 text-red-500 shrink-0" />}
+                                        {item.type === 'file' && <FileText className="w-4 h-4 text-orange-500 shrink-0" />}
+                                        {item.type === 'link' && <LinkIcon className="w-4 h-4 text-blue-500 shrink-0" />}
+                                        <div className="flex flex-col truncate">
+                                            <span className="font-medium truncate">{item.name}</span>
+                                            <span className="text-[10px] text-muted-foreground truncate dir-ltr text-right">{item.value}</span>
+                                        </div>
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-red-600" onClick={() => removeAttachment(item.id)}>
+                                        <X className="w-3 h-3" />
                                     </Button>
                                 </div>
-                                
-                                {/* ✅ الزر الذكي: طلب تعويض أو عرض الحالة */}
-                                {session.makeupRequest ? (
-                                    // الحالة 1: يوجد طلب مسبق -> نعرض الحالة
-                                    <Button 
-                                        size="sm" 
-                                        variant="outline"
-                                        className={cn(
-                                            "gap-2 h-8 w-full border cursor-default", // جعلناه غير قابل للنقر كزر إجراء، بل كزر معلومات
-                                            // تلوين الزر حسب الحالة
-                                            session.makeupRequest.status === 0 && "text-amber-600 border-amber-200 bg-amber-50 hover:bg-amber-100", // قيد المراجعة
-                                            session.makeupRequest.status === 1 && "text-green-600 border-green-200 bg-green-50 hover:bg-green-100", // مقبول
-                                            session.makeupRequest.status === 2 && "text-red-600 border-red-200 bg-red-50 hover:bg-red-100" // مرفوض
-                                        )}
-                                        onClick={() => {
-                                            // عرض توست توضيحي عند الضغط
-                                            toast({
-                                                title: session.makeupRequest?.status === 0 ? "طلب قيد المراجعة" : 
-                                                       session.makeupRequest?.status === 1 ? "تمت الموافقة" : "تم رفض الطلب",
-                                                description: session.makeupRequest?.status === 0 
-                                                    ? "الطلب بانتظار موافقة رئيس القسم/العميد." 
-                                                    : session.makeupRequest?.status === 1 
-                                                        ? `تم اعتماد التعويض بتاريخ ${session.makeupRequest.requestedDate}`
-                                                        : "عذراً، تم رفض طلب التعويض لهذه المحاضرة.",
-                                                variant: session.makeupRequest?.status === 2 ? "destructive" : "default"
-                                            });
-                                        }}
-                                    >
-                                        {session.makeupRequest.status === 0 && <Clock className="w-4 h-4 animate-pulse" />}
-                                        {session.makeupRequest.status === 1 && <CheckCircle2 className="w-4 h-4" />}
-                                        {session.makeupRequest.status === 2 && <XCircle className="w-4 h-4" />}
-                                        
-                                        {session.makeupRequest.status === 0 ? "قيد المراجعة" : 
-                                         session.makeupRequest.status === 1 ? "تمت الموافقة" : "مرفوض"}
-                                    </Button>
-                                ) : (
-                                    // الحالة 2: لا يوجد طلب -> زر التقديم (القديم)
-                                    <Button 
-                                        size="sm" 
-                                        variant="ghost" 
-                                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 gap-2 h-8 w-full border border-amber-200"
-                                        onClick={() => {
-                                            setMakeupSession(session);
-                                            setIsMakeupRequestOpen(true);
-                                        }}
-                                    >
-                                        <CalendarPlus className="w-4 h-4" /> طلب تعويض
-                                    </Button>
-                                )}
-                              </div>
-                            
-                            ) : (
-                              <Button 
-                                onClick={() => onStartQR(session)} 
-                                disabled={!isWithinBuffer}
-                                className={cn(
-                                    "w-full sm:w-auto gap-2",
-                                    // تمييز زر البدء للجلسة التعويضية بلون مختلف إذا كانت متاحة
-                                    session.isMakeup && isWithinBuffer && "bg-amber-600 hover:bg-amber-700"
-                                )}
-                              >
-                                <QrCode className="w-4 h-4" /> بدء الحضور
-                              </Button>
-                            )}
-                      
-                            {!isWithinBuffer && !session.isAttended && !isPast && (
-                                <p className="text-xs text-muted-foreground">متاح قبل 10د من البدء وحتى 10د بعد الانتهاء</p>
-                            )}
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+            </div>
+
+            <DialogFooter className="sm:justify-start gap-2">
+                <Button onClick={handleSave} disabled={isSaving || isUploading || attachments.length === 0} className="w-full sm:w-auto">
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : <CheckCircle2 className="w-4 h-4 ml-2" />}
+                    حفظ المرفقات
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setIsDialogOpen(false)}>إلغاء</Button>
+            </DialogFooter>
+        </DialogContent>
+    </Dialog>
+    {/* ======================================================== */}
+                          
+                              {session.isAttended ? (
+                                  <div className="flex gap-2 w-full sm:w-auto">
+                                  <Button disabled variant="secondary" className="flex-1 gap-2 cursor-not-allowed">
+                                      <CheckCircle className="w-4 h-4" /> {badgeText}
+                                  </Button>
+                                  <Button 
+                                      variant="outline" 
+                                      size="icon" 
+                                      className="bg-background"
+                                      title="طباعة كشف الحضور" 
+                                      onClick={() => prepareAndPrint(session)}
+                                      disabled={isPrintingId !== null}
+                                  >
+                                      {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                                  </Button>
+                                  </div>
+                              
+                              ) : (isPast && !isWithinBuffer) ? (
+                                  <div className="flex flex-col gap-2 w-full sm:w-auto">
+                                  <div className="flex gap-2">
+                                      <Button disabled variant="outline" className="flex-1 gap-2 cursor-not-allowed border-destructive/50 text-destructive bg-destructive/10">
+                                          <Clock className="w-4 h-4" /> فاتت
+                                      </Button>
+                                      <Button 
+                                          variant="outline" 
+                                          size="icon" 
+                                          className="border-destructive/30 hover:bg-destructive/10 hover:text-destructive bg-background"
+                                          title="طباعة كشف الغياب"
+                                          onClick={() => prepareAndPrint(session)}
+                                          disabled={isPrintingId !== null}
+                                      >
+                                          {isPrintingId === session.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                                      </Button>
+                                  </div>
+                                  
+                                  {/* ✅ الزر الذكي: طلب تعويض أو عرض الحالة */}
+                                  {session.makeupRequest ? (
+                                      // الحالة 1: يوجد طلب مسبق -> نعرض الحالة
+                                      <Button 
+                                          size="sm" 
+                                          variant="outline"
+                                          className={cn(
+                                              "gap-2 h-8 w-full border cursor-default", 
+                                              session.makeupRequest.status === 0 && "text-amber-600 border-amber-200 bg-amber-50 hover:bg-amber-100", 
+                                              session.makeupRequest.status === 1 && "text-green-600 border-green-200 bg-green-50 hover:bg-green-100", 
+                                              session.makeupRequest.status === 2 && "text-red-600 border-red-200 bg-red-50 hover:bg-red-100" 
+                                          )}
+                                          onClick={() => {
+                                              toast({
+                                                  title: session.makeupRequest?.status === 0 ? "طلب قيد المراجعة" : 
+                                                          session.makeupRequest?.status === 1 ? "تمت الموافقة" : "تم رفض الطلب",
+                                                  description: session.makeupRequest?.status === 0 
+                                                      ? "الطلب بانتظار موافقة رئيس القسم/العميد." 
+                                                      : session.makeupRequest?.status === 1 
+                                                          ? `تم اعتماد التعويض بتاريخ ${session.makeupRequest.requestedDate}`
+                                                          : "عذراً، تم رفض طلب التعويض لهذه المحاضرة.",
+                                                  variant: session.makeupRequest?.status === 2 ? "destructive" : "default"
+                                              });
+                                          }}
+                                      >
+                                          {session.makeupRequest.status === 0 && <Clock className="w-4 h-4 animate-pulse" />}
+                                          {session.makeupRequest.status === 1 && <CheckCircle2 className="w-4 h-4" />}
+                                          {session.makeupRequest.status === 2 && <XCircle className="w-4 h-4" />}
+                                          
+                                          {session.makeupRequest.status === 0 ? "قيد المراجعة" : 
+                                              session.makeupRequest.status === 1 ? "تمت الموافقة" : "مرفوض"}
+                                      </Button>
+                                  ) : (
+                                      // الحالة 2: لا يوجد طلب -> زر التقديم (القديم)
+                                      <Button 
+                                          size="sm" 
+                                          variant="ghost" 
+                                          className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 gap-2 h-8 w-full border border-amber-200"
+                                          onClick={() => {
+                                              setMakeupSession(session);
+                                              setIsMakeupRequestOpen(true);
+                                          }}
+                                      >
+                                          <CalendarPlus className="w-4 h-4" /> طلب تعويض
+                                      </Button>
+                                  )}
+                                  </div>
+                              
+                              ) : (
+                                  <Button 
+                                  onClick={() => onStartQR(session)} 
+                                  disabled={!isWithinBuffer}
+                                  className={cn(
+                                      "w-full sm:w-auto gap-2",
+                                      session.isMakeup && isWithinBuffer && "bg-amber-600 hover:bg-amber-700"
+                                  )}
+                                  >
+                                  <QrCode className="w-4 h-4" /> بدء الحضور
+                                  </Button>
+                              )}
+                          
+                              {!isWithinBuffer && !session.isAttended && !isPast && (
+                                  <p className="text-xs text-muted-foreground">متاح قبل 10د من البدء وحتى 10د بعد الانتهاء</p>
+                              )}
                           </div>
                         </div>
                       </Card>
