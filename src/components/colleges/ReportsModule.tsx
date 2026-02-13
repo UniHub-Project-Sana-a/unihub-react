@@ -10,6 +10,7 @@ import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow,} from "@/compo
 import { GroupAttendanceDialog } from "@/components/reports/GroupAttendanceDialog";
 import { InstructorsReportDialog } from "@/components/reports/InstructorsReportDialog";
 import { AdminGradesReportDialog } from "@/components/reports/AdminGradesReportDialog";
+import { QAReportDialog } from "@/components/reports/QAReportDialog";
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue,} from "@/components/ui/select";
 import { DollarSign, TrendingUp, TrendingDown, Users,BookOpen,Calendar,MapPin,Download,Filter,BarChart3,PieChart,LineChart,FileText,Search,Loader2,AlertCircle,Edit, Plus, Printer, ShieldCheck, GraduationCap, ArrowRight} from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -123,8 +124,8 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
   const [selectedGradeReportGroup, setSelectedGradeReportGroup] = useState<{groupId: number, courseId: number, groupYear: string;} | null>(null);
 
   // بيانات تقرير الجودة
-  // const [qaData, setQaData] = useState<any[]>([]);
-  // const [selectedQATimetableId, setSelectedQATimetableId] = useState<number | null>(null);
+  const [qaData, setQaData] = useState<any[]>([]);
+  const [selectedQATimetableId, setSelectedQATimetableId] = useState<number | null>(null);
 
   // ==================================================================================
   // Effects: Fetching Lookups (Cascading Logic)
@@ -252,6 +253,31 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
 
     fetchCourseGroups();
   }, [selectedCourseIdForGroups, selectedAcademicYear, collegeId]); // تمت إضافة collegeId للاعتماديات
+
+    // دالة لجلب بيانات الجودة
+  const fetchQAReport = async () => {
+      setLoading(true);
+      try {
+          const res = await api.get(`/v1/colleges/${collegeId}/reports/qa-performance`, {
+              params: {
+                  academic_year: selectedAcademicYear === "all" ? null : selectedAcademicYear,
+                  department_id: selectedDepartment === "all" ? null : selectedDepartment
+              }
+          });
+          setQaData(res.data.data);
+      } catch (error) {
+          console.error("QA Fetch Error", error);
+      } finally {
+          setLoading(false);
+      }
+  };
+  
+  // Trigger fetch when tab is active
+  useEffect(() => {
+      if (activeTab === 'qa') {
+          fetchQAReport();
+      }
+  }, [activeTab, selectedAcademicYear, selectedDepartment]);
 
   // ==================================================================================
   // Effect: Fetch Main Report Data (Triggered by ANY Filter Change)
@@ -584,6 +610,11 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
       label: "نتائج أعمال الفصل", 
       permission: "reports.semester_results" 
     },
+    { 
+      value: "qa", 
+      label: "جودة التعليم", 
+      permission: "reports.semester_results" //"reports.quality_assurance" 
+    },
   ];
   
   // 2. تصفية التبويبات المسموح بها فقط
@@ -596,6 +627,7 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
     2: "md:grid-cols-2",
     3: "md:grid-cols-3",
     4: "md:grid-cols-4",
+    5: "md:grid-cols-5",
   };
   
   // نختار الكلاس المناسب، وإذا لم يوجد (0 مثلاً) نضع قيمة افتراضية
@@ -1556,6 +1588,174 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
                     ? selectedAcademicYear 
                     : selectedGradeReportGroup.groupYear
                 } 
+              />
+          )}
+        </TabsContent>
+
+        {/* ======================================================= */}
+        {/* 5. Quality Assurance Tab (ضمان الجودة)              */}
+        {/* ======================================================= */}
+        <TabsContent value="qa" className="space-y-6">
+          <Card className="border-t-4 border-t-primary/60 shadow-sm">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                  <CardTitle className="flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-primary" />
+                      مؤشرات أداء العملية التعليمية
+                  </CardTitle>
+                  <Badge variant="outline">العام: {selectedAcademicYear === 'all' ? 'شامل' : selectedAcademicYear}</Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {qaData.length === 0 && !loading ? (
+                   <div className="text-center py-10 text-muted-foreground">لا توجد بيانات متاحة للعرض.</div>
+              ) : (
+                  <Table>
+                      <TableHeader>
+                          <TableRow className="bg-muted/50 border-b-2 border-primary/10">
+                              {/* المحاضر */}
+                              <TableHead className="w-[20%] text-right font-bold text-primary">المحاضر</TableHead>
+                              
+                              {/* المقرر الدراسي (موسع ومحسّن) */}
+                              <TableHead className="w-[25%] text-right font-bold text-primary">المقرر الدراسي والمجموعة</TableHead>
+                              
+                              {/* إنجاز الجلسات (بدلاً من topics مؤقتاً لتصحيح المحاذاة) */}
+                              <TableHead className="w-[15%] text-center font-bold text-primary">إنجاز الجلسات</TableHead>
+                              
+                              {/* إنجاز المقرر (المواضيع) */}
+                              <TableHead className="w-[15%] text-center font-bold text-primary">تغطية المواضيع</TableHead>
+                              
+                              {/* فهم الطلاب (العمود الجديد) */}
+                              <TableHead className="w-[15%] text-center font-bold text-primary">مستوى الفهم</TableHead>
+                              
+                              {/* التفاصيل */}
+                              <TableHead className="w-[10%] text-center font-bold text-primary">إجراءات</TableHead>
+                          </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                          {qaData.map((row: any) => (
+                              <TableRow key={row.timetable_id} className="hover:bg-muted/5 group transition-colors">
+                                  
+                                  {/* 1. المحاضر */}
+                                  <TableCell className="align-middle">
+                                      <div className="flex flex-col gap-1">
+                                          <span className="font-bold text-sm text-foreground">{row.lecturer_name}</span>
+                                          <span className="text-[11px] text-muted-foreground bg-muted/50 w-fit px-1.5 py-0.5 rounded">
+                                              {row.department_name}
+                                          </span>
+                                      </div>
+                                  </TableCell>
+                  
+                                  {/* 2. المقرر والمجموعة (تحسين التصميم) */}
+                                  <TableCell className="align-middle">
+                                      <div className="flex flex-col gap-1.5">
+                                          <div className="flex items-center gap-2">
+                                              <span className="font-bold text-sm text-foreground">{row.course_name}</span>
+                                              <Badge variant="outline" className="text-[10px] h-5 font-mono px-1">
+                                                  {row.course_code}
+                                              </Badge>
+                                          </div>
+                                          <div className="flex items-center gap-1.5">
+                                              <Users className="w-3 h-3 text-muted-foreground" />
+                                              <span className="text-xs font-medium text-primary bg-primary/5 px-2 py-0.5 rounded-full border border-primary/10">
+                                                  {row.group_name}
+                                              </span>
+                                          </div>
+                                      </div>
+                                  </TableCell>
+                                  
+                                  {/* 3. إنجاز الجلسات (Sessions) */}
+                                  <TableCell className="text-center align-middle">
+                                      <div className="flex flex-col items-center justify-center gap-1">
+                                          <span className="font-bold font-mono text-sm">
+                                              {row.sessions_executed} <span className="text-muted-foreground font-sans text-[10px]">/ {row.sessions_total}</span>
+                                          </span>
+                                          <span className="text-[10px] text-muted-foreground">جلسة منفذة</span>
+                                      </div>
+                                  </TableCell>
+                  
+                                  {/* 4. تغطية المواضيع (Topics Coverage) */}
+                                  <TableCell className="align-middle">
+                                      <div className="w-full max-w-[120px] mx-auto space-y-1.5">
+                                          <div className="flex justify-between items-center text-xs">
+                                              <span className="font-bold text-foreground">{row.coverage_percent}%</span>
+                                              <span className="text-[10px] text-muted-foreground">
+                                                  ({row.topics_covered}/{row.topics_total})
+                                              </span>
+                                          </div>
+                                          <div className="h-2 w-full bg-secondary/20 rounded-full overflow-hidden shadow-inner">
+                                              <div 
+                                                  className={`h-full rounded-full transition-all duration-500 ${
+                                                      row.coverage_percent >= 80 ? 'bg-green-500' : 
+                                                      row.coverage_percent >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                                                  }`}
+                                                  style={{width: `${row.coverage_percent}%`}}
+                                              />
+                                          </div>
+                                      </div>
+                                  </TableCell>
+                  
+                                  {/* 5. مستوى الفهم (Understanding) - المنطق الجديد */}
+                                  <TableCell className="align-middle">
+                                      {row.qa_sessions_count > 0 ? (
+                                          <div className="w-full max-w-[120px] mx-auto space-y-1.5">
+                                              <div className="flex justify-between items-center text-xs">
+                                                  <span className={`font-bold ${
+                                                      row.understanding_percent >= 75 ? 'text-green-600' : 
+                                                      row.understanding_percent >= 50 ? 'text-blue-600' : 'text-red-500'
+                                                  }`}>
+                                                      {row.understanding_percent}%
+                                                  </span>
+                                                  <span className="text-[10px] text-muted-foreground" title="عدد الجلسات التي شملت تقييماً">
+                                                      {row.qa_sessions_count} تقييم
+                                                  </span>
+                                              </div>
+                                              <div className="h-2 w-full bg-secondary/20 rounded-full overflow-hidden shadow-inner">
+                                                  <div 
+                                                      className={`h-full rounded-full transition-all duration-500 ${
+                                                          row.understanding_percent >= 75 ? 'bg-green-500' : 
+                                                          row.understanding_percent >= 50 ? 'bg-blue-500' : 'bg-red-500'
+                                                      }`}
+                                                      style={{width: `${row.understanding_percent}%`}}
+                                                  />
+                                              </div>
+                                          </div>
+                                      ) : (
+                                          <div className="text-center">
+                                              <span className="text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded-full">
+                                                  لا يوجد تقييم
+                                              </span>
+                                          </div>
+                                      )}
+                                  </TableCell>
+                  
+                                  {/* 6. التفاصيل */}
+                                  <TableCell className="text-center align-middle">
+                                      <Button 
+                                          variant="ghost" 
+                                          size="sm" 
+                                          className="text-primary hover:bg-primary/10 hover:text-primary h-8 w-8 p-0 rounded-full"
+                                          title="عرض التقرير التفصيلي"
+                                          onClick={() => setSelectedQATimetableId(row.timetable_id)}
+                                      >
+                                          <FileText className="w-4 h-4" />
+                                      </Button>
+                                  </TableCell>
+                              </TableRow>
+                          ))}
+                      </TableBody>
+                  </Table>
+              )}
+            </CardContent>
+          </Card>
+        
+          {/* QA Dialog */}
+          {selectedQATimetableId && (
+              <QAReportDialog 
+                  isOpen={!!selectedQATimetableId}
+                  onClose={() => setSelectedQATimetableId(null)}
+                  collegeId={collegeId}
+                  timetableId={selectedQATimetableId}
               />
           )}
         </TabsContent>

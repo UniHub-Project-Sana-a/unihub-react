@@ -24,15 +24,15 @@ import ForgotPasswordPage from "./components/auth/ForgotPasswordPage";
 import ResetPasswordPage from "./components/auth/ResetPasswordPage";
 import NotFound from "./pages/NotFound";
 import LecturerPage from "./pages/LecturerPage";
-import UnauthorizedPage from "./pages/UnauthorizedPage"; // <-- أضف صفحة "غير مصرح به"
+import UnauthorizedPage from "./pages/UnauthorizedPage";
 import CertInstructionPage from "@/pages/CertInstructionPage";
-// import CollegeDashboard from "./pages/colleges/CollegeDashboard";
+import StudentQaPage from "@/components/student/qa/StudentQaPage";
 
 // استيراد مكونات الحماية
 import { AuthProvider } from "@/context/AuthContext";
 import RequireAuth from "@/auth/RequireAuth";
 import RedirectIfAuthed from "@/auth/RedirectIfAuthed";
-import RequireRole from "@/auth/RequireRole"; // <-- استيراد المكون الجديد
+import RequireRole from "@/auth/RequireRole"; 
 import ChangePasswordPage from '@/components/auth/ChangePasswordPage';
 import RequirePermission from "@/auth/RequirePermission";
 
@@ -59,24 +59,19 @@ const App = () => (
               <Route path="/change-password" element={<ChangePasswordPage />} />
               <Route path="/install-cert" element={<CertInstructionPage />} />
               
-              {/* لم نعد بحاجة لصفحة unauthorized بسبب التوجيه التلقائي، لكن يمكنك تركها كاحتياط */}
-              {/* <Route path="/unauthorized" element={<UnauthorizedPage />} /> */}
+              {/* صفحة "غير مصرح لك" يجب أن تكون متاحة للجميع لتجنب الحلقات المفرغة */}
+              <Route path="/unauthorized" element={<UnauthorizedPage />} />
   
               {/* 2. المسارات المحمية (تتطلب تسجيل دخول أولاً) */}
               <Route element={<RequireAuth />}>
   
                 {/* 🔒 أ) منطقة المشرف العام فقط (رئاسة الجامعة) */}
-                {/* هذا هو الوحيد الذي يمكنه رؤية الصفحة الرئيسية للنظام / */}
                 <Route element={<RequireRole allowedRoles={['presidency' , 'admin']} />}>
                   <Route path="/" element={<Index />} />
-                  <Route path="/colleges" element={<CollegesPage />} /> {/* قائمة الكليات */}
+                  <Route path="/colleges" element={<CollegesPage />} /> 
                   <Route path="/settings" element={<SettingsPage />} />
-                  {/* <Route path="/users" element={<UsersPage />} /> */}
-                  {/* <Route path="/users/roles" element={<RolesPage />} /> */}
                   <Route path="/users/access-control" element={<AccessControlPage />} />
                   <Route path="/auditlog" element={<AuditLogPage />} />
-                  
-                  {/* مسارات إدارية عامة تابعة للرئاسة */}
                   <Route path="/integration/*" element={<IntegrationPage />} />
                 </Route>
 
@@ -86,17 +81,10 @@ const App = () => (
                   <Route path="/users/access-control" element={<AccessControlPage />} />
                 </Route>
   
-                {/* 🔒 ب) منطقة الكليات (مشتركة بين الرئاسة وإدارة الكلية) */}
-                {/* يسمح للمشرف العام + العميد + رئيس القسم بالدخول هنا */}
-                {/* ملاحظة: المحاضر ممنوع من هنا */}
+                {/* 🔒 ب) منطقة الكليات (إدارة الكلية) */}
                 <Route element={<RequireRole allowedRoles={['presidency', 'admin', 'dean', 'head_of_department', 'secretary']} />}>
-                  
-                  {/* صفحة الداشبورد الخاصة بكلية محددة */}
-                  {/* مثال: /colleges/5/dashboard */}
                   <Route path="/colleges" element={<CollegesPage />} /> 
                   <Route path="/colleges/:id/dashboard" element={<CollegesPage />} /> 
-
-                  {/* باقي الصفحات الإدارية الخاصة بالكلية */}
                   <Route path="/timetable/*" element={<TimetablePage />} />
                   <Route path="/enrollment/*" element={<EnrollmentPage />} />
                   <Route path="/excuses/*" element={<ExcusesPage />} />
@@ -105,10 +93,14 @@ const App = () => (
                 </Route>
   
                 {/* 🔒 ج) منطقة المحاضر فقط */}
-                {/* لا يدخلها المشرف العام ولا العميد، فقط المحاضر صاحب الحساب */}
                 <Route element={<RequireRole allowedRoles={['lecturer']} />}>
                   <Route path="/lecturer" element={<LecturerPage />} />
-                  {/* <Route path="/lecturer/schedule" element={<LecturerSchedule />} /> */}
+                </Route>
+
+                {/* 🔒 د) منطقة الطالب فقط (جديد) */}
+                {/* يسمح فقط لمن نوعهم student */}
+                <Route element={<RequireRole allowedRoles={['student']} />}>
+                  <Route path="/student/qa" element={<StudentQaPage />} />
                 </Route>
   
               </Route>

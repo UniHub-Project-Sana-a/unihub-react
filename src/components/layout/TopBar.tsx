@@ -22,11 +22,15 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     setLoggingOut(true);
     try {
       await api.post("/v1/auth/logout");
-    } catch {}
-    // تنظيف التوكن
-    setAuthToken(undefined);
-    localStorage.removeItem("access_token");
-    // لا نحذف active_college_id
+    }  catch (error) {
+        console.warn("Logout API failed, forcing local logout.");
+    }
+    if (setAuthToken) { 
+        setAuthToken(null); 
+    }
+    // تنظيف التخزين المحلي
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     window.location.href = "/react-app/login";
   };
 

@@ -25,6 +25,7 @@ const DepartmentsModule = lazy(() => import("@/components/colleges/DepartmentsMo
 const AcademicTitlesModule = lazy(() => import("@/components/colleges/AcademicTitlesModule"));
 const PeriodsModule = lazy(() => import("@/components/colleges/PeriodsModule"));
 const MakeupRequestsModule = lazy(() => import("@/components/colleges/MakeupRequestsModule"));
+const QualityAssuranceModule = lazy(() => import("@/components/colleges/qa/QualityAssuranceModule"));
 
 const ModuleSkeleton = ({ title }: { title: string }) => (
   <div className="p-6">
@@ -281,6 +282,7 @@ export default function CollegesPage() {
     { val: "periods",            label: "الفترات",          perm: "periods.view" },
     { val: "Reports",            label: "التقارير",         perm: "reports.view_custom" }, // تأكد من وجود هذه الصلاحية
     { val: "MakeupRequests",     label: "طلبات التعويض",    perm: "requests.view_makeup" }, // تأكد من وجود هذه الصلاحية
+    { val: "QualityAssurance",   label: "ضمان الجودة",      perm: "dashboard.view_college" }, // qa.manage 
   ];
   
   // 3. تصفية القائمة بناءً على الصلاحيات
@@ -581,6 +583,13 @@ export default function CollegesPage() {
               <TabsContent value="MakeupRequests">
                 <Suspense fallback={<ModuleSkeleton title="طلبات التعويض" />}>
                   {activeTab === "MakeupRequests" && <MakeupRequestsModule collegeId={selectedCollege.id} />}
+                </Suspense>
+              </TabsContent>
+
+              {/* ✅ الإضافة الجديدة هنا */}
+              <TabsContent value="QualityAssurance">
+                <Suspense fallback={<ModuleSkeleton title="نظام ضمان الجودة" />}>
+                  {activeTab === "QualityAssurance" && <QualityAssuranceModule collegeId={selectedCollege.id} />}
                 </Suspense>
               </TabsContent>
 

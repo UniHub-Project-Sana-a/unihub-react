@@ -17,12 +17,19 @@ export interface QRFormSettings {
   latitude: number;
   longitude: number;
   allowedDistance: number;
+  selectedTopics: number[];
 }
 
 interface ClassroomInfo {
   latitude: number | string | null;
   longitude: number | string | null;
   allowed_distance: number | string | null;
+}
+
+interface TopicItem {
+  topic_id: number;
+  title: string;
+  is_covered: boolean; 
 }
 
 interface StartQRModalProps {
@@ -34,19 +41,6 @@ interface StartQRModalProps {
   expectedCount: number;
 }
 
-// 1. قائمة المواضيع الثابتة (React Topics)
-const availableTopics = [
-  "Introduction to JSX",
-  "Components & Props",
-  "State & Lifecycle",
-  "Hooks (useState, useEffect)",
-  "Event Handling",
-  "Conditional Rendering",
-  "Lists & Keys",
-  "Context API",
-  "React Router"
-];
-
 export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo, expectedCount }: StartQRModalProps) {
   // الحالات الأساسية
   const [intervalSeconds, setIntervalSeconds] = useState(10);
@@ -56,18 +50,13 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
   const [longitude, setLongitude] = useState<number | null>(null);
   const [allowedDistance, setAllowedDistance] = useState(50);
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
+
   
-  // 2. حالة لتخزين المواضيع المختارة
-  const [selectedTopics, setSelectedTopics] = useState([]);
-    // 3. دالة تبديل الاختيار (Toggle)
-  const toggleTopic = (topic) => {
-    if (selectedTopics.includes(topic)) {
-      setSelectedTopics(selectedTopics.filter((t) => t !== topic));
-    } else {
-      setSelectedTopics([...selectedTopics, topic]);
-    }
-  };
+  // حالات المواضيع
+  const [topics, setTopics] = useState<TopicItem[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<number[]>([]);
+  const [isLoadingTopics, setIsLoadingTopics] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (open) {
@@ -83,8 +72,38 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
         setLongitude(isNaN(lon) ? null : lon);
         setAllowedDistance(isNaN(dist) ? 50 : dist);
       }
+      setErrors({});
+      setSelectedTopics([]); // تصفير الاختيارات الجديدة
+
+      // 2. جلب المواضيع وحالتها لهذا الجدول الدراسي (lectureId = timetable_id)
+      if (lectureId) {
+        fetchTopicsStatus(lectureId);
+      }
     }
   }, [open, classroomInfo, expectedCount, lectureId]);
+
+  const fetchTopicsStatus = async (timetableId: string) => {
+    setIsLoadingTopics(true);
+    try {
+      // نفترض وجود هذا الرابط في الباك إند (سأعطيك الكود الخاص به في الأسفل)
+      const res = await api.get(`/v1/timetable/${timetableId}/topics-status`);
+      setTopics(res.data.data || []);
+    } catch (error) {
+      console.error("فشل جلب المواضيع", error);
+      // يمكن وضع مواضيع افتراضية أو تركها فارغة
+      setTopics([]);
+    } finally {
+      setIsLoadingTopics(false);
+    }
+  };
+
+  const handleTopicToggle = (topicId: number, isChecked: boolean) => {
+    if (isChecked) {
+      setSelectedTopics(prev => [...prev, topicId]);
+    } else {
+      setSelectedTopics(prev => prev.filter(id => id !== topicId));
+    }
+  };
 
   const validate = () => {
     const newErrors: Record<string, string> = {};
@@ -92,6 +111,8 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
     if (validMinutes < 1) newErrors.validMinutes = "الحد الأدنى دقيقة واحدة.";
     if (!latitude || !longitude) newErrors.location = "إحداثيات القاعة غير متوفرة.";
     
+    if (selectedTopics.length === 0) newErrors.topics = "يجب اختيار موضوع واحد على الأقل لبدء المحاضرة.";
+    setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -104,6 +125,7 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
         latitude,
         longitude,
         allowedDistance,
+        selectedTopics,
       });
     }
   };
@@ -124,40 +146,53 @@ export function StartQRModal({ open, onClose, onSubmit, lectureId, classroomInfo
               {/* ========================================================= */}
               {/* ✅ 1. (جديد) قسم مواضيع الجلسة - يظهر في العرض الكامل */}
               {/* ========================================================= */}
-              <div className="col-span-1 md:col-span-2 space-y-4 p-4 border rounded-xl bg-card shadow-sm">
-                  <div className="flex items-center justify-between pb-2 border-b">
-                      <div className="flex items-center gap-2">
-                          <BookOpen className="w-4 h-4 text-primary" />
-                          <h3 className="font-semibold text-sm">مواضيع هذه الجلسة</h3>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                          تم اختيار {selectedTopics.length}
-                      </span>
+              <div className="space-y-3 border rounded-lg p-3 bg-muted/20">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-primary" />
+                  <Label className="font-semibold text-base">مواضيع المحاضرة</Label>
+                </div>
+                
+                {isLoadingTopics ? (
+                  <div className="flex justify-center py-4">
+                    <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                   </div>
-          
-                  <div className="flex flex-wrap gap-2">
-                      {availableTopics.map((topic) => {
-                          const isSelected = selectedTopics.includes(topic);
-                          return (
-                              <Badge
-                                  key={topic}
-                                  variant={isSelected ? "default" : "outline"}
-                                  className={`cursor-pointer transition-all hover:bg-primary/90 hover:text-primary-foreground text-sm py-1 px-3 ${
-                                      isSelected ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:border-primary"
-                                  }`}
-                                  onClick={() => toggleTopic(topic)}
-                              >
-                                  {isSelected && <Check className="w-3 h-3 mr-1" />}
-                                  {topic}
-                              </Badge>
-                          );
-                      })}
-                  </div>
-                  
-                  {/* حقل إدخال لموضوع مخصص (اختياري) */}
-                  <div className="pt-2">
-                       <p className="text-[10px] text-muted-foreground">حدد النقاط التي سيتم تغطيتها لتوثيقها في سجل المحاضرة.</p>
-                  </div>
+                ) : topics.length > 0 ? (
+                  <ScrollArea className="h-[150px] w-full rounded-md border p-2 bg-background">
+                    <div className="space-y-2">
+                      {topics.map((topic) => (
+                        <div 
+                          key={topic.topic_id} 
+                          className={`flex items-start gap-3 p-2 rounded-md transition-colors ${topic.is_covered ? 'bg-green-50/50 dark:bg-green-900/10' : 'hover:bg-muted'}`}
+                        >
+                          <Checkbox 
+                            id={`topic-${topic.topic_id}`}
+                            checked={topic.is_covered || selectedTopics.includes(topic.topic_id)}
+                            disabled={topic.is_covered} // 🔒 لا يمكن اختياره إذا تم شرحه
+                            onCheckedChange={(checked) => !topic.is_covered && handleTopicToggle(topic.topic_id, checked === true)}
+                            className={topic.is_covered ? "data-[state=checked]:bg-green-500 data-[state=checked]:border-green-500 opacity-70" : ""}
+                          />
+                          <div className="grid gap-1.5 leading-none">
+                            <Label 
+                              htmlFor={`topic-${topic.topic_id}`}
+                              className={`text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer ${topic.is_covered ? 'text-green-700 dark:text-green-400' : ''}`}
+                            >
+                              {topic.title}
+                            </Label>
+                            {topic.is_covered && (
+                               <p className="text-[10px] text-green-600 dark:text-green-500 flex items-center gap-1">
+                                 <CheckCircle2 className="w-3 h-3" />
+                                 تم شرحه مسبقاً
+                               </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-2">لا توجد مواضيع مسجلة لهذه المادة.</p>
+                )}
+                {errors.topics && <p className="text-sm text-destructive">{errors.topics}</p>}
               </div>
               {/* ========================================================= */}
           

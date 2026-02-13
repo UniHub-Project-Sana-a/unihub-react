@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";import { usePermission } from "@/hooks/usePermission";
+import { api } from "@/lib/api";
+import { usePermission } from "@/hooks/usePermission";
 
 type ApiBuilding = {
   building_id: number;

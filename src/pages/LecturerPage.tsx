@@ -33,7 +33,7 @@ export interface ClassroomInfo {
 export interface LectureSession {
   id: string; // session_id
   timetableId: string; // timetable_id
-  courseId?: number; // ✅ تأكدنا أنه number أو string حسب الباك إند (يفضل number للـ IDs)
+  courseId?: number;
   title: string;
   groupName: string;
   groupId: string;
@@ -53,7 +53,7 @@ export interface LectureSession {
   // ✅ الحقل الجديد المسبب للخطأ
   makeupRequest?: {
     id: number;
-    status: number; // 0: Pending, 1: Approved, 2: Rejected
+    status: number;
     requestedDate: string;
   } | null;
 }
@@ -208,6 +208,7 @@ export default function LecturerPage() {
         latitude: settings.latitude,
         longitude: settings.longitude,
         allowed_distance: settings.allowedDistance,
+        topics: settings.selectedTopics
       };
       const res = await api.post('/v1/qr-codes/start-session', payload);
       const firstQrCode = res.data.data || res.data;

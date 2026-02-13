@@ -169,63 +169,79 @@ export default function LoginPage() {
   };
 
   const finalizeLogin = async (token: string) => {
+    // 1. ضبط الهيدر للطلب الحالي
     api.defaults.headers.common.Authorization = `Bearer ${token}`;
   
-    // تحديد الوجهة الافتراضية
-    let target = '/';
-    
     try {
+      // 2. جلب بيانات المستخدم وتحديد الدور بدقة
       const meRes = await api.get('/v1/auth/me');
-      const meRaw = meRes.data?.data ?? meRes.data ?? {};
-      const me = meRaw.user ?? meRaw;
       
-      const role = me?.user_type?.user_type_code || me?.user_type_code || '';
-      const collegeId = me?.college_id;
+      // استخراج البيانات بحذر لدعم اختلاف هيكلية الـ API
+      const responseData = meRes.data;
+      const userObj = responseData?.data?.user || responseData?.data || responseData?.user || responseData;
+      
+      const role = userObj?.user_type?.user_type_code || userObj?.user_type_code || '';
+      const collegeId = userObj?.college_id;
 
-      // 🛑 1. المشرف العام (رئاسة الجامعة) -> لوحة التحكم الرئيسية
-      if (role === 'presidency' || role === 'admin') {
-        target = '/';
+      console.log("Login User Role:", role); // للتأكد في الكونسول
+
+      // 3. تحديد الوجهة النهائية (Destination Calculation)
+      let destination = '/dashboard'; // قيمة افتراضية
+
+      if (role === 'student') {
+          // ⚠️ للطلاب: نذهب حصراً لصفحة الجودة ونتجاهل أي رابط سابق
+          destination = '/student/qa';
       } 
-      // 🛑 2. المحاضر -> واجهة المحاضر الخاصة
-      else if (role === 'lecturer') {
-        target = '/lecturer';
-      }
-      // 🛑 3. باقي الطاقم الإداري (عميد، سكرتارية، رئيس قسم...) -> لوحة تحكم كليتهم
-      else if (collegeId) {
-        // أي دور آخر غير المذكورين أعلاه ولديه college_id سيذهب لكليته
-        target = `/colleges/${collegeId}/dashboard`;
-      }
       else {
-        // حالة احتياطية (طالب أو خطأ في البيانات)
-        target = '/login';
+          // ⚠️ للإداريين: نحسب لوحة التحكم الخاصة بهم
+          let defaultPath = '/dashboard';
+          
+          if (role === 'lecturer') {
+              defaultPath = '/lecturer';
+          } else if (role === 'presidency' || role === 'admin') {
+              defaultPath = '/';
+          } else if (collegeId) {
+              defaultPath = `/colleges/${collegeId}/dashboard`;
+          }
+
+          // للإداريين فقط: نحترم الرابط السابق إذا وجد (from)
+          // بشرط ألا يكون الرابط السابق هو صفحة الدخول نفسها
+          const previousPath = location.state?.from?.pathname;
+          destination = (previousPath && previousPath !== '/login') ? previousPath : defaultPath;
+      }
+
+      // 4. تحديث حالة الدخول في التطبيق
+      // نقوم بحفظ البيانات يدوياً لضمان توفرها قبل الانتقال
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userObj));
+      
+      // نستدعي دالة الكونتكست لتحديث الحالة العامة
+      await login(token, rememberMe);
+
+      // 5. التوجيه (داخل setTimeout لضمان تنفيذه في نهاية دورة المعالجة)
+      // هذا يمنع RedirectIfAuthed من مقاطعة عملية التوجيه
+      setTimeout(() => {
+          navigate(destination, { replace: true });
+      }, 0);
+
+      // حفظ خيار "تذكرني"
+      if (rememberMe) {
+        localStorage.setItem('rememberedUser', email);
+        localStorage.setItem('rememberMeState', 'true');
+      } else {
+        localStorage.removeItem('rememberedUser');
+        localStorage.removeItem('rememberMeState');
       }
       
-    } catch (meError) {
-      console.error("Failed to fetch user details:", meError);
+    } catch (error) {
+      console.error("Login Error:", error);
+      setError("فشل التحقق من بيانات المستخدم.");
+      // تنظيف في حال الفشل
+      localStorage.removeItem('token');
+      api.defaults.headers.common.Authorization = '';
+    } finally {
+      setIsLoading(false);
     }
-    
-    try {
-        await login(token, rememberMe); 
-    } catch(e) {
-        setIsLoading(false);
-        return; 
-    }
-
-    // إذا كان هناك رابط سابق محفوظ (from) نستخدمه، وإلا نذهب للـ target المحسوب
-    const from = new URLSearchParams(location.search).get("from") || location.state?.from?.pathname || target;
-    
-    navigate(from, { replace: true });
-
-    // ... (باقي كود حفظ التذكر كما هو)
-    if (rememberMe) {
-      localStorage.setItem('rememberedUser', email);
-      localStorage.setItem('rememberMeState', 'true');
-    } else {
-      localStorage.removeItem('rememberedUser');
-      localStorage.removeItem('rememberMeState');
-    }
-    
-    setIsLoading(false); 
   };
 
   return (
