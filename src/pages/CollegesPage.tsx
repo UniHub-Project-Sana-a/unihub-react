@@ -103,32 +103,12 @@ export default function CollegesPage() {
       }
   
       const mappedColleges = data.map(c => {
-        // --- معالجة رابط الصورة ---
-        let finalLogoUrl = null;
-        
-        // نتحقق أولاً أن الحقل موجود وليس null
-        if (c.college_logo && typeof c.college_logo === 'string') {
-            // 1. هل الرابط قادم من الباك إند كاملاً (بسبب الـ Accessor)؟
-            if (c.college_logo.startsWith('http')) {
-                finalLogoUrl = c.college_logo;
-            } 
-            // 2. إذا كان مساراً نسبياً (مثل colleges/1.png) نقوم بدمجه مع رابط السيرفر
-            else {
-                // إزالة أي شرطة مائلة في البداية لتجنب //
-                const cleanPath = c.college_logo.replace(/^\//, '');
-                finalLogoUrl = `${STORAGE_BASE_URL}${cleanPath}`;
-            }
-
-            // إضافة الوقت لتحديث الكاش (Cache Busting)
-            finalLogoUrl += `?t=${new Date().getTime()}`;
-        }
-        // --------------------------
-
         return {
           id: String(c.college_id),
           name: c.college_name,
           academicCode: c.college_code || "",
-          logoUrl: finalLogoUrl // الرابط النهائي
+          // استخدم الحقل الجاهز مباشرة من الـ API
+          logoUrl: c.logoUrl ? `${c.logoUrl}?t=${new Date().getTime()}` : null 
         };
       });
 
