@@ -11,7 +11,7 @@ import { Pencil, Trash2, Plus, ArrowLeft, ChevronRight, Loader2, Upload, ImageIc
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; // تأكد من وجود هذا المكون أو استخدم img عادي
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; 
 import { usePermission } from "@/hooks/usePermission";
 
 // Lazy imports
@@ -62,7 +62,29 @@ export default function CollegesPage() {
   const { toast } = useToast();
   const { user: me } = useAuth();
 
-  const [activeTab, setActiveTab] = useState("colleges-dashboard");
+    // 1. تعريف التبويبات (نحتاج تعريفها مبكراً لاستخدامها في حساب القيمة الافتراضية)
+  const tabsConfig = useMemo(() => [
+    { val: "colleges-dashboard", label: "لوحة التحكم",      perm: "dashboard.view_college" },
+    { val: "departments",        label: "الخطة الدراسية",   perm: "study_plan.view" },
+    { val: "classrooms",         label: "القاعات",          perm: "locations.view" },
+    { val: "academic-titles",    label: "الرتب الأكاديمية", perm: "academic_titles.view" },
+    { val: "Academic Staff",     label: "هيئة التدريس",     perm: "staff.view" },
+    { val: "Timetable",          label: "الجدول",           perm: "timetable.view_lectures" },
+    { val: "Enrollment",         label: "التسجيل",          perm: "groups.view" },
+    { val: "periods",            label: "الفترات",          perm: "periods.view" },
+    { val: "Reports",            label: "التقارير",         perm: "reports.view_custom" },
+    { val: "MakeupRequests",     label: "طلبات التعويض",    perm: "requests.view_makeup" },
+    { val: "QualityAssurance",   label: "ضمان الجودة",      perm: "dashboard.view_college" }, // عدلت الصلاحية
+  ], []);
+
+  // 2. حساب التبويبات المسموحة
+  const visibleTabs = useMemo(() => tabsConfig.filter(tab => can(tab.perm)), [tabsConfig, can]);
+
+  // 3. تحديد التبويب الافتراضي (أول تبويب متاح)
+  // إذا لم يكن هناك أي تبويب متاح، نستخدم قيمة افتراضية آمنة
+  const defaultTab = visibleTabs.length > 0 ? visibleTabs[0].val : "colleges-dashboard";
+
+  const [activeTab, setActiveTab] = useState(defaultTab);
   const [colleges, setColleges] = useState<College[]>([]);
   const [selectedCollege, setSelectedCollege] = useState<College | null>(null);
   const [isCollegeFormOpen, setIsCollegeFormOpen] = useState(false);
@@ -155,7 +177,27 @@ export default function CollegesPage() {
          setSelectedCollege(null);
       }
     }
-  }, [routeId, colleges, isLoading, isSuperUser]); 
+  }, [routeId, colleges, isLoading, isSuperUser]);
+
+  useEffect(() => {
+      // إذا تغيرت الكلية، نعود للتبويب الافتراضي (اختياري، أو يمكن الحفاظ على التبويب الحالي)
+      // هذا يضمن أنه عند دخول صفحة كلية جديدة، يبدأ من الأول
+      setActiveTab(defaultTab);
+  }, [selectedCollege?.id]);
+
+  useEffect(() => {
+    if (location.state && location.state.activeTab) {
+      // نتأكد أن المستخدم يملك صلاحية التبويب المطلوب قبل تفعيله
+      const targetTab = tabsConfig.find(t => t.val === location.state.activeTab);
+      if (targetTab && can(targetTab.perm)) {
+        setActiveTab(location.state.activeTab);
+      }
+    } 
+    // else {
+    //     // إذا لم يكن هناك تبويب محدد في الرابط، نعود للافتراضي (أول واحد متاح)
+    //     setActiveTab(defaultTab);
+    // }
+  }, [location.state]);
 
   const handleAddCollege = () => {
     setIsCollegeFormOpen(true);
@@ -251,22 +293,22 @@ export default function CollegesPage() {
   }
 
   // 2. تعريف التبويبات مع صلاحياتها
-  const tabsConfig = [
-    { val: "colleges-dashboard", label: "لوحة التحكم",      perm: "dashboard.view_college" },
-    { val: "departments",        label: "الخطة الدراسية",   perm: "study_plan.view" },
-    { val: "classrooms",         label: "القاعات",          perm: "locations.view" },
-    { val: "academic-titles",    label: "الرتب الأكاديمية", perm: "academic_titles.view" },
-    { val: "Academic Staff",     label: "هيئة التدريس",     perm: "staff.view" },
-    { val: "Timetable",          label: "الجدول",           perm: "timetable.view_lectures" },
-    { val: "Enrollment",         label: "التسجيل",          perm: "groups.view" },
-    { val: "periods",            label: "الفترات",          perm: "periods.view" },
-    { val: "Reports",            label: "التقارير",         perm: "reports.view_custom" }, // تأكد من وجود هذه الصلاحية
-    { val: "MakeupRequests",     label: "طلبات التعويض",    perm: "requests.view_makeup" }, // تأكد من وجود هذه الصلاحية
-    { val: "QualityAssurance",   label: "ضمان الجودة",      perm: "dashboard.view_college" }, // qa.manage 
-  ];
+  // const tabsConfig = [
+  //   { val: "colleges-dashboard", label: "لوحة التحكم",      perm: "dashboard.view_college" },
+  //   { val: "departments",        label: "الخطة الدراسية",   perm: "study_plan.view" },
+  //   { val: "classrooms",         label: "القاعات",          perm: "locations.view" },
+  //   { val: "academic-titles",    label: "الرتب الأكاديمية", perm: "academic_titles.view" },
+  //   { val: "Academic Staff",     label: "هيئة التدريس",     perm: "staff.view" },
+  //   { val: "Timetable",          label: "الجدول",           perm: "timetable.view_lectures" },
+  //   { val: "Enrollment",         label: "التسجيل",          perm: "groups.view" },
+  //   { val: "periods",            label: "الفترات",          perm: "periods.view" },
+  //   { val: "Reports",            label: "التقارير",         perm: "reports.view_custom" }, // تأكد من وجود هذه الصلاحية
+  //   { val: "MakeupRequests",     label: "طلبات التعويض",    perm: "requests.view_makeup" }, // تأكد من وجود هذه الصلاحية
+  //   { val: "QualityAssurance",   label: "ضمان الجودة",      perm: "dashboard.view_college" }, // qa.manage 
+  // ];
   
-  // 3. تصفية القائمة بناءً على الصلاحيات
-  const visibleTabs = tabsConfig.filter(tab => can(tab.perm));
+  // // 3. تصفية القائمة بناءً على الصلاحيات
+  // const visibleTabs = tabsConfig.filter(tab => can(tab.perm));
 
   return (
     <AdminLayout>
