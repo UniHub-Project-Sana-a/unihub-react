@@ -49,6 +49,11 @@ export interface LectureSession {
   expectedStudents: number;
   sessionCode?: string;
   isMakeup?: boolean;
+  actual_start_time?: string; // التوقيت القادم من السيرفر
+  lecture_hours?: string | number; // مدة المحاضرة بالساعات
+  timetable?: {
+      allowance_minutes: number; // السماحية من الجدول
+  };
   
   // ✅ الحقل الجديد المسبب للخطأ
   makeupRequest?: {
@@ -163,6 +168,12 @@ export default function LecturerPage() {
           buildingName: session.actual_classroom?.building?.building_name || session.timetable?.classroom?.building?.building_name || 'مبنى غير محدد',
           departmentName: session.timetable?.department?.department_name || 'قسم غير محدد',
           isMakeup: Boolean(session.is_makeup),
+
+          actual_start_time: session.actual_start_time, 
+          lecture_hours: session.timetable?.lecture_hours,
+          timetable: {
+              allowance_minutes: session.timetable?.allowance_minutes ?? 15 // قيمة افتراضية إذا لم توجد
+          },
           
           classroom: {
             latitude: session.actual_classroom?.latitude ?? session.timetable?.classroom?.latitude ?? null,
@@ -219,6 +230,7 @@ export default function LecturerPage() {
       setQrSessionActive(true);
       setSessionEnded(false);
       setAttendanceRecords([]);
+      fetchLecturerInfoAndSchedule(viewDate);
     } catch (error: any) {
       toast({ title: "فشل بدء الجلسة", description: error?.response?.data?.message || "حدث خطأ غير متوقع.", variant: "destructive" });
     } finally {

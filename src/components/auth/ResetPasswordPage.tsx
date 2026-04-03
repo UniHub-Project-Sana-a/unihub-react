@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Eye, EyeOff, CheckCircle, XCircle } from "lucide-react";
+import { Eye, EyeOff, CheckCircle, XCircle, Loader2   } from "lucide-react";
 import logoFull from "@/assets/logo-full.png";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -24,12 +24,20 @@ const ResetPasswordPage = () => {
   const initialToken = useMemo(() => searchParams.get("token") ?? "", [searchParams]);
 
   const [email, setEmail] = useState(initialEmail);
-  const [token, setToken] = useState(initialToken);
+  const [token, setToken] = useState(initialToken); // تم تصحيح الاسم هنا كان initailToken
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [policy, setPolicy] = useState<PasswordPolicy | null>(null);
+  
+  // ✅ التعديل 1: وضع القيم الافتراضية مباشرة كقيمة ابتدائية لتجنب التأخير أو طلب API محظور
+  const [policy, setPolicy] = useState<PasswordPolicy>({
+    minPasswordLength: 8,
+    requireUppercase: true,
+    requireNumbers: true,
+    requireLowercase: true,
+    requireSymbols: false
+  });
 
   const [serverError, setServerError] = useState<string>('');
   const [serverSuccess, setServerSuccess] = useState<string>('');
@@ -39,43 +47,18 @@ const ResetPasswordPage = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // عند فتح صفحة إعادة التعيين، نتأكد من تسجيل الخروج
-    // لتجنب أي تضارب مع جلسات سابقة
+    // التأكد من عدم وجود جلسة سابقة قد تسبب تضارباً
     logout();
-    
-    // (اختياري) مسح التوكن يدوياً للتأكد 100%
     localStorage.removeItem('token'); 
     localStorage.removeItem('user');
   }, []);
 
-    useEffect(() => {
-    const fetchPolicy = async () => {
-      try {
-        const res = await api.get("/v1/admin/security/policy");
-        // ✅ التعديل: البيانات موجودة داخل security وليس password
-        if (res.data?.security) {
-            setPolicy(res.data.security);
-        } else {
-            throw new Error("No policy found");
-        }
-      } catch {
-        // القيم الافتراضية في حال الفشل
-        setPolicy({ 
-            minPasswordLength: 8, 
-            requireUppercase: true, 
-            requireNumbers: true, 
-            requireLowercase: true, 
-            requireSymbols: false 
-        });
-      }
-    };
-    fetchPolicy();
-  }, []);
+  // ❌ تم حذف useEffect الخاص بطلب السياسة (/v1/admin/security/policy)
+  // لأنه يسبب 401 و Redirect لأن المستخدم غير مسجل دخول
 
-    const passwordValidations = useMemo(() => {
+  const passwordValidations = useMemo(() => {
     if (!policy) return [];
     
-    // ✅ التعديل: استخدام المفاتيح الصحيحة (camelCase)
     return [
       { 
           text: `على الأقل ${policy.minPasswordLength} أحرف`, 
@@ -85,7 +68,6 @@ const ResetPasswordPage = () => {
           text: "حرف كبير واحد على الأقل", 
           valid: /[A-Z]/.test(newPassword) 
       },
-      // نتأكد أن الحقل موجود قبل فحصه (لأنه قد لا يأتي من الـ API)
       (policy.requireLowercase ?? true) && { 
           text: "حرف صغير واحد على الأقل", 
           valid: /[a-z]/.test(newPassword) 
@@ -113,17 +95,35 @@ const ResetPasswordPage = () => {
     e.preventDefault();
     setServerError('');
     setServerSuccess('');
-    if (!isPasswordValid || !email || !token) return;
+    
+    // التحقق من صحة البيانات قبل الإرسال
+    if (!isPasswordValid) {
+        setServerError("يرجى تحقيق جميع شروط كلمة المرور");
+        return;
+    }
+    if (!email || !token) {
+        setServerError("رابط تغيير كلمة المرور غير صالح أو ناقص");
+        return;
+    }
+
     setIsSubmitting(true);
   
     try {
+      // ✅ إرسال طلب تغيير كلمة المرور
       await api.post('/v1/auth/reset-password', {
-        email, token, password: newPassword, password_confirmation: confirmPassword
+        email, 
+        token, 
+        password: newPassword, 
+        password_confirmation: confirmPassword
       });
+      
       setServerSuccess('تم تغيير كلمة المرور بنجاح. سيتم تحويلك إلى صفحة الدخول...');
-      setTimeout(() => navigate('/login'), 1500); // <-- توجيه إلى /login
+      
+      // ✅ الانتظار قليلاً ثم التحويل لصفحة الدخول
+      setTimeout(() => navigate('/login'), 2000); 
+
     } catch (err: any) {
-      const msg = err?.response?.data?.errors?.password?.[0] || err?.response?.data?.message || 'حدث خطأ أثناء تغيير كلمة المرور.';
+      const msg = err?.response?.data?.errors?.password?.[0] || err?.response?.data?.message || 'حدث خطأ أثناء تغيير كلمة المرور. تأكد من صحة الرابط أو اطلب رابطاً جديداً.';
       setServerError(msg);
     } finally {
       setIsSubmitting(false);
@@ -135,17 +135,17 @@ const ResetPasswordPage = () => {
       <Card className="w-full max-w-md shadow-2xl border border-border/50">
         <CardHeader className="text-center space-y-2">
           <div className="mx-auto mb-2"><img src={logoFull} alt="UniHub" className="h-16 w-auto mx-auto" /></div>
-          <CardTitle className="text-2xl font-bold text-foreground">قم بتعيين كلمة المرور الجديدة</CardTitle>
-          <CardDescription className="text-muted-foreground">يجب تغيير كلمة المرور قبل استخدام النظام</CardDescription>
+          <CardTitle className="text-2xl font-bold text-foreground">تعيين كلمة المرور</CardTitle>
+          <CardDescription className="text-muted-foreground">أدخل كلمة المرور الجديدة لحساب: {email}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {serverError && <Alert variant="destructive"><AlertDescription>{serverError}</AlertDescription></Alert>}
-          {serverSuccess && <Alert><AlertDescription>{serverSuccess}</AlertDescription></Alert>}
+          {serverSuccess && <Alert className="bg-green-50 text-green-700 border-green-200"><AlertDescription>{serverSuccess}</AlertDescription></Alert>}
+          
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">البريد الإلكتروني</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </div>
+            {/* تم إخفاء حقل الإيميل لأنه يأتي من الرابط ولا يجب تعديله يدوياً عادة */}
+            <input type="hidden" value={email} />
+
             <div className="space-y-2">
               <Label htmlFor="newPassword">كلمة المرور الجديدة</Label>
               <div className="relative">
@@ -164,21 +164,25 @@ const ResetPasswordPage = () => {
                 </button>
               </div>
             </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">متطلبات كلمة المرور:</p>
-              {passwordValidations.length === 0 ? <p className="text-xs text-muted-foreground">جارٍ تحميل السياسة...</p> : passwordValidations.map((v, i) => (
+
+            {/* عرض شروط كلمة المرور */}
+            <div className="space-y-2 bg-muted/30 p-3 rounded-md">
+              <p className="text-sm font-medium text-foreground mb-2">الشروط المطلوبة:</p>
+              {passwordValidations.map((v, i) => (
                 <div key={i} className="flex items-center space-x-2">
-                  {v.valid ? <CheckCircle size={16} className="text-accent" /> : <XCircle size={16} className="text-destructive" />}
-                  <span className={`text-sm ${v.valid ? 'text-accent' : 'text-destructive'}`}>{v.text}</span>
+                  {v.valid ? <CheckCircle size={14} className="text-green-600" /> : <div className="w-3.5 h-3.5 rounded-full border border-muted-foreground/40" />}
+                  <span className={`text-xs ${v.valid ? 'text-green-700 font-medium' : 'text-muted-foreground'}`}>{v.text}</span>
                 </div>
               ))}
             </div>
+
             <Button type="submit" className="w-full" disabled={isSubmitting || !isPasswordValid}>
-              {isSubmitting ? 'جارٍ الحفظ...' : 'حفظ كلمة المرور'}
+              {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> جاري الحفظ...</> : 'تغيير كلمة المرور'}
             </Button>
           </form>
+          
           <div className="text-center mt-4">
-            <Link to="/" className="text-sm text-primary hover:underline">العودة لتسجيل الدخول</Link>
+            <Link to="/login" className="text-sm text-primary hover:underline">العودة لتسجيل الدخول</Link>
           </div>
         </CardContent>
       </Card>

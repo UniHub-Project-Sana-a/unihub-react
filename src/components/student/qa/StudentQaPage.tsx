@@ -132,7 +132,7 @@ export default function StudentQaPage() {
                     <>
                         <div className="grid gap-4 md:grid-cols-2">
                             {evaluations.map((item) => (
-                                <Card key={item.timetable_id} className={`overflow-hidden transition-all border shadow-sm ${item.can_evaluate ? 'hover:shadow-md border-primary/20 bg-white' : 'bg-gray-50/80'}`}>
+                                <Card key={`${item.timetable_id}-${item.lecturer_id}`} className={`overflow-hidden transition-all border shadow-sm ${item.can_evaluate ? 'hover:shadow-md border-primary/20 bg-white' : 'bg-gray-50/80'}`}>
                                     <CardHeader className="pb-3">
                                         <div className="flex justify-between items-start">
                                             {/* Badge الحالة */}

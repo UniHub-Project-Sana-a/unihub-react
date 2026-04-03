@@ -365,13 +365,14 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     program_id: number | ""; // حقل مساعد
     gender_type: number | "";
     lecture_hours: number | "";
+    allowance_minutes: number | "";
   }
 
   const [manualForm, setManualForm] = useState<ManualForm>({
     course_id: "", lecturer_id: "", group_id: "", classroom_id: "",
     day_id: "", period_id: "", lecture_type: 0, status: 1, start_date: "",
     end_date: "", academic_year: "", college_id: collegeIdNum || "", department_id: "",
-    level_id: "", program_id: "", gender_type: 0, lecture_hours: 2,
+    level_id: "", program_id: "", gender_type: 0, lecture_hours: 2, allowance_minutes: 15,
   });
 
   const [manualFormErrors, setManualFormErrors] = useState<Partial<Record<keyof ManualForm, string>>>({});
@@ -805,6 +806,7 @@ const openCreateSessionModal = async () => {
       academic_year: "",
       gender_type: 0,
       lecture_hours: 2,
+      allowance_minutes: 15,
     });
     setManualFormErrors({});
     setPrograms([]);
@@ -1189,7 +1191,6 @@ const openCreateSessionModal = async () => {
               <CardContent className="space-y-6 p-4 md:p-6">
                 
                 {/* Academic Structure Section */}
-                {/* تعديل: عمود واحد للموبايل، 2 للتابلت، 4 للابتوب */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
                   {/* College */}
                   <div className="space-y-2">
@@ -1256,7 +1257,6 @@ const openCreateSessionModal = async () => {
                 <hr className="border-border/20" />
 
                 {/* Lecture Details Section */}
-                {/* تعديل: عمود واحد للموبايل، 2 للتابلت، 3 للابتوب */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {/* Course */}
                   <div className="space-y-2">
@@ -1392,7 +1392,6 @@ const openCreateSessionModal = async () => {
                 <hr className="border-border/20" />
 
                 {/* Dates and Properties Section */}
-                {/* تعديل: عمود واحد موبايل، 2 تابلت، 4 لابتوب */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="space-y-2">
                     <Label>تاريخ البداية</Label>
@@ -1413,6 +1412,25 @@ const openCreateSessionModal = async () => {
                     <Label>ساعات المحاضرة</Label>
                     <Input type="number" step="0.25" min="0" value={String(manualForm.lecture_hours)} onChange={(e) => setManualForm({ ...manualForm, lecture_hours: e.target.value === "" ? "" : Number(e.target.value) })}/>
                     {manualFormErrors.lecture_hours && <p className="text-xs text-destructive mt-1">{manualFormErrors.lecture_hours}</p>}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                        <Label>فترة السماح (دقائق)</Label>
+                        <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded" title="الوقت المسموح للمحاضر الخروج فيه قبل نهاية الوقت الرسمي">
+                            لكل ساعة
+                        </span>
+                    </div>
+                    <Input 
+                        type="number" 
+                        min="0" 
+                        max="60"
+                        placeholder="مثلاً: 15"
+                        value={String(manualForm.allowance_minutes)} 
+                        onChange={(e) => setManualForm({ ...manualForm, allowance_minutes: e.target.value === "" ? 0 : Number(e.target.value) })}
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                        سيتم خصمها من مدة البقاء المطلوبة.
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>نوع المحاضرة</Label>

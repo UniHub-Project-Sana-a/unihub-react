@@ -4,13 +4,27 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
 import { usePermission } from "@/hooks/usePermission";
 import { 
-  Home, Users, GraduationCap, Settings, ChevronDown, 
-  // أيقونات الكلية
+  Home, Users, GraduationCap, ChevronDown, LucideIcon,
   LayoutDashboard, BookOpen, MapPin, Award, UserCheck, Calendar, 
-  Users2, Clock, FileBarChart, History, BadgeCheck, BookOpenCheck
+  Users2, Clock, FileBarChart, History, BadgeCheck
 } from "lucide-react";
 import logoSidebar from "@/assets/logo-sidebar.png";
 import logoMini from "@/assets/logo-mini.png";
+
+// 1. تعريف الواجهات لتجنب ts-ignore
+interface SubItem {
+  title: string;
+  href: string;
+}
+
+interface SidebarItem {
+  title: string;
+  icon: LucideIcon;
+  href: string;
+  perm: string | null;
+  subItems?: SubItem[];
+  state?: { activeTab: string }; // خاص بتبويبات الكلية
+}
 
 interface SidebarProps {
   isOpen: boolean;
@@ -24,16 +38,15 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
   const { can } = usePermission();
   const [expandedItems, setExpandedItems] = useState<string[]>([]);
 
-  // 1. تحديد نوع المستخدم وصلاحيته
-  // @ts-ignore
-  const userRole = me?.user_type?.user_type_code || me?.user_type_code;
-  // @ts-ignore
-  const collegeId = me?.college_id;
+  // الوصول الآمن للبيانات
+  // ملاحظة: تأكد من أن User Interface في AuthContext تدعم هذه الحقول
+  const userRole = (me as any)?.user_type?.user_type_code || (me as any)?.user_type_code;
+  const collegeId = (me as any)?.college_id;
   const isSuperUser = userRole === 'presidency' || userRole === 'admin';
 
   // 2. بناء القائمة ديناميكياً
-  const menuItems = useMemo(() => {
-    // A. قائمة المشرف العام (Global Admin Menu)
+  const menuItems: SidebarItem[] = useMemo(() => {
+    // A. قائمة المشرف العام
     if (isSuperUser) {
       return [
         { title: "لوحة التحكم", icon: Home, href: "/", perm: null },
@@ -49,17 +62,16 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
             { title: "التحكم في الوصول", href: "/users/access-control" }
           ]
         },
-        // { title: "الإعدادات", icon: Settings, href: "/settings", perm: null },
       ];
     }
 
-    // B. قائمة موظفي الكلية (College Staff Menu)
+    // B. قائمة موظفي الكلية
     if (collegeId) {
-      const basePath = `/colleges/${collegeId}/dashboard`; // الرابط الأساسي
+      const basePath = `/colleges/${collegeId}/dashboard`;
       
-      // تعريف العناصر بنفس منطق تبويبات CollegesPage
       const collegeItems = [
         { title: "لوحة التحكم", icon: LayoutDashboard, href: basePath, perm: "dashboard.view_college", tab: "colleges-dashboard" },
+        { title: "المستخدمين", icon: Users, href: "/users", perm: "users.view" },
         { title: "الخطة الدراسية", icon: BookOpen, href: basePath, perm: "study_plan.view", tab: "departments" },
         { title: "القاعات", icon: MapPin, href: basePath, perm: "locations.view", tab: "classrooms" },
         { title: "الرتب الأكاديمية", icon: Award, href: basePath, perm: "academic_titles.view", tab: "academic-titles" },
@@ -69,27 +81,23 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
         { title: "التسجيل", icon: Users2, href: basePath, perm: "groups.view", tab: "Enrollment" },
         { title: "التقارير", icon: FileBarChart, href: basePath, perm: "reports.view_custom", tab: "Reports" },
         { title: "طلبات التعويض", icon: History, href: basePath, perm: "requests.view_makeup", tab: "MakeupRequests" },
-        { title: "ضمان الجودة", icon: BadgeCheck, href: basePath, perm: "dashboard.view_college", tab: "QualityAssurance" }, // عدل الصلاحية لاحقاً لـ qa.manage
+        { title: "ضمان الجودة", icon: BadgeCheck, href: basePath, perm: "dashboard.view_college", tab: "QualityAssurance" },
       ];
 
-      // فلترة العناصر حسب الصلاحيات
       return collegeItems
         .filter(item => can(item.perm))
         .map(item => ({
-          ...item,
-          // نضيف query param أو state لتفعيل التبويب عند الضغط (إذا كانت الصفحة واحدة)
-          // أو يمكن استخدام روابط فرعية حقيقية إذا قمت بتعديل CollegesPage ليدعم الروابط
-          // حالياً سنفترض أننا نرسل state عبر Link (وهذا يتطلب دعم في CollegesPage لقراءة الـ state)
-          // الحل الأبسط: سنستخدم الروابط كما هي، وعند الضغط سيذهب للصفحة الرئيسية للكلية
-          href: item.href, 
-          state: { activeTab: item.tab } // نمرر التبويب المطلوب كـ state
+          title: item.title,
+          icon: item.icon,
+          href: item.href,
+          perm: item.perm,
+          state: (item as any).tab ? { activeTab: (item as any).tab } : undefined
         }));
     }
 
-    return []; // حالة افتراضية (أو قائمة فارغة)
+    return [];
   }, [isSuperUser, collegeId, can]);
 
-  // ... (باقي كود التوسيع والانكماش كما هو) ...
   const isCollapsed = !isMobile && !isOpen;
 
   const toggleExpanded = (title: string) => {
@@ -122,9 +130,9 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
         "h-20 flex items-center border-b border-sidebar-border bg-sidebar/50 backdrop-blur-sm flex-shrink-0 transition-all duration-300 overflow-hidden justify-center px-0"
       )}>
         {isCollapsed ? (
-          <img src={logoMini} alt="UniHub Mini" className="w-full h-59 object-contain animate-in fade-in zoom-in duration-300" />
+          <img src={logoMini} alt="UniHub Mini" className="w-10 h-10 object-contain animate-in fade-in zoom-in duration-300" />
         ) : (
-          <img src={logoSidebar} alt="UniHub" className="h-21 w-full object-contain animate-in fade-in slide-in-from-right-4 duration-300" />
+          <img src={logoSidebar} alt="UniHub" className="h-16 w-full object-contain animate-in fade-in slide-in-from-right-4 duration-300 px-4" />
         )}
       </div>
 
@@ -132,13 +140,17 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
       <nav className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none py-4 px-3">
         <div className="space-y-2">
           {menuItems.map((item) => {
-            // منطق التنشيط:
-            // 1. الرابط مطابق تماماً
-            // 2. أو هو عنصر فرعي
-            // 3. أو (لموظف الكلية) الـ state مطابق للتبويب الحالي (يحتاج استخدام useLocation().state وهذا غير متاح مباشرة هنا للتحديث الفوري)
-            // لذا سنكتفي بالرابط الأساسي
-            const isActive = location.pathname === item.href; 
+            // منطق التنشيط المحسن
+            const currentTabState = (location.state as any)?.activeTab;
             
+            const isActive = 
+              // 1. القائمة الفرعية نشطة
+              (item.subItems && item.subItems.some(sub => location.pathname === sub.href)) ||
+              // 2. تطابق الرابط والتبويب (للكليات)
+              (item.state && location.pathname === item.href && currentTabState === item.state.activeTab) ||
+              // 3. تطابق الرابط فقط (للمسؤولين أو عند عدم وجود تبويب)
+              (!item.state && !item.subItems && location.pathname === item.href);
+
             return (
               <div key={item.title} className="relative group">
                 <div
@@ -150,7 +162,6 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
                     isCollapsed ? "justify-center px-0" : "justify-between px-3"
                   )}
                   onClick={() => {
-                    // @ts-ignore
                     if (item.subItems) {
                       toggleExpanded(item.title);
                     } else if (isMobile) {
@@ -160,15 +171,12 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
                 >
                   <Link 
                     to={item.href} 
-                    // نمرر الـ state ليقرأه CollegesPage ويفتح التبويب الصحيح
-                    // @ts-ignore
                     state={item.state} 
                     className={cn(
                       "flex items-center min-w-0",
                       !isCollapsed && "space-x-reverse space-x-3 flex-1" 
                     )}
                     onClick={(e) => {
-                      // @ts-ignore
                       if (item.subItems) e.preventDefault();
                       else if (isMobile) onToggle();
                     }}
@@ -187,7 +195,6 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
                     )}
                   </Link>
 
-                  {/* @ts-ignore */}
                   {!isCollapsed && item.subItems && (
                     <ChevronDown 
                       className={cn(
@@ -200,16 +207,15 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
                   {isCollapsed && (
                     <div className="absolute right-14 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-gray-900 text-white text-xs font-medium rounded-md shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 whitespace-nowrap z-50">
                       {item.title}
+                      {/* مثلث التلميح (تم عكس الاتجاه ليتناسب مع RTL) */}
                       <div className="absolute top-1/2 -right-1 -translate-y-1/2 border-4 border-transparent border-l-gray-900"></div>
                     </div>
                   )}
                 </div>
 
                 {/* Sub Items */}
-                {/* @ts-ignore */}
                 {!isCollapsed && item.subItems && expandedItems.includes(item.title) && (
                   <div className="mr-4 mt-1 border-r-2 border-gray-200 pr-2 space-y-1 animate-in slide-in-from-top-2 duration-200">
-                    {/* @ts-ignore */}
                     {item.subItems.map((subItem) => (
                       <Link
                         key={subItem.href}

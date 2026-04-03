@@ -50,6 +50,7 @@ interface TimetableRow {
     course_code: string;
     lecturer_name: string;
     group_name: string;
+    has_substitutes?: boolean;
     lecture_type: number | string; // حسب قاعدة بياناتك
 }
 
@@ -132,36 +133,62 @@ export default function QaCampaignsManager({ collegeId }: { collegeId: number })
     };
 
     const handleCreate = async () => {
+        // ✅ 1. التحقق المسبق (Validation) قبل الاتصال بالسيرفر
+        if (!newCampaign.campaign_name.trim()) {
+            toast.error("يرجى إدخال اسم الحملة");
+            return;
+        }
+        if (!newCampaign.academic_year) {
+            toast.error("يرجى اختيار السنة الدراسية");
+            return;
+        }
         if (newCampaign.timetable_ids.length === 0) {
-            toast.error("يرجى اختيار مقرر واحد على الأقل");
+            toast.error("يرجى اختيار مقرر واحد على الأقل من الجدول");
+            return;
+        }
+        if (!newCampaign.form_id) {
+            toast.error("يرجى اختيار نموذج التقييم");
+            return;
+        }
+        if (!newCampaign.start_date) {
+            toast.error("يرجى تحديد تاريخ بدء الحملة");
+            return;
+        }
+        if (!newCampaign.end_date) {
+            toast.error("يرجى تحديد تاريخ انتهاء الحملة");
+            return;
+        }
+        if (newCampaign.end_date < newCampaign.start_date) {
+            toast.error("تاريخ الانتهاء لا يمكن أن يكون قبل تاريخ البدء");
             return;
         }
 
+        // ✅ 2. إرسال الطلب (إذا تجاوز كل الشروط السابقة)
         setIsSaving(true);
         try {
             const payload = {
-                // ... البيانات
                 campaign_name: newCampaign.campaign_name,
                 form_id: Number(newCampaign.form_id),
-                timetable_ids: newCampaign.timetable_ids.map(Number), // ✅ إرسال ID الجداول
+                timetable_ids: newCampaign.timetable_ids.map(Number),
                 academic_year: newCampaign.academic_year,
-                target_percentage: newCampaign.target_percentage,
                 min_attendance_percentage: newCampaign.min_attendance,
+                target_percentage: newCampaign.target_percentage,
                 start_date: format(newCampaign.start_date!, 'yyyy-MM-dd'),
                 end_date: format(newCampaign.end_date!, 'yyyy-MM-dd'),
             };
             const res = await api.post('/v1/qa/campaigns', payload);
+            
             setCampaigns([res.data, ...campaigns]);
+            
             setIsDialogOpen(false);
-            // تصفير
             setNewCampaign({
-                campaign_name: "", form_id: "", academic_year: "", timetable_ids: [], target_percentage: 80,
-                min_attendance: 75, start_date: undefined, end_date: undefined
+                campaign_name: "", form_id: "", academic_year: "", timetable_ids: [],
+                min_attendance: 75, target_percentage: 80, start_date: undefined, end_date: undefined
             });
             setTimetableRows([]);
-            toast.success("تم الحفظ");
+            toast.success("تم إطلاق الحملة بنجاح");
         } catch (error) {
-            toast.error("فشل الحفظ");
+            toast.error("فشل الحفظ، يرجى التأكد من البيانات والمحاولة مرة أخرى");
         } finally {
             setIsSaving(false);
         }
@@ -308,8 +335,15 @@ export default function QaCampaignsManager({ collegeId }: { collegeId: number })
                                                             </div>
                                                             
                                                             <div className="flex flex-wrap justify-between items-center text-xs text-muted-foreground mt-1 gap-2">
-                                                                <span className="flex items-center gap-1 truncate">
+                                                                <span className={cn("flex items-center gap-1 truncate", row.has_substitutes ? "text-orange-600 font-bold" : "")}>
                                                                     👨‍🏫 {row.lecturer_name}
+                                                                    
+                                                                    {/* ✅ أيقونة تنبيه للمدير */}
+                                                                    {row.has_substitutes && (
+                                                                        <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-100 text-orange-600" title="يوجد محاضرون بدلاء في هذا الجدول">
+                                                                            !
+                                                                        </span>
+                                                                    )}
                                                                 </span>
                                                                 <span className="flex items-center gap-1 bg-muted px-2 py-0.5 rounded text-[10px] shrink-0">
                                                                     👥 {row.group_name}
@@ -397,7 +431,11 @@ export default function QaCampaignsManager({ collegeId }: { collegeId: number })
                         </div>
                 
                         <DialogFooter className="gap-2 sm:gap-0 mt-2">
-                            <Button className="w-full sm:w-auto" onClick={handleCreate} disabled={isSaving || !newCampaign.form_id || newCampaign.timetable_ids.length === 0}>
+                            <Button 
+                                className="w-full sm:w-auto" 
+                                onClick={handleCreate} 
+                                disabled={isSaving} // ✅ التعديل هنا: الزر مفعل دائماً إلا أثناء التحميل
+                            >
                                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin ml-2" /> : null}
                                 {isSaving ? "جاري الحفظ..." : `إطلاق الحملة (${newCampaign.timetable_ids.length} مقرر)`}
                             </Button>

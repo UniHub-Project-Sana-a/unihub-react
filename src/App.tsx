@@ -35,6 +35,7 @@ import RedirectIfAuthed from "@/auth/RedirectIfAuthed";
 import RequireRole from "@/auth/RequireRole"; 
 import ChangePasswordPage from '@/components/auth/ChangePasswordPage';
 import RequirePermission from "@/auth/RequirePermission";
+import UniversityComprehensiveReport from "@/components/reports/UniversityComprehensiveReport";
 
 const queryClient = new QueryClient();
 
@@ -68,6 +69,7 @@ const App = () => (
                 {/* 🔒 أ) منطقة المشرف العام فقط (رئاسة الجامعة) */}
                 <Route element={<RequireRole allowedRoles={['presidency' , 'admin']} />}>
                   <Route path="/" element={<Index />} />
+                  <Route path="/reports/university-comprehensive" element={<UniversityComprehensiveReport />} />
                   <Route path="/colleges" element={<CollegesPage />} /> 
                   <Route path="/settings" element={<SettingsPage />} />
                   <Route path="/users/access-control" element={<AccessControlPage />} />

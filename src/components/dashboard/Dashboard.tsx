@@ -250,7 +250,7 @@ export function Dashboard() {
         </Card>
       </div>
 
-            {/* 4. مصفوفة الكليات (Detailed Table) */}
+      {/* 4. مصفوفة الكليات (Detailed Table) */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* قائمة الكليات والحالة */}
@@ -259,19 +259,13 @@ export function Dashboard() {
             <div className="flex justify-between items-center">
               <CardTitle>مصفوفة الكليات</CardTitle>
               <Button 
-                variant="ghost" 
-                size="sm" 
-                className="text-xs"
-                onClick={() => toast("الصفحة قيد التطوير 🚧", {
-                  description: "جاري العمل على التقرير المفصل للمصفوفة، سيكون متاحاً قريباً.",
-                  duration: 3000,
-                  action: {
-                    label: "حسناً",
-                    onClick: () => console.log("Dismissed"),
-                  },
-                })}
+                  variant="ghost" 
+                  size="sm" 
+                  className="text-xs"
+                  // ✅ التعديل هنا
+                  onClick={() => navigate('/reports/university-comprehensive')}
               >
-                عرض تقرير مفصل
+                  عرض تقرير مفصل
               </Button>
             </div>
           </CardHeader>
