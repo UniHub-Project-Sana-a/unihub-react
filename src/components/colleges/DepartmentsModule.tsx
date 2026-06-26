@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Plus, Edit, Trash2, Loader2, Target, Layers, LayoutGrid, 
-  Clock, AlertCircle, X, ChevronRight, BookOpen, GraduationCap, Calendar, Box
+  Clock, AlertCircle, X, ChevronRight, BookOpen, GraduationCap, Calendar, Box, Edit2 , Save
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePermission } from "@/hooks/usePermission";
@@ -58,29 +58,49 @@ type ApiSemester = {
 };
 
 type CoursePart = {
-  name: string;
-  theoretical_hours: number;
-  practical_hours: number;
-  exercise_hours: number;
-  seminar_hours: number;
+  name: "نظري" | "عملي" | "تمارين" | "سريري";
+  actual_hours: number;
+  rate: number; 
 };
 
 type ApiCourse = { 
   id: number; 
-  semester_id?: number;
-  block_id?: number;
   course_code: string; 
   course_name: string; 
   credit_hours: number;
+  
   course_parts: CoursePart[];
-  is_elective: boolean; 
-  department_id?: number | null; 
-  notes?: string | null; 
-  weight?: number;
-  prerequisites?: string;
-  corequisites?: string;
-  teaching_language?: string;
-  category?: string;
+  
+  weight: number;
+  category: "متطلب جامعة" | "متطلب كلية" | "متطلب تخصص إجباري" | "متطلب تخصص اختياري";
+  teaching_language: "العربية" | "الإنجليزية" | "ثنائي اللغة";
+  notes?: string | null;
+  
+  college_id: number;
+  department_id: number;
+  program_id: number;
+  level_id?: number | null;
+  semester_id?: number | null;
+  block_id?: number | null;
+  
+  prerequisites?: ApiCourse[];
+  corequisites?: ApiCourse[];
+
+    college?: {
+    id: number;
+    name: string;
+  };
+  
+  department?: {
+    id: number;
+    name: string;
+  };
+  
+  program?: {
+    id: number;
+    name: string;
+    academic_system?: string;
+  };
 };
 
 type Block = {
@@ -91,14 +111,20 @@ type Block = {
   block_number: number;
   weeks: number;
   weight: number;
+  credit_hours: number;
+  type: 'compulsory' | 'elective';
+  description?: string;
 };
 
 type ProgramOutcome = {
-  id: string;
+  plo_id: number;
   code: string;
-  name: string;
-  domain: string;
+  description: string;
+  domain: "Knowledge" | "Intellectual" | "Professional" | "General";
   weight: number;
+  order: number;
+  is_active: boolean;
+  program_id: number;
 };
 
 const departmentSchema = z.object({ 
@@ -169,46 +195,59 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     blockName: "",
     blockNumber: 1,
     weeks: 6,
-    weight: 0
+    weight: 0,
+    credit_hours: 0,
+    type: "compulsory",
+    description: "",
   });
 
+  const [selectedPrerequisites, setSelectedPrerequisites] = useState<number[]>([]);
+  const [selectedCorequisites, setSelectedCorequisites] = useState<number[]>([]);
+  const [isPrereqModalOpen, setIsPrereqModalOpen] = useState(false);
+  const [isCoreqModalOpen, setIsCoreqModalOpen] = useState(false);
+
+  const [availableCoursesForPrereq, setAvailableCoursesForPrereq] = useState<ApiCourse[]>([]);
+  const [isPrereqSelectOpen, setIsPrereqSelectOpen] = useState(false);
+  const [isCoreqSelectOpen, setIsCoreqSelectOpen] = useState(false);
   const [termCourses, setTermCourses] = useState<ApiCourse[]>([]);
   const [blockCourses, setBlockCourses] = useState<ApiCourse[]>([]);
   const [categoryCourses, setCategoryCourses] = useState<ApiCourse[]>([]);
   const [isCourseFormOpen, setIsCourseFormOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<ApiCourse | null>(null);
+  const [activeCourseCategory, setActiveCourseCategory] = useState<string | null>(null);
+  const [highlightedCourseId, setHighlightedCourseId] = useState<number | null>(null);
   const [courseFormData, setCourseFormData] = useState<{
     courseCode: string;
     courseName: string;
     creditHours: number;
     courseParts: CoursePart[];
-    isElective: boolean;
-    departmentId: string;
-    notes: string;
+    
+    // ✅ معلومات إضافية
     weight: number;
-    prerequisites: string;
-    corequisites: string;
-    teachingLanguage: string;
-    category: string;
+    category: "متطلب جامعة" | "متطلب كلية" | "متطلب تخصص إجباري" | "متطلب تخصص اختياري";
+    teachingLanguage: "العربية" | "الإنجليزية" | "ثنائي اللغة";
+    notes: string;
+    
+    // ✅ المتطلبات (IDs فقط)
+    prerequisiteIds: number[];
+    corequisiteIds: number[];
   }>({ 
     courseCode: "", 
     courseName: "", 
-    creditHours: 3, 
-    courseParts: [{ 
-      name: "نظري", 
-      theoretical_hours: 2, 
-      practical_hours: 0, 
-      exercise_hours: 0, 
-      seminar_hours: 0 
-    }],
-    isElective: false, 
-    departmentId: "", 
-    notes: "", 
+    creditHours: 0, // ✅ سيُحسب تلقائياً
+    courseParts: [
+      { 
+        name: "نظري", 
+        actual_hours: 2, 
+        rate: 1.0 
+      }
+    ],
     weight: 0,
-    prerequisites: "",
-    corequisites: "",
+    category: "متطلب تخصص إجباري",
     teachingLanguage: "العربية",
-    category: "متطلب تخصص"
+    notes: "",
+    prerequisiteIds: [],
+    corequisiteIds: []
   });
 
   const [isProgramOutcomesDialogOpen, setIsProgramOutcomesDialogOpen] = useState(false);
@@ -216,10 +255,16 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   const [programOutcomes, setProgramOutcomes] = useState<ProgramOutcome[]>([]);
   const [isProgramOutcomeFormOpen, setIsProgramOutcomeFormOpen] = useState(false);
   const [programOutcomeFormMode, setProgramOutcomeFormMode] = useState<"add" | "edit">("add");
-  const [programOutcomeFormData, setProgramOutcomeFormData] = useState<Partial<ProgramOutcome>>({});
+  const [programOutcomeFormData, setProgramOutcomeFormData] = useState<Partial<ProgramOutcome>>({
+    code: "",
+    domain: "Knowledge",
+    description: "",
+    weight: 0,
+    order: 0,
+    is_active: true
+  });
 
   const [qualityDialogCourse, setQualityDialogCourse] = useState<any>(null);
-  const [activeCategory, setActiveCategory] = useState<string>("متطلب تخصص");
 
   const form = useForm<DepartmentFormData>({ 
     resolver: zodResolver(departmentSchema), 
@@ -290,17 +335,20 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       const params: any = {};
       if (programId) params.program_id = programId;
       if (levelId) params.level_id = levelId;
-      
+
       const res = await api.get("/v1/blocks", { params });
       const raw = res.data?.data ?? res.data;
-      const blocks = (raw as any[]).map((b) => ({
+      const blocks: Block[] = (raw as any[]).map((b) => ({
         id: b.id,
         program_id: b.program_id,
         level_id: b.level_id,
         block_name: b.block_name || b.name,
         block_number: b.block_number || b.number,
-        weeks: b.weeks || 6,
-        weight: b.weight || 0
+        weeks: b.weeks || 0,
+        weight: b.weight || 0,
+        credit_hours: b.credit_hours || 0,
+        type: b.type || 'compulsory',
+        description: b.description || ""
       }));
 
       if (levelId) {
@@ -313,51 +361,131 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     }
   };
 
-  const fetchCourses = async (semesterId?: number, blockId?: number, category?: string) => { 
+  const fetchCourses = async (semesterId?: number, blockId?: number, programId?: number) => { 
     try {
       let params: any = {};
       if (semesterId) params.semester_id = semesterId;
       if (blockId) params.block_id = blockId;
-      if (category) params.category = category;
+      if (programId) params.program_id = programId;
 
-      const res = await api.get("/v1/courses", { params });
+      
+  
+     const res = await api.get("/v1/courses", { 
+      params: {
+        ...params,
+        // ✅ أضف هذا - جلب العلاقات
+        include: "college,department,program,prerequisites,corequisites"
+      }
+    });
       const raw = res.data?.data ?? res.data;
-      const courses = (raw as any[]).map((c) => ({
+      const courses: ApiCourse[] = (raw as any[]).map((c) => ({
         id: c.id ?? c.course_id,
-        semester_id: c.semester_id,
-        block_id: c.block_id,
         course_code: c.course_code ?? "",
         course_name: c.course_name ?? "",
         credit_hours: Number(c.credit_hours ?? 0),
-        course_parts: c.course_parts || [{ name: "نظري", theoretical_hours: 2, practical_hours: 0, exercise_hours: 0, seminar_hours: 0 }],
-        is_elective: Boolean(c.is_elective ?? false),
-        department_id: c.department_id ?? null,
-        notes: c.notes ?? "",
-        weight: c.weight || 0,
-        prerequisites: c.prerequisites || "",
-        corequisites: c.corequisites || "",
+        
+        college_id: c.college_id ?? Number(collegeId),
+        department_id: c.department_id ?? selectedDepartment?.department_id ?? 0,
+        program_id: c.program_id ?? selectedProgram?.id ?? 0,
+        
+        level_id: c.level_id ?? null,
+        semester_id: c.semester_id ?? null,
+        block_id: c.block_id ?? null,
+        
+        course_parts: Array.isArray(c.course_parts) 
+          ? c.course_parts 
+          : (c.course_parts ? JSON.parse(c.course_parts) : [
+              { name: "نظري" as const, actual_hours: 2, rate: 1.0 }
+            ]),
+        
+        weight: Number(c.weight) || 0,
+        category: c.category || "متطلب تخصص إجباري",
         teaching_language: c.teaching_language || "العربية",
-        category: c.category || "متطلب تخصص"
+        notes: c.notes ?? null,
+        
+        prerequisites: c.prerequisites || [],
+        corequisites: c.corequisites || [],
+
+          college: c.college ? {
+            id: c.college.id,
+            name: c.college.name || c.college.college_name
+          } : undefined,
+          
+          department: c.department ? {
+            id: c.department.id,
+            name: c.department.name || c.department.department_name
+          } : undefined,
+          
+          program: c.program ? {
+            id: c.program.id,
+            name: c.program.name || c.program.program_name,
+            academic_system: c.program.academic_system
+          } : undefined
       }));
 
       if (semesterId) {
         setTermCourses(courses);
       } else if (blockId) {
         setBlockCourses(courses);
-      } else if (category) {
+      } else if (programId) {
         setCategoryCourses(courses);
       }
-    } catch {
-      toast({ title: "خطأ", description: "فشل تحميل المقررات", variant: "destructive" });
+    } catch (error) {
+      console.error("خطأ في جلب المقررات:", error);
+      toast({ 
+        title: "خطأ", 
+        description: "فشل تحميل المقررات", 
+        variant: "destructive" 
+      });
+    }
+  };
+
+  /**
+   * جلب المقررات المتاحة لاختيارها كمتطلبات
+   * (من نفس البرنامج، باستثناء المقرر الحالي)
+   */
+  const fetchAvailableCoursesForPrereq = async () => {
+    if (!selectedProgram) return;
+    
+    try {
+      const res = await api.get("/v1/courses", { 
+        params: { 
+          program_id: selectedProgram.id,
+          active_only: true
+        } 
+      });
+      
+      const courses = (res.data?.data ?? res.data).map((c: any) => ({
+        id: c.id ?? c.course_id,
+        course_code: c.course_code,
+        course_name: c.course_name,
+        credit_hours: c.credit_hours,
+        category: c.category
+      }));
+      
+      // ✅ استثناء المقرر الحالي عند التعديل
+      const filtered = editingCourse 
+        ? courses.filter((c: ApiCourse) => c.id !== editingCourse.id)
+        : courses;
+      
+      setAvailableCoursesForPrereq(filtered);
+    } catch (error) {
+      console.error("فشل جلب المقررات:", error);
     }
   };
 
   const fetchProgramOutcomes = async (programId: number) => {
     try {
-      const res = await api.get(`/v1/programs/${programId}/outcomes`);
+      const res = await api.get(`/v1/program-learning-outcomes/${programId}`);
       setProgramOutcomes(res.data?.data || []);
-    } catch {
+    } catch (error) {
+      console.error("Error fetching outcomes:", error);
       setProgramOutcomes([]);
+      toast({ 
+        title: "خطأ", 
+        description: "فشل في تحميل المخرجات", 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -381,13 +509,16 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   useEffect(() => { 
     if (selectedProgram) {
       if (selectedProgram.academic_system === 'semester' && !selectedProgram.block_based) {
+        // نظام الفصول: جلب المستويات
         fetchLevels(selectedProgram.id);
       } else if (selectedProgram.academic_system === 'semester' && selectedProgram.block_based) {
+        // نظام الفصول + بلوكات: جلب المستويات
         fetchLevels(selectedProgram.id);
       } else if (selectedProgram.academic_system === 'credit' && !selectedProgram.block_based) {
-        // عرض التصنيفات مباشرة
+        fetchCourses(undefined, undefined, selectedProgram.id);
       } else if (selectedProgram.academic_system === 'credit' && selectedProgram.block_based) {
-        fetchBlocks(selectedProgram.id);
+        // ✅ نظام الساعات + بلوكات: جلب بلوكات البرنامج مباشرة
+        fetchBlocks(selectedProgram.id, undefined);
       }
     } else {
       setProgramLevels([]);
@@ -428,10 +559,13 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   }, [selectedBlock]);
 
   useEffect(() => {
-    if (selectedProgram && selectedProgram.academic_system === 'credit' && !selectedProgram.block_based) {
-      fetchCourses(undefined, undefined, activeCategory);
+    if (highlightedCourseId !== null) {
+      const timer = setTimeout(() => {
+        setHighlightedCourseId(null);
+      }, 5000);
+      return () => clearTimeout(timer);
     }
-  }, [activeCategory, selectedProgram]);
+  }, [highlightedCourseId]);
 
   // ==========================================
   // Department Handlers
@@ -542,42 +676,180 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     }
   };
 
-  const handleOpenProgramOutcomes = (program: Program) => {
+  const handleOpenProgramOutcomes = async (program: Program) => {
     setActiveProgramForOutcomes(program);
-    fetchProgramOutcomes(program.id);
     setIsProgramOutcomesDialogOpen(true);
+    await fetchProgramOutcomes(program.id);
   };
 
   const handleSaveProgramOutcome = async () => {
+    if (!programOutcomeFormData.code || !programOutcomeFormData.description) {
+      toast({ 
+        title: "تنبيه", 
+        description: "يرجى ملء الرمز والوصف", 
+        variant: "destructive" 
+      });
+      return;
+    }
+  
+    // ✅ التحقق من صحة الرمز
+    if (!validateCode(programOutcomeFormData.code, programOutcomeFormData.domain || "Knowledge")) {
+      const prefix = getDomainPrefix(programOutcomeFormData.domain || "Knowledge");
+      toast({ 
+        title: "خطأ في الرمز", 
+        description: `الرمز يجب أن يبدأ بـ ${prefix} ثم رقم (مثال: ${prefix}1)`, 
+        variant: "destructive" 
+      });
+      return;
+    }
+  
+    // ✅ التحقق من تفرد الترتيب
+    const order = programOutcomeFormData.order || 1;
+    if (!isOrderUnique(order, programOutcomeFormData.plo_id)) {
+      toast({ 
+        title: "خطأ في الترتيب", 
+        description: `الترتيب ${order} مستخدم بالفعل. الاقتراح: ${getNextOrderNumber()}`, 
+        variant: "destructive" 
+      });
+      return;
+    }
+  
+    // التحقق من الوزن
+    const currentWeight = programOutcomes
+      .filter(o => o.plo_id !== programOutcomeFormData.plo_id)
+      .reduce((sum, o) => sum + (Number(o.weight) || 0), 0);
+    
+    const newWeight = Number(programOutcomeFormData.weight) || 0;
+    const totalWeight = currentWeight + newWeight;
+  
+    if (totalWeight > 100) {
+      toast({ 
+        title: "خطأ في الوزن", 
+        description: `الوزن الإجمالي سيصبح ${totalWeight.toFixed(2)}%. يجب ألا يتجاوز 100%`, 
+        variant: "destructive" 
+      });
+      return;
+    }
+  
     try {
       const payload = {
         ...programOutcomeFormData,
-        program_id: activeProgramForOutcomes!.id
+        program_id: activeProgramForOutcomes!.id,
+        weight: newWeight,
+        order: order
       };
-
-      if (programOutcomeFormMode === "edit" && programOutcomeFormData.id) {
-        await api.put(`/v1/program-outcomes/${programOutcomeFormData.id}`, payload);
+  
+      if (programOutcomeFormMode === "edit" && programOutcomeFormData.plo_id) {
+        await api.put(`/v1/program-learning-outcomes/${programOutcomeFormData.plo_id}`, payload);
       } else {
-        await api.post("/v1/program-outcomes", payload);
+        await api.post("/v1/program-learning-outcomes", payload);
       }
-
+  
       setIsProgramOutcomeFormOpen(false);
-      fetchProgramOutcomes(activeProgramForOutcomes!.id);
-      toast({ title: "نجاح", description: "تم الحفظ" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحفظ", variant: "destructive" });
+      setProgramOutcomeFormData({
+        code: "",
+        domain: "Knowledge",
+        description: "",
+        weight: 0,
+        order: getNextOrderNumber(),
+        is_active: true
+      });
+      
+      await fetchProgramOutcomes(activeProgramForOutcomes!.id);
+      
+      toast({ 
+        title: "نجاح", 
+        description: programOutcomeFormMode === "add" ? "تم الإضافة بنجاح" : "تم التحديث بنجاح" 
+      });
+    } catch (error: any) {
+      console.error("Save error:", error);
+      toast({ 
+        title: "خطأ", 
+        description: error?.response?.data?.message || "فشل الحفظ", 
+        variant: "destructive" 
+      });
     }
   };
 
-  const handleDeleteProgramOutcome = async (id: string) => {
-    if (!confirm("هل أنت متأكد؟")) return;
+  const handleDeleteProgramOutcome = async (ploId: number) => {
+    if (!confirm("هل أنت متأكد من حذف هذا المخرج؟")) return;
+    
     try {
-      await api.delete(`/v1/program-outcomes/${id}`);
-      fetchProgramOutcomes(activeProgramForOutcomes!.id);
-      toast({ title: "نجاح", description: "تم الحذف" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+      await api.delete(`/v1/program-learning-outcomes/${ploId}`);
+      await fetchProgramOutcomes(activeProgramForOutcomes!.id);
+      toast({ 
+        title: "نجح", 
+        description: "تم حذف المخرج بنجاح" 
+      });
+    } catch (error: any) {
+      toast({ 
+        title: "خطأ", 
+        description: error?.response?.data?.message || "فشل الحذف", 
+        variant: "destructive" 
+      });
     }
+  };
+
+  // ✅ الحصول على بادئة المجال
+  const getDomainPrefix = (domain: string): string => {
+    const prefixMap: Record<string, string> = {
+      "Knowledge": "A",
+      "Intellectual": "B",
+      "Professional": "C",
+      "General": "D"
+    };
+    return prefixMap[domain] || "A";
+  };
+  
+  // ✅ التحقق من صحة الرمز
+  const validateCode = (code: string, domain: string): boolean => {
+    const prefix = getDomainPrefix(domain);
+    const regex = new RegExp(`^${prefix}\\d+$`);
+    return regex.test(code);
+  };
+  
+  // ✅ الحصول على رقم الترتيب التالي المقترح
+  const getNextOrderNumber = (): number => {
+    if (programOutcomes.length === 0) return 1;
+    
+    const maxOrder = Math.max(...programOutcomes.map(o => o.order || 0));
+    return maxOrder + 1;
+  };
+  
+  // ✅ التحقق من تفرد الترتيب
+  const isOrderUnique = (order: number, currentPloId?: number): boolean => {
+    return !programOutcomes.some(
+      o => o.order === order && o.plo_id !== currentPloId
+    );
+  };
+  
+  // ✅ إضافة helper function لترجمة المجال
+  const getDomainLabel = (domain: string): string => {
+    const domainMap: Record<string, string> = {
+      "Knowledge": "المعرفة",
+      "Intellectual": "الفكري", 
+      "Professional": "المهني",
+      "General": "العام"
+    };
+    return domainMap[domain] || domain;
+  };
+  
+  // ✅ إضافة helper function لترتيب المخرجات حسب المجال
+  const groupOutcomesByDomain = () => {
+    const grouped: Record<string, ProgramOutcome[]> = {
+      "Knowledge": [],
+      "Intellectual": [],
+      "Professional": [],
+      "General": []
+    };
+  
+    programOutcomes.forEach(outcome => {
+      if (grouped[outcome.domain]) {
+        grouped[outcome.domain].push(outcome);
+      }
+    });
+  
+    return grouped;
   };
 
   // ==========================================
@@ -711,7 +983,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
   const handleAddBlock = () => {
     setEditingBlock(null);
-    setBlockFormData({ blockName: "", blockNumber: 1, weeks: 6, weight: 0 });
+    setBlockFormData({ blockName: "", blockNumber: 1, weeks: 6, weight: 0, credit_hours: 0, type: "compulsory", description: "" });
     setIsBlockFormOpen(true);
   };
 
@@ -721,44 +993,98 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       blockName: block.block_name,
       blockNumber: block.block_number,
       weeks: block.weeks,
-      weight: block.weight
+      weight: block.weight,
+      credit_hours: block.credit_hours || 0,
+      type: block.type || "compulsory",
+      description: block.description || ""
     });
     setIsBlockFormOpen(true);
   };
 
   const handleSubmitBlock = async (e: any) => {
     e.preventDefault();
+  
+    // ✅ التحقق حسب نوع النظام
+    if (!selectedProgram) {
+      toast({ 
+        title: "تنبيه", 
+        description: "يرجى اختيار البرنامج أولاً", 
+        variant: "destructive" 
+      });
+      return;
+    }
+  
+    // ✅ في نظام الفصول + بلوكات: المستوى مطلوب
+    if (selectedProgram.academic_system === 'semester' && selectedProgram.block_based && !selectedLevel) {
+      toast({ 
+        title: "تنبيه", 
+        description: "يرجى اختيار المستوى أولاً", 
+        variant: "destructive" 
+      });
+      return;
+    }
+  
     try {
       const payload: any = {
         block_name: blockFormData.blockName,
         block_number: blockFormData.blockNumber,
         weeks: blockFormData.weeks,
-        weight: blockFormData.weight
+        weight: blockFormData.weight,
+        type: blockFormData.type,
+        description: blockFormData.description,
+        program_id: selectedProgram.id,
+        prerequisite_ids: [], 
+        corequisite_ids: []
       };
-
-      if (selectedLevel) {
-        payload.level_id = selectedLevel.id;
-      } else if (selectedProgram) {
-        payload.program_id = selectedProgram.id;
+  
+      // ✅ إضافة الساعات المعتمدة فقط في أنظمة الساعات
+      if (selectedProgram.academic_system === 'credit') {
+        payload.credit_hours = blockFormData.credit_hours;
+      } else {
+        payload.credit_hours = null;
       }
-
+  
+      // ✅ إضافة المستوى فقط في نظام الفصول + بلوكات
+      if (selectedProgram.academic_system === 'semester' && selectedProgram.block_based) {
+        payload.level_id = selectedLevel?.id;
+      } else {
+        // في نظام الساعات + بلوكات: level_id يكون null
+        payload.level_id = null;
+      }
+  
       if (editingBlock) {
         await api.put(`/v1/blocks/${editingBlock.id}`, payload);
+        toast({ 
+          title: "تم التحديث", 
+          description: "تم تحديث بيانات البلوك بنجاح" 
+        });
       } else {
         await api.post("/v1/blocks", payload);
+        toast({ 
+          title: "تم الحفظ", 
+          description: "تم إضافة البلوك الجديد بنجاح" 
+        });
       }
-
+  
       setIsBlockFormOpen(false);
-      
-      if (selectedLevel) {
+      setEditingBlock(null);
+  
+      // ✅ جلب البلوكات حسب النظام
+      if (selectedProgram.academic_system === 'credit' && selectedProgram.block_based) {
+        // نظام الساعات + بلوكات: جلب بلوكات البرنامج فقط
+        fetchBlocks(selectedProgram.id, undefined);
+      } else if (selectedLevel) {
+        // نظام الفصول + بلوكات: جلب بلوكات المستوى
         fetchBlocks(undefined, selectedLevel.id);
-      } else {
-        fetchBlocks(selectedProgram!.id);
       }
-      
-      toast({ title: "نجاح", description: "تم حفظ البلوك" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل حفظ البلوك", variant: "destructive" });
+  
+    } catch (error: any) {
+      console.error("Save Error:", error.response?.data);
+      toast({ 
+        title: "خطأ في الحفظ", 
+        description: error.response?.data?.message || "فشل الاتصال بالسيرفر", 
+        variant: "destructive" 
+      });
     }
   };
 
@@ -781,7 +1107,41 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   // ==========================================
-  // Course Handlers
+  // Course Helper Functions
+  // ==========================================
+  
+  /**
+   * حساب الساعات المعتمدة من أجزاء المقرر
+   */
+  const calculateCreditHours = (parts: CoursePart[]): number => {
+    return parts.reduce((total, part) => {
+      return total + Math.round(part.actual_hours * part.rate);
+    }, 0);
+  };
+  
+  /**
+   * الحصول على معدل التحويل الافتراضي حسب نوع الجزء
+   */
+  const getDefaultRate = (partName: string): number => {
+    switch (partName) {
+      case "نظري": return 1.0;
+      case "عملي": return 0.5;
+      case "تمارين": return 0.5;
+      case "سريري": return 1/3;
+      default: return 1.0;
+    }
+  };
+  
+  /**
+   * التحقق من صحة الساعات
+   */
+  const validateCreditHours = (parts: CoursePart[], stated: number): boolean => {
+    const calculated = calculateCreditHours(parts);
+    return Math.abs(calculated - stated) < 0.01;
+  };
+
+  // ==========================================
+  // Course Handlers 
   // ==========================================
 
   const handleAddCourse = () => { 
@@ -789,88 +1149,197 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     setCourseFormData({ 
       courseCode: "", 
       courseName: "", 
-      creditHours: 3, 
-      courseParts: [{ 
-        name: "نظري", 
-        theoretical_hours: 2, 
-        practical_hours: 0, 
-        exercise_hours: 0, 
-        seminar_hours: 0 
-      }],
-      isElective: false, 
-      departmentId: "", 
-      notes: "", 
+      creditHours: 2, // افتراضي
+      courseParts: [
+        { 
+          name: "نظري", 
+          actual_hours: 2, 
+          rate: 1.0 
+        }
+      ],
       weight: 0,
-      prerequisites: "",
-      corequisites: "",
+      category: "متطلب تخصص إجباري",
       teachingLanguage: "العربية",
-      category: activeCategory || "متطلب تخصص"
+      notes: "",
+      prerequisiteIds: [],
+      corequisiteIds: []
     }); 
+    
+    // ✅ جلب المقررات المتاحة للمتطلبات
+    fetchAvailableCoursesForPrereq();
+    
     setIsCourseFormOpen(true); 
   };
 
   const handleEditCourse = (course: ApiCourse) => {
     setEditingCourse(course);
+    
     setCourseFormData({
       courseCode: course.course_code,
       courseName: course.course_name,
       creditHours: course.credit_hours,
-      courseParts: course.course_parts,
-      isElective: course.is_elective,
-      departmentId: course.department_id?.toString() || "",
-      notes: course.notes || "",
+      courseParts: course.course_parts?.length > 0 
+        ? course.course_parts 
+        : [{ name: "نظري", actual_hours: 2, rate: 1.0 }],
       weight: course.weight || 0,
-      prerequisites: course.prerequisites || "",
-      corequisites: course.corequisites || "",
+      category: course.category || "متطلب تخصص إجباري",
       teachingLanguage: course.teaching_language || "العربية",
-      category: course.category || "متطلب تخصص"
+      notes: course.notes || "",
+      prerequisiteIds: course.prerequisites?.map(p => p.id) || [],
+      corequisiteIds: course.corequisites?.map(c => c.id) || []
     });
+    
+    // ✅ جلب المقررات المتاحة
+    fetchAvailableCoursesForPrereq();
+    
     setIsCourseFormOpen(true);
   };
 
   const handleSubmitCourse = async (e: any) => { 
-    e.preventDefault(); 
+    e.preventDefault();
+    
+    // ✅ التحقق من صحة الساعات المعتمدة
+    const totalCredited = courseFormData.courseParts.reduce((sum, p) => 
+      sum + Math.round(p.actual_hours * p.rate), 0
+    );
+    
+    if (totalCredited !== courseFormData.creditHours) {
+      toast({ 
+        title: "خطأ في الموازنة", 
+        description: `مجموع الأجزاء (${totalCredited}) لا يساوي الساعات المعتمدة (${courseFormData.creditHours})`,
+        variant: "destructive" 
+      });
+      return;
+    }
+
+    // ✅ التحقق من البيانات المطلوبة حسب النظام
+    if (!selectedProgram) {
+      toast({ 
+        title: "خطأ", 
+        description: "يرجى اختيار البرنامج أولاً",
+        variant: "destructive" 
+      });
+      return;
+    }
+  
+    if (selectedProgram.academic_system === 'semester' && !selectedTerm && !selectedBlock) {
+      toast({ 
+        title: "خطأ", 
+        description: selectedProgram.block_based 
+          ? "يرجى اختيار البلوك"
+          : "يرجى اختيار الفصل",
+        variant: "destructive" 
+      });
+      return;
+    }
+  
+    if (selectedProgram.academic_system === 'credit' && selectedProgram.block_based && !selectedBlock) {
+      toast({ 
+        title: "خطأ", 
+        description: "يرجى اختيار البلوك",
+        variant: "destructive" 
+      });
+      return;
+    }
+    
     try { 
       const payload: any = { 
         course_code: courseFormData.courseCode, 
         course_name: courseFormData.courseName, 
-        credit_hours: Number(courseFormData.creditHours), 
+        credit_hours: courseFormData.creditHours,
         course_parts: courseFormData.courseParts,
-        is_elective: courseFormData.isElective, 
-        notes: courseFormData.notes || null, 
-        weight: Number(courseFormData.weight),
-        prerequisites: courseFormData.prerequisites || null,
-        corequisites: courseFormData.corequisites || null,
-        teaching_language: courseFormData.teachingLanguage,
+        
+        // ✅ معلومات إضافية
+        weight: courseFormData.weight,
         category: courseFormData.category,
+        teaching_language: courseFormData.teachingLanguage,
+        notes: courseFormData.notes || null,
+        
+        // ✅ الربط بالهيكل
         college_id: Number(collegeId), 
         department_id: selectedDepartment!.department_id, 
-        program_id: selectedProgram!.id
+        program_id: selectedProgram!.id,
+        
+        // ✅ المتطلبات
+        prerequisites: courseFormData.prerequisiteIds,
+        corequisites: courseFormData.corequisiteIds
       };
+  
+      // ✅ الربط حسب النظام الأكاديمي
+      // if (selectedProgram!.academic_system === 'semester' && !selectedProgram!.block_based) {
+      //   // نظام الفصول: level + semester
+      //   payload.level_id = selectedLevel?.id;
+      //   payload.semester_id = selectedTerm?.id;
+      //   payload.block_id = null;
+      // } else if (selectedProgram!.academic_system === 'semester' && selectedProgram!.block_based) {
+      //   payload.level_id = selectedLevel?.id;
+      //   payload.block_id = selectedBlock?.id;
+      //   payload.semester_id = null;
+      // } else if (selectedProgram!.academic_system === 'credit' && !selectedProgram!.block_based) {
+      //   payload.level_id = null;
+      //   payload.semester_id = null;
+      //   payload.block_id = null;
+      // } else if (selectedProgram!.academic_system === 'credit' && selectedProgram!.block_based) {
+      //   // نظام الساعات + بلوكات: block فقط
+      //   payload.level_id = null;
+      //   payload.semester_id = null;
+      //   payload.block_id = selectedBlock?.id;
+      // }
 
-      if (selectedLevel) payload.level_id = selectedLevel.id;
-      if (selectedTerm) payload.semester_id = selectedTerm.id;
-      if (selectedBlock) payload.block_id = selectedBlock.id;
-
-      if(editingCourse) {
+          // ✅ تعيين الحقول حسب النظام الأكاديمي
+    if (selectedProgram.academic_system === 'semester') {
+      payload.level_id = selectedLevel?.id;
+      
+      if (selectedProgram.block_based) {
+        // الفصول + بلوكات
+        payload.block_id = selectedBlock?.id;
+        payload.semester_id = null;
+      } else {
+        // الفصول فقط
+        payload.semester_id = selectedTerm?.id;
+        payload.block_id = null;
+      }
+    } else {
+      // نظام الساعات
+      payload.level_id = null;
+      payload.semester_id = null;
+      
+      if (selectedProgram.block_based) {
+        // ساعات + بلوكات
+        payload.block_id = selectedBlock?.id;
+      } else {
+        // ساعات فقط
+        payload.block_id = null;
+      }
+    }
+  
+      if (editingCourse) {
         await api.put(`/v1/courses/${editingCourse.id}`, payload);
+        toast({ title: "نجاح", description: "تم تحديث المقرر بنجاح" });
       } else {
         await api.post("/v1/courses", payload);
+        toast({ title: "نجاح", description: "تم إضافة المقرر بنجاح" });
       }
       
-      setIsCourseFormOpen(false); 
+      setIsCourseFormOpen(false);
+      setEditingCourse(null);
       
+      // ✅ إعادة جلب المقررات حسب النظام
       if (selectedTerm) {
         fetchCourses(selectedTerm.id);
       } else if (selectedBlock) {
         fetchCourses(undefined, selectedBlock.id);
-      } else {
-        fetchCourses(undefined, undefined, activeCategory);
+      } else if (selectedProgram) {
+        fetchCourses(undefined, undefined, selectedProgram.id);
       }
       
-      toast({ title: "نجاح", description: "تم حفظ المقرر" }); 
-    } catch { 
-      toast({ title: "خطأ", description: "فشل حفظ المقرر", variant: "destructive" }); 
+    } catch (error: any) { 
+      console.error("خطأ في حفظ المقرر:", error.response?.data);
+      toast({ 
+        title: "خطأ", 
+        description: error.response?.data?.message || "فشل حفظ المقرر", 
+        variant: "destructive" 
+      }); 
     } 
   };
 
@@ -884,7 +1353,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       } else if (selectedBlock) {
         fetchCourses(undefined, selectedBlock.id);
       } else {
-        fetchCourses(undefined, undefined, activeCategory);
+        fetchCourses(undefined, undefined, selectedProgram.id);
       }
       
       toast({ title: "نجاح", description: "تم الحذف" });
@@ -894,10 +1363,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleOpenQuality = (course: ApiCourse) => {
-    setQualityDialogCourse({
-      ...course,
-      parts: course.course_parts?.map(p => p.name) || ["نظري"]
-    });
+    setQualityDialogCourse({ id: course.id } as any);
   };
 
   const handleAddCoursePart = () => {
@@ -905,7 +1371,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       ...courseFormData,
       courseParts: [
         ...courseFormData.courseParts,
-        { name: "", theoretical_hours: 0, practical_hours: 0, exercise_hours: 0, seminar_hours: 0 }
+        { name: "عملي", actual_hours: 2, rate: 0.5 }
       ]
     });
   };
@@ -915,16 +1381,45 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       toast({ title: "تحذير", description: "يجب أن يكون للمقرر جزء واحد على الأقل", variant: "destructive" });
       return;
     }
+    const updated = courseFormData.courseParts.filter((_, i) => i !== index);
+    const newCreditHours = calculateCreditHours(updated);
+
     setCourseFormData({
       ...courseFormData,
-      courseParts: courseFormData.courseParts.filter((_, i) => i !== index)
+       courseParts: updated,
+      creditHours: Math.round(newCreditHours * 100) / 100
     });
   };
 
   const handleUpdateCoursePart = (index: number, field: keyof CoursePart, value: any) => {
     const updated = [...courseFormData.courseParts];
-    updated[index] = { ...updated[index], [field]: value };
-    setCourseFormData({ ...courseFormData, courseParts: updated });
+    
+    // ✅ عند تغيير النوع، تحديث معدل التحويل تلقائياً
+    if (field === 'name') {
+      updated[index] = { 
+        ...updated[index], 
+        name: value as "نظري" | "عملي" | "تمارين" | "سريري",
+        rate: getDefaultRate(value)
+      };
+    } else if (field === 'actual_hours') {
+      updated[index] = { 
+        ...updated[index], 
+        actual_hours: Math.max(0, parseInt(value) || 0)
+      };
+    } else if (field === 'rate') {
+      updated[index] = { 
+        ...updated[index], 
+        rate: Number(value)
+      };
+    }
+    
+    // ✅ حساب الساعات المعتمدة تلقائياً
+    const newCreditHours = calculateCreditHours(updated);
+    
+    setCourseFormData({ 
+      ...courseFormData, 
+      courseParts: updated,
+    });
   };
 
   // ==========================================
@@ -1269,7 +1764,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
           {/* مخرجات البرنامج */}
           <Dialog open={isProgramOutcomesDialogOpen} onOpenChange={setIsProgramOutcomesDialogOpen}>
-            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0">
+            <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col p-0">
               <DialogHeader className="p-6 border-b bg-slate-50 shrink-0">
                 <div className="flex items-center gap-3">
                   <div className="bg-indigo-100 p-2.5 rounded-xl shrink-0">
@@ -1279,16 +1774,19 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                     <div>
                       <DialogTitle className="text-xl">مخرجات التعلم للبرنامج (PLOs)</DialogTitle>
                       <DialogDescription className="text-base mt-1">
-                        {selectedDepartment?.department_name} • <span className="font-bold text-indigo-700">{activeProgramForOutcomes?.name}</span>
+                        {selectedDepartment?.department_name} • 
+                        <span className="font-bold text-indigo-700">{activeProgramForOutcomes?.name}</span>
                       </DialogDescription>
                     </div>
                     <div className="bg-white px-4 py-2 rounded-lg border shadow-sm text-center">
                       <div className="text-xs text-slate-500 font-medium mb-1">إجمالي الأوزان</div>
                       <div className={cn(
-                        "font-bold",
-                        programOutcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0) > 100 
-                          ? "text-red-600" 
-                          : "text-emerald-600"
+                        "text-2xl font-bold",
+                        programOutcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0) === 100
+                          ? "text-emerald-600"
+                          : programOutcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0) > 100
+                          ? "text-red-600"
+                          : "text-amber-600"
                       )}>
                         {programOutcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0)}%
                       </div>
@@ -1299,11 +1797,23 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
               
               <div className="p-6 flex-1 overflow-y-auto bg-white">
                 <div className="flex justify-between items-center mb-6">
-                  <p className="text-slate-600">مخرجات التعلم المستهدفة على مستوى البرنامج</p>
+                  <p className="text-slate-600">
+                    مخرجات التعلم المستهدفة
+                    <span className="mr-2 text-indigo-600 font-semibold">
+                      ({programOutcomes.length})
+                    </span>
+                  </p>
                   <Button 
                     onClick={() => { 
                       setProgramOutcomeFormMode("add"); 
-                      setProgramOutcomeFormData({ domain: "معرفي", weight: 0 }); 
+                      setProgramOutcomeFormData({
+                        code: "",
+                        domain: "Knowledge",
+                        description: "",
+                        weight: 0,
+                        order: programOutcomes.length + 1,
+                        is_active: true
+                      }); 
                       setIsProgramOutcomeFormOpen(true); 
                     }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
@@ -1311,115 +1821,253 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                     <Plus className="w-4 h-4 mr-2" /> إضافة مخرج
                   </Button>
                 </div>
-
-                <div className="space-y-3">
-                  {programOutcomes.map((outcome) => (
-                    <div 
-                      key={outcome.id} 
-                      className="flex justify-between p-4 border rounded-xl hover:bg-slate-50 transition-colors shadow-sm bg-white"
-                    >
-                      <div className="flex gap-4">
-                        <div className="bg-indigo-50 text-indigo-700 border border-indigo-100 font-bold px-3 py-1.5 rounded-lg text-sm h-fit shrink-0 mt-0.5">
-                          {outcome.code}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-800 text-base">{outcome.name}</p>
-                          <div className="flex gap-2 mt-2.5">
-                            <Badge variant="outline" className="bg-white text-slate-600 font-normal">
-                              {outcome.domain}
-                            </Badge>
-                            <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 font-medium">
-                              الوزن: {outcome.weight}%
+          
+                {programOutcomes.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400">
+                    <Target className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                    <p className="text-lg">لا توجد مخرجات تعلم</p>
+                    <p className="text-sm mt-2">ابدأ بإضافة مخرجات التعلم للبرنامج</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {Object.entries(groupOutcomesByDomain()).map(([domain, outcomes]) => {
+                      if (outcomes.length === 0) return null;
+                      
+                      const domainWeight = outcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0);
+                      
+                      return (
+                        <div key={domain} className="border rounded-xl p-4 bg-slate-50">
+                          <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-lg text-slate-800">
+                              {getDomainLabel(domain)}
+                            </h3>
+                            <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100">
+                              الوزن: {domainWeight}%
                             </Badge>
                           </div>
+                          
+                          <div className="space-y-3">
+                            {outcomes
+                              .sort((a, b) => a.order - b.order)
+                              .map((outcome) => (
+                                <div 
+                                  key={outcome.plo_id} 
+                                  className="flex justify-between p-4 border rounded-xl hover:bg-white transition-colors shadow-sm bg-white"
+                                >
+                                  <div className="flex gap-4 flex-1">
+                                    <div className="bg-indigo-50 text-indigo-700 border border-indigo-100 font-bold px-3 py-1.5 rounded-lg text-sm h-fit shrink-0">
+                                      {outcome.code}
+                                    </div>
+                                    <div className="flex-1">
+                                      <p className="font-medium text-slate-800 leading-relaxed">
+                                        {outcome.description}
+                                      </p>
+                                      <div className="flex gap-2 mt-2.5">
+                                        <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 font-medium">
+                                          الوزن: {outcome.weight}%
+                                        </Badge>
+                                        {!outcome.is_active && (
+                                          <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
+                                            غير نشط
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-2 items-start shrink-0 mr-3">
+                                    <Button 
+                                      size="icon" 
+                                      variant="ghost" 
+                                      className="hover:bg-indigo-50 hover:text-indigo-600"
+                                      onClick={() => { 
+                                        setProgramOutcomeFormMode("edit"); 
+                                        setProgramOutcomeFormData(outcome); 
+                                        setIsProgramOutcomeFormOpen(true); 
+                                      }}
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                    <Button 
+                                      size="icon" 
+                                      variant="ghost" 
+                                      className="text-red-500 hover:bg-red-50" 
+                                      onClick={() => handleDeleteProgramOutcome(outcome.plo_id)}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex gap-2 items-start shrink-0">
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          onClick={() => { 
-                            setProgramOutcomeFormMode("edit"); 
-                            setProgramOutcomeFormData(outcome); 
-                            setIsProgramOutcomeFormOpen(true); 
-                          }}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button 
-                          size="icon" 
-                          variant="ghost" 
-                          className="text-red-500" 
-                          onClick={() => handleDeleteProgramOutcome(outcome.id)}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </DialogContent>
           </Dialog>
-
+          
+          {/* فورم إضافة/تعديل مخرج التعلم */}
           <Dialog open={isProgramOutcomeFormOpen} onOpenChange={setIsProgramOutcomeFormOpen}>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>
-                  {programOutcomeFormMode === "add" ? "إضافة مخرج للبرنامج" : "تعديل المخرج"}
+                <DialogTitle className="text-xl">
+                  {programOutcomeFormMode === "add" ? "إضافة مخرج تعلم جديد" : "تعديل مخرج التعلم"}
                 </DialogTitle>
+                <DialogDescription>
+                  {activeProgramForOutcomes?.name}
+                </DialogDescription>
               </DialogHeader>
+              
               <div className="space-y-5 py-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* ✅ المجال أولاً */}
                   <div className="space-y-2">
-                    <Label>الرمز</Label>
-                    <Input 
-                      value={programOutcomeFormData.code || ""}
-                      onChange={e => setProgramOutcomeFormData({...programOutcomeFormData, code: e.target.value})}
-                      placeholder="PLO-1"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>الوزن (%)</Label>
-                    <Input 
-                      type="number"
-                      value={programOutcomeFormData.weight || ""}
-                      onChange={e => setProgramOutcomeFormData({...programOutcomeFormData, weight: Number(e.target.value)})}
-                      placeholder="10"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>المجال</Label>
+                    <Label>المجال <span className="text-red-500">*</span></Label>
                     <Select 
                       value={programOutcomeFormData.domain}
-                      onValueChange={v => setProgramOutcomeFormData({...programOutcomeFormData, domain: v})}
+                      onValueChange={v => {
+                        setProgramOutcomeFormData({
+                          ...programOutcomeFormData, 
+                          domain: v as any,
+                          code: "" // ✅ إعادة تعيين الرمز عند تغيير المجال
+                        });
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="معرفي">معرفي</SelectItem>
-                        <SelectItem value="مهاري">مهاري</SelectItem>
-                        <SelectItem value="وجداني">وجداني</SelectItem>
+                        <SelectItem value="Knowledge">المعرفة (A)</SelectItem>
+                        <SelectItem value="Intellectual">الفكري (B)</SelectItem>
+                        <SelectItem value="Professional">المهني (C)</SelectItem>
+                        <SelectItem value="General">العام (D)</SelectItem>
                       </SelectContent>
                     </Select>
+                    <p className="text-xs text-slate-500">
+                      الرموز: A=المعرفة، B=الفكري، C=المهني، D=العام
+                    </p>
+                  </div>
+                  
+                  {/* ✅ الرمز مع التحقق التلقائي */}
+                  <div className="space-y-2">
+                    <Label>الرمز <span className="text-red-500">*</span></Label>
+                    <Input 
+                      value={programOutcomeFormData.code || ""}
+                      onChange={e => {
+                        const input = e.target.value.toUpperCase();
+                        const domainPrefix = getDomainPrefix(programOutcomeFormData.domain || "Knowledge");
+                        
+                        // ✅ التحقق من النمط الصحيح
+                        const regex = new RegExp(`^${domainPrefix}\\d*$`);
+                        
+                        if (input === "" || regex.test(input)) {
+                          setProgramOutcomeFormData({
+                            ...programOutcomeFormData, 
+                            code: input
+                          });
+                        }
+                      }}
+                      placeholder={`${getDomainPrefix(programOutcomeFormData.domain || "Knowledge")}1, ${getDomainPrefix(programOutcomeFormData.domain || "Knowledge")}2, ...`}
+                      maxLength={4}
+                      disabled={!programOutcomeFormData.domain}
+                    />
+                    <p className="text-xs text-slate-500">
+                      يجب أن يبدأ بـ {getDomainPrefix(programOutcomeFormData.domain || "Knowledge")} 
+                      ثم رقم (مثال: {getDomainPrefix(programOutcomeFormData.domain || "Knowledge")}1)
+                    </p>
                   </div>
                 </div>
+          
                 <div className="space-y-2">
-                  <Label>النص</Label>
+                  <Label>الوصف <span className="text-red-500">*</span></Label>
                   <Textarea 
-                    value={programOutcomeFormData.name || ""}
-                    onChange={e => setProgramOutcomeFormData({...programOutcomeFormData, name: e.target.value})}
-                    placeholder="وصف المخرج..."
-                    className="min-h-[100px]"
+                    value={programOutcomeFormData.description || ""}
+                    onChange={e => setProgramOutcomeFormData({
+                      ...programOutcomeFormData, 
+                      description: e.target.value
+                    })}
+                    placeholder="اكتب وصف مخرج التعلم بشكل واضح ومحدد..."
+                    className="min-h-[120px]"
+                    rows={5}
                   />
                 </div>
+          
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>الوزن (%) <span className="text-red-500">*</span></Label>
+                    <Input 
+                      type="number"
+                      value={programOutcomeFormData.weight || ""}
+                      onChange={e => setProgramOutcomeFormData({
+                        ...programOutcomeFormData, 
+                        weight: parseFloat(e.target.value) || 0
+                      })}
+                      min="0"
+                      max="100"
+                      step="0.1"
+                    />
+                    <p className="text-xs text-slate-500">
+                      المتبقي: {(100 - programOutcomes
+                        .filter(o => o.plo_id !== programOutcomeFormData.plo_id)
+                        .reduce((sum, o) => sum + (Number(o.weight) || 0), 0)).toFixed(2)}%
+                    </p>
+                  </div>
+          
+                  {/* ✅ الترتيب مع التحقق */}
+                  <div className="space-y-2">
+                    <Label>الترتيب <span className="text-red-500">*</span></Label>
+                    <Input 
+                      type="number"
+                      value={programOutcomeFormData.order || ""}
+                      onChange={e => setProgramOutcomeFormData({
+                        ...programOutcomeFormData, 
+                        order: parseInt(e.target.value) || 1
+                      })}
+                      min="1"
+                      placeholder="1, 2, 3, ..."
+                    />
+                    <p className="text-xs text-slate-500">
+                      {programOutcomeFormMode === "add" 
+                        ? `الاقتراح: ${getNextOrderNumber()}`
+                        : "يجب أن يكون فريداً"}
+                    </p>
+                  </div>
+          
+                  <div className="space-y-2">
+                    <Label>الحالة</Label>
+                    <div className="flex items-center space-x-2 space-x-reverse h-10">
+                      <input
+                        type="checkbox"
+                        id="is_active"
+                        checked={programOutcomeFormData.is_active ?? true}
+                        onChange={e => setProgramOutcomeFormData({
+                          ...programOutcomeFormData, 
+                          is_active: e.target.checked
+                        })}
+                        className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                      />
+                      <Label htmlFor="is_active" className="cursor-pointer">
+                        نشط
+                      </Label>
+                    </div>
+                  </div>
+                </div>
               </div>
+          
               <DialogFooter>
-                <Button variant="outline" onClick={() => setIsProgramOutcomeFormOpen(false)}>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsProgramOutcomeFormOpen(false)}
+                >
                   إلغاء
                 </Button>
-                <Button onClick={handleSaveProgramOutcome}>
+                <Button 
+                  onClick={handleSaveProgramOutcome}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                >
+                  <Save className="w-4 h-4 mr-2" />
                   حفظ
                 </Button>
               </DialogFooter>
@@ -1712,7 +2360,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                               <Label>نوع المتطلب</Label>
                               <Select 
                                 value={courseFormData.category}
-                                onValueChange={v => setCourseFormData({...courseFormData, category: v})}
+                                onValueChange={v => setCourseFormData({...courseFormData, category: v as "متطلب جامعة" | "متطلب كلية" | "متطلب تخصص إجباري" | "متطلب تخصص اختياري"})}
                               >
                                 <SelectTrigger className="bg-white">
                                   <SelectValue />
@@ -1720,123 +2368,379 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                                 <SelectContent>
                                   <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
                                   <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
-                                  <SelectItem value="متطلب تخصص">متطلب تخصص (إجباري)</SelectItem>
-                                  <SelectItem value="متطلب اختياري">متطلب تخصص (اختياري)</SelectItem>
+                                  <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
+                                  <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                           </div>
 
-                          <div className="space-y-3 bg-white p-4 rounded-lg border">
-                            <div className="flex justify-between items-center">
-                              <Label className="text-sm font-bold text-slate-700">أجزاء المقرر (نوع المقرر)</Label>
-                              <Button 
-                                type="button"
-                                size="sm" 
-                                variant="outline" 
-                                className="h-7 text-xs" 
-                                onClick={handleAddCoursePart}
-                              >
-                                <Plus className="w-3 h-3 mr-1" /> إضافة جزء
-                              </Button>
+                          {/* ==================== القسم 2: أجزاء المقرر والساعات ==================== */}
+                          <div className="bg-white p-4 rounded-lg border space-y-4">
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <h5 className="font-semibold text-slate-700 flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-purple-600" />
+                                أجزاء المقرر والساعات المعتمدة
+                              </h5>
                             </div>
-
-                            <div className="space-y-3">
-                              {courseFormData.courseParts.map((part, idx) => (
-                                <div key={idx} className="p-3 bg-slate-50 rounded-lg border space-y-3">
-                                  <div className="flex items-center gap-2">
+                          
+                            {/* الساعات المعتمدة (ثابتة - في الأعلى) */}
+                            <Alert className="bg-blue-50 border-2 border-blue-400">
+                              <Clock className="h-5 w-5 text-blue-700" />
+                              <AlertDescription>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-blue-900 text-base">
+                                    إجمالي الساعات المعتمدة للمقرر (ثابت):
+                                  </span>
+                                  <div className="flex items-center gap-3">
                                     <Input 
-                                      value={part.name}
-                                      onChange={e => handleUpdateCoursePart(idx, 'name', e.target.value)}
-                                      placeholder="مثال: نظري، عملي، تمارين"
-                                      className="bg-white flex-1"
+                                      type="number"
+                                      min="1"
+                                      max="10"
+                                      step="1"
+                                      value={courseFormData.creditHours}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value) || 0;
+                                        setCourseFormData({...courseFormData, creditHours: val});
+                                      }}
+                                      className="w-24 h-10 font-bold text-xl text-center bg-white border-2 border-blue-300 text-blue-700"
+                                      required
                                     />
-                                    {courseFormData.courseParts.length > 1 && (
-                                      <Button 
-                                        type="button"
-                                        size="icon" 
-                                        variant="ghost"
-                                        className="text-red-500 hover:bg-red-50"
-                                        onClick={() => handleRemoveCoursePart(idx)}
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </Button>
-                                    )}
-                                  </div>
-
-                                  <div className="grid grid-cols-4 gap-2">
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-slate-600">نظري</Label>
-                                      <Input 
-                                        type="number"
-                                        min="0"
-                                        value={part.theoretical_hours}
-                                        onChange={e => handleUpdateCoursePart(idx, 'theoretical_hours', +e.target.value)}
-                                        className="bg-white h-8 text-xs"
-                                      />
-                                    </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-slate-600">عملي</Label>
-                                      <Input 
-                                        type="number"
-                                        min="0"
-                                        value={part.practical_hours}
-                                        onChange={e => handleUpdateCoursePart(idx, 'practical_hours', +e.target.value)}
-                                        className="bg-white h-8 text-xs"
-                                      />
-                                    </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-slate-600">تمارين</Label>
-                                      <Input 
-                                        type="number"
-                                        min="0"
-                                        value={part.exercise_hours}
-                                        onChange={e => handleUpdateCoursePart(idx, 'exercise_hours', +e.target.value)}
-                                        className="bg-white h-8 text-xs"
-                                      />
-                                    </div>
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-slate-600">سمنار</Label>
-                                      <Input 
-                                        type="number"
-                                        min="0"
-                                        value={part.seminar_hours}
-                                        onChange={e => handleUpdateCoursePart(idx, 'seminar_hours', +e.target.value)}
-                                        className="bg-white h-8 text-xs"
-                                      />
-                                    </div>
+                                    <span className="text-blue-800 font-bold">ساعة</span>
                                   </div>
                                 </div>
-                              ))}
+                              </AlertDescription>
+                            </Alert>
+                            
+                            {/* ⚠️ تنبيه */}
+                            <Alert className="bg-amber-50 border-amber-300">
+                              <AlertCircle className="h-4 w-4 text-amber-700" />
+                              <AlertDescription className="text-xs text-amber-800">
+                                💡 <b>ملاحظة:</b> يجب أن يساوي مجموع الساعات المحسوبة من الأجزاء (بعد التحويل) الساعات المعتمدة المدخلة أعلاه.
+                              </AlertDescription>
+                            </Alert>
+                          
+                            {/*  عرض الأجزاء */}
+                            <div className="space-y-3">
+                              {courseFormData.courseParts.map((part, idx) => {
+                                // ✅ حساب دقيق للساعات المعتمدة
+                                const creditedHours = Math.round(part.actual_hours * part.rate);
+                                
+                                return (
+                                  <div key={idx} className="p-4 bg-slate-50 rounded-lg border-2 border-slate-200 space-y-3">
+                                    
+                                    <div className="flex items-center gap-3">
+                                      <Badge variant="secondary" className="shrink-0 min-w-[80px] justify-center">
+                                        {part.name}
+                                      </Badge>
+                                      
+                                      {/* الساعات الفعلية */}
+                                      <div className="flex items-center gap-2 flex-1">
+                                        <Label className="text-xs text-slate-600 w-28">الساعات الفعلية:</Label>
+                                        <Input 
+                                          type="number"
+                                          min="0"
+                                          step={
+                                            part.name === "نظري" ? 1 :
+                                            part.name === "عملي" ? 2 :
+                                            part.name === "تمارين" ? 2 :
+                                            part.name === "سريري" ? 3 : 1
+                                          }
+                                          value={part.actual_hours}
+                                          onChange={(e) => {
+                                            let val = parseInt(e.target.value) || 0;
+                                            
+                                            // ✅ تقييد القيم حسب النوع
+                                            if (part.name === "عملي" || part.name === "تمارين") {
+                                              val = Math.floor(val / 2) * 2; // مضاعفات 2
+                                            } else if (part.name === "سريري") {
+                                              val = Math.floor(val / 3) * 3; // مضاعفات 3
+                                            }
+                                            
+                                            handleUpdateCoursePart(idx, 'actual_hours', val);
+                                          }}
+                                          className="bg-white h-9 w-24 text-center font-semibold"
+                                          placeholder={
+                                            part.name === "نظري" ? "1, 2, 3..." :
+                                            part.name === "عملي" ? "2, 4, 6..." :
+                                            part.name === "تمارين" ? "2, 4, 6..." :
+                                            part.name === "سريري" ? "3, 6, 9..." : "0"
+                                          }
+                                        />
+                                        <span className="text-xs text-slate-500">ساعة</span>
+                                      </div>
+                            
+                                      {/* العرض التوضيحي */}
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                          {part.name === "سريري" ? "÷3" : part.name === "نظري" ? "×1" : "÷2"}
+                                        </Badge>
+                                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                                        <Badge className={cn(
+                                          "font-bold min-w-[100px] justify-center",
+                                          creditedHours <= courseFormData.creditHours 
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : "bg-red-50 text-red-700 border-red-200"
+                                        )}>
+                                          {creditedHours} ساعة معتمدة
+                                        </Badge>
+                                      </div>
+                            
+                                      {/* زر الحذف */}
+                                      {courseFormData.courseParts.length > 1 && (
+                                        <Button 
+                                          type="button"
+                                          size="icon" 
+                                          variant="ghost"
+                                          className="text-red-500 hover:bg-red-50 shrink-0"
+                                          onClick={() => handleRemoveCoursePart(idx)}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                            
+                                    {/* شرح المعدل */}
+                                    <div className="text-xs text-slate-500 bg-white p-2 rounded border flex items-center gap-2">
+                                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        <b>{part.name}:</b> 
+                                        {part.name === "نظري" && " كل ساعة فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "عملي" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "تمارين" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "سريري" && " كل 3 ساعات فعلية = 1 ساعة معتمدة"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
+                          
+                            {/* ✅ زر إضافة جزء (فقط إذا لم تكتمل الأجزاء) */}
+                            {courseFormData.courseParts.length < 4 && (
+                              <div className="flex gap-2">
+                                {!courseFormData.courseParts.find(p => p.name === "نظري") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "نظري", actual_hours: 0, rate: 1.0 }]
+                                    })}
+                                  >
+                                    + نظري
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "عملي") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "عملي", actual_hours: 0, rate: 0.5 }]
+                                    })}
+                                  >
+                                    + عملي
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "تمارين") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "تمارين", actual_hours: 0, rate: 0.5 }]
+                                    })}
+                                  >
+                                    + تمارين
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "سريري") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "سريري", actual_hours: 0, rate: 0.33 }]
+                                    })}
+                                  >
+                                    + سريري
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          
+                            {/* ✅ التحقق من الموازنة */}
+                            {(() => {
+                              const totalCredited = courseFormData.courseParts.reduce((sum, p) => 
+                                sum + Math.round(p.actual_hours * p.rate), 0
+                              );
+                              const isBalanced = totalCredited === courseFormData.creditHours;
+                              const difference = totalCredited - courseFormData.creditHours;
+                            
+                              return (
+                                <Alert className={cn(
+                                  "border-2",
+                                  isBalanced 
+                                    ? "bg-emerald-50 border-emerald-400" 
+                                    : difference > 0 
+                                    ? "bg-red-50 border-red-400" 
+                                    : "bg-amber-50 border-amber-400"
+                                )}>
+                                  <AlertCircle className="h-5 w-5" />
+                                  <AlertDescription className="flex items-center justify-between">
+                                    <div className="flex flex-col gap-1">
+                                      <span className="font-semibold text-sm">
+                                        مجموع الساعات المحسوبة من الأجزاء:
+                                      </span>
+                                      {!isBalanced && (
+                                        <span className="text-xs">
+                                          {difference > 0 
+                                            ? `⚠️ زيادة ${difference} ساعة - قلل الساعات الفعلية` 
+                                            : `⚠️ نقص ${Math.abs(difference)} ساعة - زد الساعات الفعلية`
+                                          }
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className={cn(
+                                        "text-2xl font-bold",
+                                        isBalanced 
+                                          ? "text-emerald-700" 
+                                          : difference > 0 
+                                          ? "text-red-700" 
+                                          : "text-amber-700"
+                                      )}>
+                                        {totalCredited}
+                                      </span>
+                                      <span className="text-slate-400">/</span>
+                                      <span className="text-xl font-bold text-slate-700">
+                                        {courseFormData.creditHours}
+                                      </span>
+                                      {isBalanced ? (
+                                        <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300">
+                                          ✓ متوازن
+                                        </Badge>
+                                      ) : (
+                                        <Badge className={cn(
+                                          difference > 0 
+                                            ? "bg-red-100 text-red-700 border-red-300" 
+                                            : "bg-amber-100 text-amber-700 border-amber-300"
+                                        )}>
+                                          {difference > 0 ? "⚠ زيادة" : "⚠ نقص"}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </AlertDescription>
+                                </Alert>
+                              );
+                            })()}
                           </div>
 
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label>المتطلبات السابقة (إن وجدت)</Label>
-                              <Input 
-                                value={courseFormData.prerequisites}
-                                onChange={e => setCourseFormData({...courseFormData, prerequisites: e.target.value})}
-                                placeholder="مثال: CS101, MATH101"
-                                className="bg-white"
-                              />
-                            </div>
+                            {/* ==================== القسم 3: المتطلبات (فقط لأنظمة الساعات) ==================== */}
+                            {selectedProgram && (selectedProgram.academic_system as string) === 'credit' && (
+                              <div className="bg-white p-4 rounded-lg border space-y-4">
+                                <h5 className="font-semibold text-slate-700 flex items-center gap-2 border-b pb-2">
+                                  <Layers className="w-4 h-4 text-indigo-600" />
+                                  المتطلبات السابقة والمصاحبة
+                                </h5>
+                            
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  
+                                  {/* المتطلبات السابقة */}
+                                  <div className="space-y-3">
+                                    <Label className="font-semibold text-indigo-700">
+                                      المتطلبات السابقة (Prerequisites)
+                                    </Label>
+                                    <div className="min-h-[80px] p-3 bg-indigo-50/30 rounded-lg border-2 border-dashed border-indigo-200">
+                                      <div className="flex flex-wrap gap-2">
+                                        {courseFormData.prerequisiteIds.map(id => {
+                                          const course = availableCoursesForPrereq.find(c => c.id === id);
+                                          return course ? (
+                                            <Badge key={id} variant="secondary" className="gap-1 bg-indigo-100 text-indigo-700">
+                                              {course.course_code}
+                                              <X 
+                                                className="w-3 h-3 cursor-pointer hover:text-red-600" 
+                                                onClick={() => setCourseFormData({
+                                                  ...courseFormData,
+                                                  prerequisiteIds: courseFormData.prerequisiteIds.filter(i => i !== id)
+                                                })}
+                                              />
+                                            </Badge>
+                                          ) : null;
+                                        })}
+                                        {courseFormData.prerequisiteIds.length === 0 && (
+                                          <span className="text-xs text-slate-400">لا توجد متطلبات سابقة</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <Button 
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="w-full border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                      onClick={() => setIsPrereqSelectOpen(true)}
+                                    >
+                                      <Plus className="w-3.5 h-3.5 mr-1" />
+                                      اختيار متطلب سابق
+                                    </Button>
+                                  </div>
+                            
+                                  {/* المتطلبات المصاحبة */}
+                                  <div className="space-y-3">
+                                    <Label className="font-semibold text-blue-700">
+                                      المتطلبات المصاحبة (Corequisites)
+                                    </Label>
+                                    <div className="min-h-[80px] p-3 bg-blue-50/30 rounded-lg border-2 border-dashed border-blue-200">
+                                      <div className="flex flex-wrap gap-2">
+                                        {courseFormData.corequisiteIds.map(id => {
+                                          const course = availableCoursesForPrereq.find(c => c.id === id);
+                                          return course ? (
+                                            <Badge key={id} variant="secondary" className="gap-1 bg-blue-100 text-blue-700">
+                                              {course.course_code}
+                                              <X 
+                                                className="w-3 h-3 cursor-pointer hover:text-red-600" 
+                                                onClick={() => setCourseFormData({
+                                                  ...courseFormData,
+                                                  corequisiteIds: courseFormData.corequisiteIds.filter(i => i !== id)
+                                                })}
+                                              />
+                                            </Badge>
+                                          ) : null;
+                                        })}
+                                        {courseFormData.corequisiteIds.length === 0 && (
+                                          <span className="text-xs text-slate-400">لا توجد متطلبات مصاحبة</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <Button 
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                                      onClick={() => setIsCoreqSelectOpen(true)}
+                                    >
+                                      <Plus className="w-3.5 h-3.5 mr-1" />
+                                      اختيار متطلب مصاحب
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
 
                             <div className="space-y-2">
-                              <Label>المتطلبات المصاحبة (إن وجدت)</Label>
-                              <Input 
-                                value={courseFormData.corequisites}
-                                onChange={e => setCourseFormData({...courseFormData, corequisites: e.target.value})}
-                                placeholder="مثال: PHYS101"
-                                className="bg-white"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label>لغة التدريس</Label>
+                              <Label className="font-semibold">لغة التدريس</Label>
                               <Select 
                                 value={courseFormData.teachingLanguage}
-                                onValueChange={v => setCourseFormData({...courseFormData, teachingLanguage: v})}
+                                onValueChange={(v) => setCourseFormData({
+                                  ...courseFormData, 
+                                  teachingLanguage: v as "العربية" | "الإنجليزية" | "ثنائي اللغة"
+                                })}
                               >
                                 <SelectTrigger className="bg-white">
                                   <SelectValue />
@@ -1848,15 +2752,6 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                                 </SelectContent>
                               </Select>
                             </div>
-
-                            <div className="space-y-2">
-                              <Label>النظام (تلقائي)</Label>
-                              <Input 
-                                value={selectedProgram?.academic_system === 'semester' ? 'فصلي' : 'ساعات'}
-                                disabled
-                                className="bg-slate-100 cursor-not-allowed"
-                              />
-                            </div>
                           </div>
 
                           <div className="space-y-2">
@@ -1867,14 +2762,6 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                               placeholder="أي ملاحظات إضافية..."
                               className="bg-white min-h-[80px]"
                             />
-                          </div>
-
-                          <div className="flex items-center gap-3 bg-white p-3 rounded-lg border">
-                            <Switch 
-                              checked={courseFormData.isElective}
-                              onCheckedChange={c => setCourseFormData({...courseFormData, isElective: c})}
-                            />
-                            <Label className="cursor-pointer">مقرر اختياري</Label>
                           </div>
 
                           <div className="flex justify-end gap-2 pt-4 border-t">
@@ -1889,83 +2776,169 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                       </div>
                     )}
 
-                    <div className="border rounded-md overflow-hidden">
-                      <Table className="bg-white">
-                        <TableHeader className="bg-slate-50">
-                          <TableRow>
-                            <TableHead>الكود</TableHead>
-                            <TableHead>الاسم</TableHead>
-                            <TableHead className="text-center">الساعات</TableHead>
-                            <TableHead className="text-center">الأجزاء</TableHead>
-                            <TableHead className="text-center text-emerald-700">الوزن %</TableHead>
-                            <TableHead className="text-center">الجودة</TableHead>
-                            <TableHead className="text-left">الإجراءات</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {termCourses.length === 0 ? (
-                            <TableRow>
-                              <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                                لا توجد مقررات مسجلة
-                              </TableCell>
-                            </TableRow>
-                          ) : (
-                            termCourses.map(course => (
-                              <TableRow key={course.id} className="hover:bg-slate-50">
-                                <TableCell className="font-mono text-slate-600">{course.course_code}</TableCell>
-                                <TableCell className="font-semibold text-slate-800">{course.course_name}</TableCell>
-                                <TableCell className="text-center">
-                                  <Badge variant="outline">{course.credit_hours}</Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <div className="flex flex-wrap gap-1 justify-center">
-                                    {course.course_parts.map((part, idx) => (
-                                      <Badge key={idx} variant="secondary" className="text-[10px]">
-                                        {part.name}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                                    {course.weight || 0}%
-                                  </Badge>
-                                </TableCell>
-                                <TableCell className="text-center">
-                                  <Button 
-                                    size="sm" 
-                                    variant="secondary" 
-                                    className="gap-2 text-blue-700 bg-blue-50 hover:bg-blue-100" 
-                                    onClick={() => handleOpenQuality(course)}
-                                  >
-                                    <Target className="w-4 h-4" /> التوصيف
-                                  </Button>
-                                </TableCell>
-                                <TableCell className="text-left">
-                                  <div className="flex gap-1 justify-end">
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost" 
-                                      onClick={() => handleEditCourse(course)}
-                                    >
-                                      <Edit className="w-4 h-4" />
-                                    </Button>
-                                    <Button 
-                                      size="sm" 
-                                      variant="ghost" 
-                                      className="text-red-500" 
-                                      onClick={() => handleDeleteCourse(course.id)}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            ))
-                          )}
-                        </TableBody>
-                      </Table>
-                    </div>
+                    {/* جدول المقررات المحدث */}
+                     <div className="border rounded-lg overflow-hidden">
+                       <div className="overflow-x-auto">
+                         <Table className="bg-white">
+                           <TableHeader className="bg-gradient-to-r from-slate-50 to-slate-100">
+                             <TableRow>
+                               <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الكود</TableHead>
+                               <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">اسم المقرر</TableHead>
+                               <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الساعات</TableHead>
+                               <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">الأجزاء</TableHead>
+                               <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">التصنيف</TableHead>
+                               <TableHead className="text-center font-bold text-emerald-700 min-w-[80px]">الوزن %</TableHead>
+                               <TableHead className="text-center font-bold text-slate-700 min-w-[100px]">اللغة</TableHead>
+                               <TableHead className="text-center font-bold text-slate-700 min-w-[100px]">التوصيف</TableHead>
+                               <TableHead className="text-left font-bold text-slate-700 min-w-[120px]">الإجراءات</TableHead>
+                             </TableRow>
+                           </TableHeader>
+                           <TableBody>
+                             {termCourses.length === 0 ? (
+                               <TableRow>
+                                 <TableCell colSpan={9} className="text-center py-12">
+                                   <div className="flex flex-col items-center gap-3">
+                                     <div className="bg-slate-100 p-4 rounded-full">
+                                       <BookOpen className="w-12 h-12 text-slate-300" />
+                                     </div>
+                                     <p className="text-slate-400 font-medium">لا توجد مقررات مسجلة</p>
+                                     <p className="text-xs text-slate-400">ابدأ بإضافة المقررات لهذا الفصل الدراسي</p>
+                                   </div>
+                                 </TableCell>
+                               </TableRow>
+                             ) : (
+                               termCourses.map(course => (
+                                 <TableRow 
+                                   key={course.id}
+                                   className="hover:bg-slate-50 transition-colors border-b border-slate-100"
+                                 >
+                                   {/* الكود */}
+                                   <TableCell className="font-mono text-slate-700 font-bold text-sm align-top py-4">
+                                     <div className="bg-slate-100 px-2 py-1 rounded border border-slate-200 inline-block">
+                                       {course.course_code}
+                                     </div>
+                                   </TableCell>
+                     
+                                   {/* الاسم */}
+                                   <TableCell className="align-top py-4">
+                                     <div className="font-semibold text-slate-800 text-sm leading-snug">
+                                       {course.course_name}
+                                     </div>
+                                   </TableCell>
+                     
+                                   {/* الساعات */}
+                                   <TableCell className="text-center align-top py-4">
+                                     <Badge 
+                                       variant="outline" 
+                                       className="font-bold bg-blue-50 text-blue-700 border-blue-200 text-sm px-3 py-1"
+                                     >
+                                       {course.credit_hours}
+                                     </Badge>
+                                   </TableCell>
+                     
+                                   {/* الأجزاء */}
+                                   <TableCell className="text-center align-top py-4">
+                                     <div className="flex flex-col gap-1.5 items-center">
+                                       {course.course_parts?.map((part, idx) => (
+                                         <div 
+                                           key={idx}
+                                           className="flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-md px-2 py-1 w-full max-w-[120px]"
+                                         >
+                                           <span className="text-xs font-semibold text-purple-700 whitespace-nowrap">
+                                             {part.name}
+                                           </span>
+                                           <span className="text-[10px] text-purple-600 font-medium">
+                                             ({part.actual_hours}س)
+                                           </span>
+                                         </div>
+                                       ))}
+                                     </div>
+                                   </TableCell>
+                     
+                                   {/* التصنيف */}
+                                   <TableCell className="text-center align-top py-4">
+                                     <Badge 
+                                       variant="outline" 
+                                       className={cn(
+                                         "text-xs font-medium px-2 py-1 whitespace-nowrap",
+                                         course.category === "متطلب جامعة" && "bg-slate-50 text-slate-700 border-slate-300",
+                                         course.category === "متطلب كلية" && "bg-blue-50 text-blue-700 border-blue-300",
+                                         course.category === "متطلب تخصص إجباري" && "bg-green-50 text-green-700 border-green-300",
+                                         course.category === "متطلب تخصص اختياري" && "bg-amber-50 text-amber-700 border-amber-300"
+                                       )}
+                                     >
+                                       {course.category?.replace('متطلب ', '')}
+                                     </Badge>
+                                   </TableCell>
+                     
+                                   {/* الوزن */}
+                                   <TableCell className="text-center align-top py-4">
+                                     <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold text-sm px-3 py-1">
+                                       {course.weight || 0}%
+                                     </Badge>
+                                   </TableCell>
+                     
+                                   {/* اللغة */}
+                                   <TableCell className="text-center align-top py-4">
+                                     <div className="text-xs text-slate-600 flex flex-col items-center gap-1">
+                                       <span className="text-lg">
+                                         {course.teaching_language === 'العربية' && '🇸🇦'}
+                                         {course.teaching_language === 'الإنجليزية' && '🇬🇧'}
+                                         {course.teaching_language === 'ثنائي اللغة' && '🌐'}
+                                       </span>
+                                       <span className="whitespace-nowrap">{course.teaching_language}</span>
+                                     </div>
+                                   </TableCell>
+                     
+                                   {/* التوصيف */}
+                                   <TableCell className="text-center align-top py-4">
+                                     <Button 
+                                       size="sm" 
+                                       variant="secondary" 
+                                       className="gap-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 whitespace-nowrap" 
+                                       onClick={() => handleOpenQuality(course)}
+                                     >
+                                       <Target className="w-3.5 h-3.5" /> 
+                                       <span className="hidden sm:inline">التوصيف</span>
+                                     </Button>
+                                   </TableCell>
+                     
+                                   {/* الإجراءات */}
+                                   <TableCell className="text-left align-top py-4">
+                                     <div className="flex gap-1 justify-end flex-wrap">
+                                       {can('study_plan.update') && (
+                                         <Button 
+                                           size="sm" 
+                                           variant="ghost"
+                                           className="hover:bg-blue-50 hover:text-blue-700 h-8 w-8 p-0"
+                                           onClick={() => handleEditCourse(course)}
+                                           title="تعديل"
+                                         >
+                                           <Edit className="w-4 h-4" />
+                                         </Button>
+                                       )}
+                     
+                                       {can('study_plan.delete') && (
+                                         <Button 
+                                           size="sm" 
+                                           variant="ghost" 
+                                           className="text-red-500 hover:bg-red-50 h-8 w-8 p-0"
+                                           onClick={() => handleDeleteCourse(course.id)}
+                                           title="حذف"
+                                         >
+                                           <Trash2 className="w-4 h-4" />
+                                         </Button>
+                                       )}
+                                     </div>
+                                   </TableCell>
+                                 </TableRow>
+                               ))
+                             )}
+                           </TableBody>
+                         </Table>
+                       </div>
+                     </div>
+
                   </CardContent>
                 </Card>
               )}
@@ -1975,15 +2948,6 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
           {/* نظام الفصول + بلوكات */}
           {selectedProgram && selectedProgram.academic_system === 'semester' && selectedProgram.block_based && (
             <div className="space-y-6">
-              {/* تنبيه نوع النظام */}
-              <div className="flex items-center gap-3 text-indigo-700 bg-indigo-50 p-4 rounded-lg border border-indigo-200 animate-in fade-in duration-500">
-                <div className="bg-indigo-100 p-2 rounded-full">
-                  <Layers className="w-5 h-5" />
-                </div>
-                <p className="text-sm">
-                  <strong>نظام البلوكات (Block-Based System):</strong> يتم تنظيم المنهج في وحدات زمنية مكثفة (بلوكات) داخل كل مستوى دراسي.
-                </p>
-              </div>
           
               {/* أولاً: إدارة المستويات (نفس منطق نظام الفصول) */}
               <Card className="border shadow-sm bg-white">
@@ -2060,240 +3024,3145 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                       <CardTitle className="text-base text-slate-800 flex items-center gap-2">
                         <Box className="w-4 h-4 text-indigo-600" /> بلوكات المستوى {selectedLevel.level_number}
                       </CardTitle>
-                      <Button size="sm" onClick={() => setIsBlockFormOpen(true)} className="h-8 bg-indigo-600">
+                      <Button size="sm" onClick={handleAddBlock} className="h-8 bg-indigo-600">
                         <Plus className="w-3.5 h-3.5 mr-1" /> إضافة بلوك
                       </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="pt-6">
                     
-                    {/* فورم البلوك (تصميم أمامي فقط حالياً) */}
                     {isBlockFormOpen && (
-                      <div className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 mb-6 space-y-4">
+                      <form onSubmit={handleSubmitBlock} className="bg-indigo-50/50 p-5 rounded-xl border border-indigo-100 mb-6 space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          {/* اسم البلوك ورقم البلوك */}
                           <div className="md:col-span-2 space-y-2">
                             <Label>اسم البلوك</Label>
-                            <Input placeholder="مثال: بلوك الجهاز الهضمي" className="bg-white" />
+                            <Input 
+                              value={blockFormData.blockName}
+                              onChange={(e) => setBlockFormData({...blockFormData, blockName: e.target.value})}
+                              className="bg-white" required
+                            />
                           </div>
                           <div className="space-y-2">
-                            <Label>كود البلوك</Label>
-                            <Input placeholder="GI202" className="bg-white font-mono" />
+                            <Label>رقم البلوك</Label>
+                            <Input 
+                              type="number"
+                              value={blockFormData.blockNumber}
+                              onChange={(e) => setBlockFormData({...blockFormData, blockNumber: Number(e.target.value)})}
+                              className="bg-white" 
+                            />
+                          </div>
+                    
+                          {/* حقل الساعات - يظهر فقط في نظام الساعات */}
+                          {(selectedProgram?.academic_system as string) === 'credit' && (
+                            <div className="space-y-2">
+                              <Label>الساعات المعتمدة</Label>
+                              <Input 
+                                type="number"
+                                value={blockFormData.credit_hours}
+                                onChange={(e) => setBlockFormData({...blockFormData, credit_hours: Number(e.target.value)})}
+                                className="bg-white" 
+                              />
+                            </div>
+                          )}
+                    
+                          {/* النوع والأسابيع والوزن */}
+                          <div className="space-y-2">
+                            <Label>نوع البلوك</Label>
+                            <Select value={blockFormData.type} onValueChange={(val) => setBlockFormData({...blockFormData, type: val})}>
+                              <SelectTrigger className="bg-white"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="compulsory">إجباري</SelectItem>
+                                <SelectItem value="elective">اختياري</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </div>
                           <div className="space-y-2">
                             <Label>عدد الأسابيع</Label>
-                            <Input type="number" placeholder="4" className="bg-white" />
+                            <Input type="number" value={blockFormData.weeks} onChange={(e) => setBlockFormData({...blockFormData, weeks: Number(e.target.value)})} className="bg-white" />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>الوزن (%)</Label>
+                            <Input type="number" value={blockFormData.weight} onChange={(e) => setBlockFormData({...blockFormData, weight: Number(e.target.value)})} className="bg-white" />
                           </div>
                         </div>
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" onClick={() => setIsBlockFormOpen(false)}>إلغاء</Button>
-                          <Button size="sm" className="bg-indigo-600">حفظ البلوك</Button>
+                    
+                        <div className="flex justify-end gap-2 pt-4 border-t border-indigo-100">
+                          <Button type="button" variant="outline" size="sm" onClick={() => setIsBlockFormOpen(false)}>إلغاء</Button>
+                          <Button type="submit" size="sm" className="bg-indigo-600">حفظ البيانات</Button>
                         </div>
-                      </div>
+                      </form>
                     )}
-          
-                    {/* عرض البلوكات بشكل بطاقات طولية أو شبكة */}
+              
+                    {levelBlocks.length > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {/* مثال لبلوك معروض */}
-                      <div className="border rounded-xl p-4 bg-white hover:shadow-md transition-shadow group relative border-r-4 border-r-indigo-500">
-                        <div className="flex justify-between items-start mb-2">
-                          <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 border-none">GI202</Badge>
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button size="icon" variant="ghost" className="h-7 w-7"><Edit className="w-3.5 h-3.5" /></Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500"><Trash2 className="w-3.5 h-3.5" /></Button>
+                      {levelBlocks.map((block) => (
+                        <div key={block.id} className="border rounded-xl p-4 bg-white hover:shadow-md transition-shadow group relative border-r-4 border-r-indigo-500">
+                          <div className="flex justify-between items-start mb-2">
+                            <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 border-none">
+                              {block.type === 'compulsory' ? 'إجباري' : 'اختياري'}
+                            </Badge>
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button onClick={() => handleEditBlock(block)} size="icon" variant="ghost" className="h-7 w-7 text-indigo-600">
+                                <Edit className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button onClick={() => handleDeleteBlock(block.id)} size="icon" variant="ghost" className="h-7 w-7 text-red-500 hover:bg-red-50">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           </div>
+                          <h3 className="font-bold text-slate-800 mb-1">{block.block_name}</h3>
+                          <div className="space-y-1.5">
+                            <p className="text-xs text-slate-500 flex items-center gap-1">
+                              <Calendar className="w-3 h-3" /> المدة: {block.weeks} أسابيع
+                            </p>
+                            {/* <p className="text-xs text-slate-500 flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> الساعات: {block.credit_hours} ساعة
+                            </p> */}
+                            <p className="text-xs text-slate-500 flex items-center gap-1">
+                              <Target className="w-3 h-3" /> الوزن: {block.weight}%
+                            </p>
+                          </div>
+                          
+                          <Button 
+                            variant="secondary" 
+                            className={cn(
+                              "w-full mt-4 h-8 text-xs bg-slate-100 transition-colors",
+                              selectedBlock?.id === block.id ? "bg-indigo-600 text-white" : "group-hover:bg-indigo-600 group-hover:text-white"
+                            )}
+                            onClick={() => setSelectedBlock(block)}
+                          >
+                            عرض المقررات داخل البلوك
+                          </Button>
                         </div>
-                        <h3 className="font-bold text-slate-800 mb-1">بلوك الجهاز الهضمي</h3>
-                        <p className="text-xs text-slate-500 flex items-center gap-1">
-                          <Calendar className="w-3 h-3" /> المدة: 4 أسابيع
-                        </p>
-                        
-                        <Button 
-                          variant="secondary" 
-                          className="w-full mt-4 h-8 text-xs bg-slate-100 group-hover:bg-indigo-600 group-hover:text-white transition-colors"
-                          onClick={() => setSelectedBlock({
-                            id: 1, 
-                            block_name: 'الجهاز الهضمي', 
-                            block_number: 1, // إجباري حسب الـ type
-                            weeks: 4,        // إجباري حسب الـ type
-                            weight: 10       // إجباري حسب الـ type
-                          })}
-                        >
-                          عرض المقررات داخل البلوك
-                        </Button>
-                      </div>
+                      ))}
                     </div>
-          
-                    {/* في حال لا توجد بلوكات */}
-                    <div className="text-center py-10 border-2 border-dashed rounded-xl mt-4">
-                       <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                          <Box className="text-slate-300 w-6 h-6" />
-                       </div>
-                       <p className="text-slate-400 text-sm">لا توجد بلوكات مضافة لهذا المستوى بعد</p>
-                    </div>
-          
+                    ) : (
+                      !isBlockFormOpen && (
+                        <div className="text-center py-10 border-2 border-dashed rounded-xl mt-4">
+                          <div className="bg-slate-50 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <Box className="text-slate-300 w-6 h-6" />
+                          </div>
+                          <p className="text-slate-400 text-sm">لا توجد بلوكات مضافة لهذا المستوى بعد</p>
+                        </div>
+                      )
+                    )}
+              
                   </CardContent>
                 </Card>
               )}
           
               {/* ثالثاً: المقررات (تظهر عند اختيار بلوك معين) */}
               {selectedBlock && (
-                <div className="animate-in fade-in slide-in-from-top-4">
-                    <Card className="border-t-4 border-t-indigo-600">
-                      <CardHeader className="flex flex-row items-center justify-between">
-                         <div>
-                            <CardTitle className="text-lg">مقررات {selectedBlock.block_name}</CardTitle>
-                            <CardDescription>إدارة المواد الدراسية التابعة لهذا البلوك</CardDescription>
-                         </div>
-                         <Button onClick={handleAddCourse}>
-                            <Plus className="w-4 h-4 mr-2" /> إضافة مقرر للبلوك
-                         </Button>
-                      </CardHeader>
-                      <CardContent>
-                         {/* هنا نستخدم نفس جدول المقررات الموجود في كود "الفصول" الخاص بك */}
-                         <div className="rounded-md border">
-                           <Table>
-                              <TableHeader>
-                                 <TableRow>
-                                    <TableHead>الكود</TableHead>
-                                    <TableHead>اسم المقرر</TableHead>
-                                    <TableHead className="text-center">الساعات</TableHead>
-                                    <TableHead className="text-left">الإجراءات</TableHead>
-                                 </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                 <TableRow>
-                                    <TableCell colSpan={4} className="text-center py-6 text-slate-400">
-                                       لم يتم إضافة مقررات لهذا البلوك
-                                    </TableCell>
-                                 </TableRow>
-                              </TableBody>
-                           </Table>
-                         </div>
-                      </CardContent>
-                    </Card>
-                </div>
+                <Card className="border-t-4 border-t-indigo-600 shadow-sm bg-white animate-in fade-in slide-in-from-top-4">
+                  <CardHeader className="bg-indigo-50/50 border-b pb-4">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <CardTitle className="text-lg text-slate-800">المقررات الدراسية</CardTitle>
+                        <CardDescription>
+                          المستوى {selectedLevel?.level_number} - {selectedBlock.block_name}
+                        </CardDescription>
+                      </div>
+                      {can('study_plan.create') && (
+                        <Button onClick={handleAddCourse} className="shadow-sm">
+                          <Plus className="w-4 h-4 mr-2" /> إضافة مقرر
+                        </Button>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-6">
+                    
+                    {/* نموذج إضافة/تعديل المقرر */}
+                    {isCourseFormOpen && (
+                      <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 mb-6 shadow-sm">
+                        <h4 className="font-semibold mb-4 text-slate-700 border-b pb-2">
+                          {editingCourse ? "تعديل المقرر" : "إضافة مقرر جديد"}
+                        </h4>
+                        <form onSubmit={handleSubmitCourse} className="space-y-6">
+                          
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label>كود المقرر *</Label>
+                              <Input 
+                                value={courseFormData.courseCode}
+                                onChange={e => setCourseFormData({...courseFormData, courseCode: e.target.value})}
+                                placeholder="CS101"
+                                className="bg-white font-mono"
+                                required
+                              />
+                            </div>
+              
+                            <div className="space-y-2 md:col-span-2">
+                              <Label>اسم المقرر *</Label>
+                              <Input 
+                                value={courseFormData.courseName}
+                                onChange={e => setCourseFormData({...courseFormData, courseName: e.target.value})}
+                                placeholder="مثال: مقدمة في البرمجة"
+                                className="bg-white"
+                                required
+                              />
+                            </div>
+              
+                            <div className="space-y-2">
+                              <Label>الساعات المعتمدة *</Label>
+                              <Input 
+                                type="number"
+                                min="1"
+                                value={courseFormData.creditHours}
+                                onChange={e => setCourseFormData({...courseFormData, creditHours: +e.target.value})}
+                                className="bg-white"
+                                required
+                              />
+                            </div>
+              
+                            <div className="space-y-2">
+                              <Label className="text-emerald-700 font-bold">وزن المقرر % (من البرنامج)</Label>
+                              <Input 
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={courseFormData.weight}
+                                onChange={e => setCourseFormData({...courseFormData, weight: +e.target.value})}
+                                placeholder="0"
+                                className="bg-emerald-50/50 border-emerald-200"
+                              />
+                            </div>
+              
+                            <div className="space-y-2">
+                              <Label>نوع المتطلب</Label>
+                              <Select 
+                                value={courseFormData.category}
+                                onValueChange={v => setCourseFormData({...courseFormData, category: v as "متطلب جامعة" | "متطلب كلية" | "متطلب تخصص إجباري" | "متطلب تخصص اختياري"})}
+                              >
+                                <SelectTrigger className="bg-white">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
+                                  <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
+                                  <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
+                                  <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+              
+                          {/* القسم 2: أجزاء المقرر */}
+                          <div className="bg-white p-4 rounded-lg border space-y-4">
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <h5 className="font-semibold text-slate-700 flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-purple-600" />
+                                أجزاء المقرر والساعات المعتمدة
+                              </h5>
+                            </div>
+                          
+                            {/* الساعات المعتمدة (ثابتة) */}
+                            <Alert className="bg-blue-50 border-2 border-blue-400">
+                              <Clock className="h-5 w-5 text-blue-700" />
+                              <AlertDescription>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-blue-900 text-base">
+                                    إجمالي الساعات المعتمدة للمقرر:
+                                  </span>
+                                  <div className="flex items-center gap-3">
+                                    <Input 
+                                      type="number"
+                                      min="1"
+                                      max="10"
+                                      step="1"
+                                      value={courseFormData.creditHours}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value) || 0;
+                                        setCourseFormData({...courseFormData, creditHours: val});
+                                      }}
+                                      className="w-24 h-10 font-bold text-xl text-center bg-white border-2 border-blue-300 text-blue-700"
+                                      required
+                                    />
+                                    <span className="text-blue-800 font-bold">ساعة</span>
+                                  </div>
+                                </div>
+                              </AlertDescription>
+                            </Alert>
+                            
+                            {/* تنبيه */}
+                            <Alert className="bg-amber-50 border-amber-300">
+                              <AlertCircle className="h-4 w-4 text-amber-700" />
+                              <AlertDescription className="text-xs text-amber-800">
+                                💡 <b>ملاحظة:</b> يجب أن يساوي مجموع الساعات المحسوبة من الأجزاء الساعات المعتمدة المدخلة أعلاه.
+                              </AlertDescription>
+                            </Alert>
+                          
+                            {/* عرض الأجزاء */}
+                            <div className="space-y-3">
+                              {courseFormData.courseParts.map((part, idx) => {
+                                const creditedHours = Math.round(part.actual_hours * part.rate);
+                                
+                                return (
+                                  <div key={idx} className="p-4 bg-slate-50 rounded-lg border-2 border-slate-200 space-y-3">
+                                    
+                                    <div className="flex items-center gap-3">
+                                      <Badge variant="secondary" className="shrink-0 min-w-[80px] justify-center">
+                                        {part.name}
+                                      </Badge>
+                                      
+                                      {/* الساعات الفعلية */}
+                                      <div className="flex items-center gap-2 flex-1">
+                                        <Label className="text-xs text-slate-600 w-28">الساعات الفعلية:</Label>
+                                        <Input 
+                                          type="number"
+                                          min="0"
+                                          step={
+                                            part.name === "نظري" ? 1 :
+                                            part.name === "عملي" ? 2 :
+                                            part.name === "تمارين" ? 2 :
+                                            part.name === "سريري" ? 3 : 1
+                                          }
+                                          value={part.actual_hours}
+                                          onChange={(e) => {
+                                            let val = parseInt(e.target.value) || 0;
+                                            
+                                            if (part.name === "عملي" || part.name === "تمارين") {
+                                              val = Math.floor(val / 2) * 2;
+                                            } else if (part.name === "سريري") {
+                                              val = Math.floor(val / 3) * 3;
+                                            }
+                                            
+                                            handleUpdateCoursePart(idx, 'actual_hours', val);
+                                          }}
+                                          className="bg-white h-9 w-24 text-center font-semibold"
+                                          placeholder={
+                                            part.name === "نظري" ? "1, 2, 3..." :
+                                            part.name === "عملي" ? "2, 4, 6..." :
+                                            part.name === "تمارين" ? "2, 4, 6..." :
+                                            part.name === "سريري" ? "3, 6, 9..." : "0"
+                                          }
+                                        />
+                                        <span className="text-xs text-slate-500">ساعة</span>
+                                      </div>
+                              
+                                      {/* العرض التوضيحي */}
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                          {part.name === "سريري" ? "÷3" : part.name === "نظري" ? "×1" : "÷2"}
+                                        </Badge>
+                                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                                        <Badge className={cn(
+                                          "font-bold min-w-[100px] justify-center",
+                                          creditedHours <= courseFormData.creditHours 
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : "bg-red-50 text-red-700 border-red-200"
+                                        )}>
+                                          {creditedHours} ساعة معتمدة
+                                        </Badge>
+                                      </div>
+                              
+                                      {/* زر الحذف */}
+                                      {courseFormData.courseParts.length > 1 && (
+                                        <Button 
+                                          type="button"
+                                          size="icon" 
+                                          variant="ghost"
+                                          className="text-red-500 hover:bg-red-50 shrink-0"
+                                          onClick={() => handleRemoveCoursePart(idx)}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                              
+                                    {/* شرح المعدل */}
+                                    <div className="text-xs text-slate-500 bg-white p-2 rounded border flex items-center gap-2">
+                                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        <b>{part.name}:</b> 
+                                        {part.name === "نظري" && " كل ساعة فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "عملي" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "تمارين" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "سريري" && " كل 3 ساعات فعلية = 1 ساعة معتمدة"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          
+                            {/* زر إضافة جزء */}
+                            {courseFormData.courseParts.length < 4 && (
+                              <div className="flex gap-2">
+                                {!courseFormData.courseParts.find(p => p.name === "نظري") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "نظري", actual_hours: 0, rate: 1.0 }]
+                                    })}
+                                  >
+                                    + نظري
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "عملي") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "عملي", actual_hours: 0, rate: 0.5 }]
+                                    })}
+                                  >
+                                    + عملي
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "تمارين") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "تمارين", actual_hours: 0, rate: 0.5 }]
+                                    })}
+                                  >
+                                    + تمارين
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "سريري") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "سريري", actual_hours: 0, rate: 0.33 }]
+                                    })}
+                                  >
+                                    + سريري
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          
+                            {/* التحقق من الموازنة */}
+                            {(() => {
+                              const totalCredited = courseFormData.courseParts.reduce((sum, p) => 
+                                sum + Math.round(p.actual_hours * p.rate), 0
+                              );
+                              const isBalanced = totalCredited === courseFormData.creditHours;
+                              const difference = totalCredited - courseFormData.creditHours;
+                            
+                              return (
+                                <Alert className={cn(
+                                  "border-2",
+                                  isBalanced 
+                                    ? "bg-emerald-50 border-emerald-400" 
+                                    : difference > 0 
+                                    ? "bg-red-50 border-red-400" 
+                                    : "bg-amber-50 border-amber-400"
+                                )}>
+                                  <AlertCircle className="h-5 w-5" />
+                                  <AlertDescription className="flex items-center justify-between">
+                                    <div className="flex flex-col gap-1">
+                                      <span className="font-semibold text-sm">
+                                        مجموع الساعات المحسوبة من الأجزاء:
+                                      </span>
+                                      {!isBalanced && (
+                                        <span className="text-xs">
+                                          {difference > 0 
+                                            ? `⚠️ زيادة ${difference} ساعة - قلل الساعات الفعلية` 
+                                            : `⚠️ نقص ${Math.abs(difference)} ساعة - زد الساعات الفعلية`
+                                          }
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className={cn(
+                                        "text-2xl font-bold",
+                                        isBalanced 
+                                          ? "text-emerald-700" 
+                                          : difference > 0 
+                                          ? "text-red-700" 
+                                          : "text-amber-700"
+                                      )}>
+                                        {totalCredited}
+                                      </span>
+                                      <span className="text-slate-400">/</span>
+                                      <span className="text-xl font-bold text-slate-700">
+                                        {courseFormData.creditHours}
+                                      </span>
+                                      {isBalanced ? (
+                                        <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300">
+                                          ✓ متوازن
+                                        </Badge>
+                                      ) : (
+                                        <Badge className={cn(
+                                          difference > 0 
+                                            ? "bg-red-100 text-red-700 border-red-300" 
+                                            : "bg-amber-100 text-amber-700 border-amber-300"
+                                        )}>
+                                          {difference > 0 ? "⚠ زيادة" : "⚠ نقص"}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </AlertDescription>
+                                </Alert>
+                              );
+                            })()}
+                          </div>
+              
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label className="font-semibold">لغة التدريس</Label>
+                              <Select 
+                                value={courseFormData.teachingLanguage}
+                                onValueChange={(v) => setCourseFormData({
+                                  ...courseFormData, 
+                                  teachingLanguage: v as "العربية" | "الإنجليزية" | "ثنائي اللغة"
+                                })}
+                              >
+                                <SelectTrigger className="bg-white">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="العربية">العربية</SelectItem>
+                                  <SelectItem value="الإنجليزية">الإنجليزية</SelectItem>
+                                  <SelectItem value="ثنائي اللغة">ثنائي اللغة</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+              
+                            {/* ملاحظات */}
+                            <div className="space-y-2">
+                              <Label>ملاحظات (اختياري)</Label>
+                              <Input 
+                                value={courseFormData.notes}
+                                onChange={e => setCourseFormData({...courseFormData, notes: e.target.value})}
+                                placeholder="ملاحظات إضافية..."
+                                className="bg-white"
+                              />
+                            </div>
+                          </div>
+              
+                          <div className="flex justify-end gap-2 pt-4 border-t">
+                            <Button type="button" variant="outline" onClick={() => setIsCourseFormOpen(false)}>
+                              إلغاء
+                            </Button>
+                            <Button type="submit">
+                              حفظ المقرر
+                            </Button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
+              
+                    {/* جدول المقررات المحدث - نفس تصميم الفصول */}
+                    <div className="border rounded-lg overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <Table className="bg-white">
+                          <TableHeader className="bg-gradient-to-r from-slate-50 to-slate-100">
+                            <TableRow>
+                              <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الكود</TableHead>
+                              <TableHead className="text-center font-bold text-slate-700 min-w-[150px]">اسم المقرر</TableHead>
+                              <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الساعات</TableHead>
+                              <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">الأجزاء</TableHead>
+                              <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">التصنيف</TableHead>
+                              <TableHead className="text-center font-bold text-emerald-700 min-w-[80px]">الوزن %</TableHead>
+                              <TableHead className="text-center font-bold text-slate-700 min-w-[100px]">اللغة</TableHead>
+                              <TableHead className="text-center font-bold text-slate-700 min-w-[100px]">التوصيف</TableHead>
+                              <TableHead className="text-left font-bold text-slate-700 min-w-[120px]">الإجراءات</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {blockCourses.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={9} className="text-center py-12">
+                                  <div className="flex flex-col items-center gap-3">
+                                    <div className="bg-slate-100 p-4 rounded-full">
+                                      <BookOpen className="w-12 h-12 text-slate-300" />
+                                    </div>
+                                    <p className="text-slate-400 font-medium">لا توجد مقررات مسجلة</p>
+                                    <p className="text-xs text-slate-400">ابدأ بإضافة المقررات لهذا البلوك</p>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ) : (
+                              blockCourses.map(course => (
+                                <TableRow 
+                                  key={course.id}
+                                  className="hover:bg-slate-50 transition-colors border-b border-slate-100"
+                                >
+                                  {/* الكود */}
+                                  <TableCell className="font-mono text-slate-700 font-bold text-sm align-top py-4">
+                                    <div className="bg-slate-100 px-2 py-1 rounded border border-slate-200 inline-block">
+                                      {course.course_code}
+                                    </div>
+                                  </TableCell>
+                        
+                                  {/* الاسم */}
+                                  <TableCell className="align-top py-4">
+                                    <div className="font-semibold text-slate-800 text-sm leading-snug">
+                                      {course.course_name}
+                                    </div>
+                                  </TableCell>
+                        
+                                  {/* الساعات */}
+                                  <TableCell className="text-center align-top py-4">
+                                    <Badge 
+                                      variant="outline" 
+                                      className="font-bold bg-blue-50 text-blue-700 border-blue-200 text-sm px-3 py-1"
+                                    >
+                                      {course.credit_hours}
+                                    </Badge>
+                                  </TableCell>
+                        
+                                  {/* الأجزاء */}
+                                  <TableCell className="text-center align-top py-4">
+                                    <div className="flex flex-col gap-1.5 items-center">
+                                      {course.course_parts?.map((part, idx) => (
+                                        <div 
+                                          key={idx}
+                                          className="flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-md px-2 py-1 w-full max-w-[120px]"
+                                        >
+                                          <span className="text-xs font-semibold text-purple-700 whitespace-nowrap">
+                                            {part.name}
+                                          </span>
+                                          <span className="text-[10px] text-purple-600 font-medium">
+                                            ({part.actual_hours}س)
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </TableCell>
+                        
+                                  {/* التصنيف */}
+                                  <TableCell className="text-center align-top py-4">
+                                    <Badge 
+                                      variant="outline" 
+                                      className={cn(
+                                        "text-xs font-medium px-2 py-1 whitespace-nowrap",
+                                        course.category === "متطلب جامعة" && "bg-slate-50 text-slate-700 border-slate-300",
+                                        course.category === "متطلب كلية" && "bg-blue-50 text-blue-700 border-blue-300",
+                                        course.category === "متطلب تخصص إجباري" && "bg-green-50 text-green-700 border-green-300",
+                                        course.category === "متطلب تخصص اختياري" && "bg-amber-50 text-amber-700 border-amber-300"
+                                      )}
+                                    >
+                                      {course.category?.replace('متطلب ', '')}
+                                    </Badge>
+                                  </TableCell>
+                        
+                                  {/* الوزن */}
+                                  <TableCell className="text-center align-top py-4">
+                                    <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold text-sm px-3 py-1">
+                                      {course.weight || 0}%
+                                    </Badge>
+                                  </TableCell>
+                        
+                                  {/* اللغة */}
+                                  <TableCell className="text-center align-top py-4">
+                                    <div className="text-xs text-slate-600 flex flex-col items-center gap-1">
+                                      <span className="text-lg">
+                                        {course.teaching_language === 'العربية' && '🇸🇦'}
+                                        {course.teaching_language === 'الإنجليزية' && '🇬🇧'}
+                                        {course.teaching_language === 'ثنائي اللغة' && '🌐'}
+                                      </span>
+                                      <span className="whitespace-nowrap">{course.teaching_language}</span>
+                                    </div>
+                                  </TableCell>
+                        
+                                  {/* التوصيف */}
+                                  <TableCell className="text-center align-top py-4">
+                                    <Button 
+                                      size="sm" 
+                                      variant="secondary" 
+                                      className="gap-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 whitespace-nowrap" 
+                                      onClick={() => handleOpenQuality(course)}
+                                    >
+                                      <Target className="w-3.5 h-3.5" /> 
+                                      <span className="hidden sm:inline">التوصيف</span>
+                                    </Button>
+                                  </TableCell>
+                        
+                                  {/* الإجراءات */}
+                                  <TableCell className="text-left align-top py-4">
+                                    <div className="flex gap-1 justify-end flex-wrap">
+                                      {can('study_plan.update') && (
+                                        <Button 
+                                          size="sm" 
+                                          variant="ghost"
+                                          className="hover:bg-blue-50 hover:text-blue-700 h-8 w-8 p-0"
+                                          onClick={() => handleEditCourse(course)}
+                                          title="تعديل"
+                                        >
+                                          <Edit className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                        
+                                      {can('study_plan.delete') && (
+                                        <Button 
+                                          size="sm" 
+                                          variant="ghost" 
+                                          className="text-red-500 hover:bg-red-50 h-8 w-8 p-0"
+                                          onClick={() => handleDeleteCourse(course.id)}
+                                          title="حذف"
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              ))
+                            )}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+              
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}
 
-          {/* نظام الساعات المعتمدة (بدون بلوكات) */}
-          {selectedProgram && selectedProgram.academic_system === 'credit' && !selectedProgram.block_based && (
-            <Card className="border shadow-sm bg-white animate-in fade-in slide-in-from-top-4">
-              <CardHeader className="bg-blue-50/50 border-b pb-4">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle className="text-lg text-blue-800 flex items-center gap-2">
-                      <Clock className="w-5 h-5"/> نظام الساعات المعتمدة
-                    </CardTitle>
-                    <CardDescription>برنامج: {selectedProgram.name} (إدارة المقررات حسب التصنيف)</CardDescription>
+          <Dialog open={isPrereqModalOpen} onOpenChange={setIsPrereqModalOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>اختيار المتطلبات السابقة</DialogTitle>
+                <DialogDescription>اختر البلوكات التي يجب على الطالب اجتيازها قبل هذا البلوك</DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-2 max-h-[300px] overflow-y-auto p-2">
+                {levelBlocks
+                  .filter(b => b.id !== editingBlock?.id) // منع اختيار البلوك لنفسه كمتطلب
+                  .map(block => (
+                  <div key={block.id} className="flex items-center space-x-3 space-x-reverse p-2 hover:bg-slate-50 rounded-lg border">
+                    <Switch 
+                      checked={selectedPrerequisites.includes(block.id)}
+                      onCheckedChange={(checked) => {
+                        if(checked) setSelectedPrerequisites([...selectedPrerequisites, block.id]);
+                        else setSelectedPrerequisites(selectedPrerequisites.filter(id => id !== block.id));
+                      }}
+                    />
+                    <Label>{block.block_name}</Label>
                   </div>
-                  <Button onClick={handleAddCourse} className="bg-blue-600 hover:bg-blue-700">
-                    <Plus className="w-4 h-4 mr-2" /> إضافة مقرر
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-6 flex flex-col md:flex-row gap-6">
-                
-                <div className="w-full md:w-64 shrink-0 space-y-2">
-                  {["متطلب جامعة", "متطلب كلية", "متطلب تخصص", "متطلب اختياري"].map(cat => (
-                    <div 
-                      key={cat} 
-                      onClick={() => setActiveCategory(cat)} 
+                ))}
+              </div>
+              <DialogFooter>
+                <Button onClick={() => setIsPrereqModalOpen(false)}>تم</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* ==========================================
+              نظام الساعات المعتمدة (بدون بلوكات)
+              ========================================== */}
+          {selectedProgram && selectedProgram.academic_system === 'credit' && !selectedProgram.block_based && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-top-4">
+              
+              {/* بطاقة معلومات البرنامج */}
+              <Card className="border-t-4 border-t-blue-600 shadow-md bg-gradient-to-br from-blue-50 to-white sticky top-6 z-10">
+                <CardHeader className="pb-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-blue-100 p-3 rounded-xl">
+                        <Clock className="w-6 h-6 text-blue-700" />
+                      </div>
+                      <div className="flex-1">
+                        <CardTitle className="text-lg text-blue-900">
+                          نظام الساعات المعتمدة
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          {selectedProgram.name}
+                        </CardDescription>
+                      </div>
+                    </div>
+                  </div>
+          
+                  {/* ✅ إحصائيات الساعات */}
+                  <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-3">
+                    
+                    {/* الإجمالي */}
+                    <div className="bg-white px-4 py-3 rounded-lg border-2 border-blue-200 shadow-sm">
+                      <div className="text-xs text-slate-500 font-medium mb-1">إجمالي الساعات</div>
+                      <div className="text-2xl font-bold text-blue-700">
+                        {selectedProgram.total_hours || 0}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-1">ساعة معتمدة</div>
+                    </div>
+          
+                    {/* المضافة */}
+                    <div className={cn(
+                      "px-4 py-3 rounded-lg border-2 shadow-sm",
+                      (categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0) > (selectedProgram.total_hours || 0))
+                        ? "bg-red-50 border-red-200"
+                        : "bg-emerald-50 border-emerald-200"
+                    )}>
+                      <div className="text-xs text-slate-500 font-medium mb-1">المضافة</div>
+                      <div className={cn(
+                        "text-2xl font-bold",
+                        (categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0) > (selectedProgram.total_hours || 0))
+                          ? "text-red-700"
+                          : "text-emerald-700"
+                      )}>
+                        {categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0)}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-1">من {selectedProgram.total_hours || 0}</div>
+                    </div>
+          
+                    {/* المتبقي */}
+                    <div className={cn(
+                      "px-4 py-3 rounded-lg border-2 shadow-sm",
+                      (selectedProgram.total_hours || 0) - (categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0)) < 0
+                        ? "bg-red-50 border-red-200"
+                        : "bg-amber-50 border-amber-200"
+                    )}>
+                      <div className="text-xs text-slate-500 font-medium mb-1">المتبقي</div>
+                      <div className={cn(
+                        "text-2xl font-bold",
+                        (selectedProgram.total_hours || 0) - (categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0)) < 0
+                          ? "text-red-700"
+                          : "text-amber-700"
+                      )}>
+                        {Math.max(0, (selectedProgram.total_hours || 0) - (categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0)))}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-1">ساعة</div>
+                    </div>
+          
+                    {/* النسبة المئوية */}
+                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 px-4 py-3 rounded-lg border-2 border-indigo-200 shadow-sm">
+                      <div className="text-xs text-slate-500 font-medium mb-1">النسبة المئوية</div>
+                      <div className="text-2xl font-bold text-indigo-700">
+                        {selectedProgram.total_hours 
+                          ? Math.round((categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0) / (selectedProgram.total_hours || 1)) * 100)
+                          : 0}%
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2 overflow-hidden">
+                        <div 
+                          className={cn(
+                            "h-full transition-all",
+                            (categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0) > (selectedProgram.total_hours || 0))
+                              ? "bg-red-500"
+                              : "bg-emerald-500"
+                          )}
+                          style={{
+                            width: `${Math.min(100, selectedProgram.total_hours 
+                              ? (categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0) / (selectedProgram.total_hours || 1)) * 100
+                              : 0)}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+          
+                  {/* ⚠️ تنبيه إذا تجاوزت */}
+                  {(categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0) > (selectedProgram.total_hours || 0)) && (
+                    <Alert className="mt-4 bg-red-50 border-red-300">
+                      <AlertCircle className="h-5 w-5 text-red-600" />
+                      <AlertDescription className="text-red-700">
+                        <b>⚠️ تجاوزت الساعات المسموحة!</b>
+                        <p className="text-sm mt-1">
+                          الساعات المضافة ({categoryCourses.reduce((sum, c) => sum + c.credit_hours, 0)}) تتجاوز المسموح ({selectedProgram.total_hours}).
+                          يرجى تعديل ساعات البرنامج أولاً.
+                        </p>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </CardHeader>
+              </Card>
+          
+              {/* تصنيفات المقررات */}
+              <Card className="border shadow-sm bg-white">
+                <CardHeader className="bg-blue-50/50 border-b pb-4">
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <CardTitle className="text-lg text-slate-800">المقررات الدراسية</CardTitle>
+                      <CardDescription>تصنيف حسب نوع المتطلب</CardDescription>
+                    </div>
+                    {can('study_plan.create') && (
+                      <Button 
+                        onClick={handleAddCourse}
+                        className="bg-blue-600 hover:bg-blue-700 shadow-sm"
+                      >
+                        <Plus className="w-4 h-4 mr-2" /> إضافة مقرر
+                      </Button>
+                    )}
+                  </div>
+              
+                  {/* ✅ Tabs للتصنيفات */}
+                  <div className="flex flex-wrap gap-2 border-b pb-3">
+                    {/* الكل */}
+                    <button
+                      onClick={() => setActiveCourseCategory(null)}
                       className={cn(
-                        "p-3 rounded-lg border cursor-pointer transition-all font-medium text-sm", 
-                        activeCategory === cat 
-                          ? "bg-blue-600 text-white border-blue-600 shadow-md" 
-                          : "bg-slate-50 hover:bg-slate-100 text-slate-700"
+                        "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                        activeCourseCategory === null
+                          ? "bg-blue-600 text-white border-blue-600 shadow-md"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-blue-300"
                       )}
                     >
-                      {cat}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex-1">
+                      <span className="flex items-center gap-2">
+                        📊 الكل
+                        <Badge 
+                          variant="secondary" 
+                          className={cn(
+                            "ml-1",
+                            activeCourseCategory === null ? "bg-blue-400 text-white" : ""
+                          )}
+                        >
+                          {categoryCourses.length}
+                        </Badge>
+                      </span>
+                    </button>
+              
+                    {/* متطلب جامعة */}
+                    <button
+                      onClick={() => setActiveCourseCategory('متطلب جامعة')}
+                      className={cn(
+                        "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                        activeCourseCategory === 'متطلب جامعة'
+                          ? "bg-slate-600 text-white border-slate-600 shadow-md"
+                          : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        🏫 جامعة
+                        <Badge 
+                          variant="secondary" 
+                          className={cn(
+                            "ml-1",
+                            activeCourseCategory === 'متطلب جامعة' ? "bg-slate-400 text-white" : "bg-slate-100"
+                          )}
+                        >
+                          {categoryCourses.filter(c => c.category === 'متطلب جامعة').length}
+                        </Badge>
+                      </span>
+                    </button>
+              
+                    {/* متطلب كلية */}
+                    <button
+                      onClick={() => setActiveCourseCategory('متطلب كلية')}
+                      className={cn(
+                        "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                        activeCourseCategory === 'متطلب كلية'
+                          ? "bg-blue-600 text-white border-blue-600 shadow-md"
+                          : "bg-white text-blue-700 border-blue-200 hover:border-blue-400"
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        🏢 كلية
+                        <Badge 
+                          variant="secondary" 
+                          className={cn(
+                            "ml-1",
+                            activeCourseCategory === 'متطلب كلية' ? "bg-blue-400 text-white" : "bg-blue-100"
+                          )}
+                        >
+                          {categoryCourses.filter(c => c.category === 'متطلب كلية').length}
+                        </Badge>
+                      </span>
+                    </button>
+              
+                    {/* متطلب تخصص إجباري */}
+                    <button
+                      onClick={() => setActiveCourseCategory('متطلب تخصص إجباري')}
+                      className={cn(
+                        "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                        activeCourseCategory === 'متطلب تخصص إجباري'
+                          ? "bg-green-600 text-white border-green-600 shadow-md"
+                          : "bg-white text-green-700 border-green-200 hover:border-green-400"
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        ⭐ إجباري
+                        <Badge 
+                          variant="secondary" 
+                          className={cn(
+                            "ml-1",
+                            activeCourseCategory === 'متطلب تخصص إجباري' ? "bg-green-400 text-white" : "bg-green-100"
+                          )}
+                        >
+                          {categoryCourses.filter(c => c.category === 'متطلب تخصص إجباري').length}
+                        </Badge>
+                      </span>
+                    </button>
+              
+                    {/* متطلب تخصص اختياري */}
+                    <button
+                      onClick={() => setActiveCourseCategory('متطلب تخصص اختياري')}
+                      className={cn(
+                        "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                        activeCourseCategory === 'متطلب تخصص اختياري'
+                          ? "bg-amber-600 text-white border-amber-600 shadow-md"
+                          : "bg-white text-amber-700 border-amber-200 hover:border-amber-400"
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        ♦️ اختياري
+                        <Badge 
+                          variant="secondary" 
+                          className={cn(
+                            "ml-1",
+                            activeCourseCategory === 'متطلب تخصص اختياري' ? "bg-amber-400 text-white" : "bg-amber-100"
+                          )}
+                        >
+                          {categoryCourses.filter(c => c.category === 'متطلب تخصص اختياري').length}
+                        </Badge>
+                      </span>
+                    </button>
+                  </div>
+                </CardHeader>
+                
+                <CardContent className="pt-6">
+                  
+                  {/* نموذج إضافة/تعديل المقرر */}
                   {isCourseFormOpen && (
-                    <div className="bg-slate-50 p-4 rounded-xl border mb-6">
-                      <h4 className="font-bold text-slate-700 mb-4 border-b pb-2">
-                        إضافة مقرر لـ ({activeCategory})
+                    <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 mb-6 shadow-sm">
+                      <h4 className="font-semibold mb-4 text-slate-700 border-b pb-2">
+                        {editingCourse ? "تعديل المقرر" : "إضافة مقرر جديد"}
                       </h4>
-                      <form onSubmit={handleSubmitCourse} className="space-y-4">
-                        {/* (نفس الفورم السابق) */}
-                        <div className="flex justify-end gap-2">
-                          <Button type="button" variant="outline" onClick={() => setIsCourseFormOpen(false)}>
+                      <form onSubmit={handleSubmitCourse} className="space-y-6">
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="space-y-2">
+                            <Label>كود المقرر *</Label>
+                            <Input 
+                              value={courseFormData.courseCode}
+                              onChange={e => setCourseFormData({...courseFormData, courseCode: e.target.value})}
+                              placeholder="CS101"
+                              className="bg-white font-mono"
+                              required
+                            />
+                          </div>
+          
+                          <div className="space-y-2 md:col-span-2">
+                            <Label>اسم المقرر *</Label>
+                            <Input 
+                              value={courseFormData.courseName}
+                              onChange={e => setCourseFormData({...courseFormData, courseName: e.target.value})}
+                              placeholder="مثال: مقدمة في البرمجة"
+                              className="bg-white"
+                              required
+                            />
+                          </div>
+          
+                          <div className="space-y-2">
+                            <Label>الساعات المعتمدة *</Label>
+                            <Input 
+                              type="number"
+                              min="1"
+                              value={courseFormData.creditHours}
+                              onChange={e => setCourseFormData({...courseFormData, creditHours: +e.target.value})}
+                              className="bg-white"
+                              required
+                            />
+                          </div>
+          
+                          <div className="space-y-2">
+                            <Label className="text-emerald-700 font-bold">وزن المقرر % (من البرنامج)</Label>
+                            <Input 
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={courseFormData.weight}
+                              onChange={e => setCourseFormData({...courseFormData, weight: +e.target.value})}
+                              placeholder="0"
+                              className="bg-emerald-50/50 border-emerald-200"
+                            />
+                          </div>
+          
+                          <div className="space-y-2">
+                            <Label>نوع المتطلب</Label>
+                            <Select 
+                              value={courseFormData.category}
+                              onValueChange={v => setCourseFormData({...courseFormData, category: v as any})}
+                            >
+                              <SelectTrigger className="bg-white">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
+                                <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
+                                <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
+                                <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+          
+                        {/* أجزاء المقرر */}
+                        <div className="bg-white p-4 rounded-lg border space-y-4">
+                          <div className="flex justify-between items-center border-b pb-2">
+                            <h5 className="font-semibold text-slate-700 flex items-center gap-2">
+                              <Layers className="w-4 h-4 text-purple-600" />
+                              أجزاء المقرر والساعات المعتمدة
+                            </h5>
+                          </div>
+                        
+                          {/* الساعات المعتمدة */}
+                          <Alert className="bg-blue-50 border-2 border-blue-400">
+                            <Clock className="h-5 w-5 text-blue-700" />
+                            <AlertDescription>
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-blue-900 text-base">
+                                  إجمالي الساعات المعتمدة للمقرر:
+                                </span>
+                                <div className="flex items-center gap-3">
+                                  <Input 
+                                    type="number"
+                                    min="1"
+                                    max="10"
+                                    step="1"
+                                    value={courseFormData.creditHours}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value) || 0;
+                                      setCourseFormData({...courseFormData, creditHours: val});
+                                    }}
+                                    className="w-24 h-10 font-bold text-xl text-center bg-white border-2 border-blue-300 text-blue-700"
+                                    required
+                                  />
+                                  <span className="text-blue-800 font-bold">ساعة</span>
+                                </div>
+                              </div>
+                            </AlertDescription>
+                          </Alert>
+                        
+                          {/* تنبيه */}
+                          <Alert className="bg-amber-50 border-amber-300">
+                            <AlertCircle className="h-4 w-4 text-amber-700" />
+                            <AlertDescription className="text-xs text-amber-800">
+                              💡 <b>ملاحظة:</b> يجب أن يساوي مجموع الساعات المحسوبة من الأجزاء الساعات المعتمدة.
+                            </AlertDescription>
+                          </Alert>
+                        
+                          {/* عرض الأجزاء */}
+                          <div className="space-y-3">
+                            {courseFormData.courseParts.map((part, idx) => {
+                              const creditedHours = Math.round(part.actual_hours * part.rate);
+                              
+                              return (
+                                <div key={idx} className="p-4 bg-slate-50 rounded-lg border-2 border-slate-200 space-y-3">
+                                  
+                                  <div className="flex items-center gap-3">
+                                    <Badge variant="secondary" className="shrink-0 min-w-[80px] justify-center">
+                                      {part.name}
+                                    </Badge>
+                                    
+                                    <div className="flex items-center gap-2 flex-1">
+                                      <Label className="text-xs text-slate-600 w-28">الساعات الفعلية:</Label>
+                                      <Input 
+                                        type="number"
+                                        min="0"
+                                        step={
+                                          part.name === "نظري" ? 1 :
+                                          part.name === "عملي" ? 2 :
+                                          part.name === "تمارين" ? 2 :
+                                          part.name === "سريري" ? 3 : 1
+                                        }
+                                        value={part.actual_hours}
+                                        onChange={(e) => {
+                                          let val = parseInt(e.target.value) || 0;
+                                          
+                                          if (part.name === "عملي" || part.name === "تمارين") {
+                                            val = Math.floor(val / 2) * 2;
+                                          } else if (part.name === "سريري") {
+                                            val = Math.floor(val / 3) * 3;
+                                          }
+                                          
+                                          handleUpdateCoursePart(idx, 'actual_hours', val);
+                                        }}
+                                        className="bg-white h-9 w-24 text-center font-semibold"
+                                      />
+                                      <span className="text-xs text-slate-500">ساعة</span>
+                                    </div>
+                          
+                                    <div className="flex items-center gap-2">
+                                      <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                        {part.name === "سريري" ? "÷3" : part.name === "نظري" ? "×1" : "÷2"}
+                                      </Badge>
+                                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                                      <Badge className={cn(
+                                        "font-bold min-w-[100px] justify-center",
+                                        creditedHours <= courseFormData.creditHours 
+                                          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                          : "bg-red-50 text-red-700 border-red-200"
+                                      )}>
+                                        {creditedHours} ساعة
+                                      </Badge>
+                                    </div>
+                          
+                                    {courseFormData.courseParts.length > 1 && (
+                                      <Button 
+                                        type="button"
+                                        size="icon" 
+                                        variant="ghost"
+                                        className="text-red-500 hover:bg-red-50 shrink-0"
+                                        onClick={() => handleRemoveCoursePart(idx)}
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                          
+                                  <div className="text-xs text-slate-500 bg-white p-2 rounded border flex items-center gap-2">
+                                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                    <span>
+                                      <b>{part.name}:</b> 
+                                      {part.name === "نظري" && " كل ساعة فعلية = 1 ساعة معتمدة"}
+                                      {part.name === "عملي" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                      {part.name === "تمارين" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                      {part.name === "سريري" && " كل 3 ساعات فعلية = 1 ساعة معتمدة"}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        
+                          {/* زر إضافة جزء */}
+                          {courseFormData.courseParts.length < 4 && (
+                            <div className="flex gap-2">
+                              {!courseFormData.courseParts.find(p => p.name === "نظري") && (
+                                <Button 
+                                  type="button" 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => setCourseFormData({
+                                    ...courseFormData,
+                                    courseParts: [...courseFormData.courseParts, { name: "نظري", actual_hours: 0, rate: 1.0 }]
+                                  })}
+                                >
+                                  + نظري
+                                </Button>
+                              )}
+                              {!courseFormData.courseParts.find(p => p.name === "عملي") && (
+                                <Button 
+                                  type="button" 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => setCourseFormData({
+                                    ...courseFormData,
+                                    courseParts: [...courseFormData.courseParts, { name: "عملي", actual_hours: 0, rate: 0.5 }]
+                                  })}
+                                >
+                                  + عملي
+                                </Button>
+                              )}
+                              {!courseFormData.courseParts.find(p => p.name === "تمارين") && (
+                                <Button 
+                                  type="button" 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => setCourseFormData({
+                                    ...courseFormData,
+                                    courseParts: [...courseFormData.courseParts, { name: "تمارين", actual_hours: 0, rate: 0.5 }]
+                                  })}
+                                >
+                                  + تمارين
+                                </Button>
+                              )}
+                              {!courseFormData.courseParts.find(p => p.name === "سريري") && (
+                                <Button 
+                                  type="button" 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => setCourseFormData({
+                                    ...courseFormData,
+                                    courseParts: [...courseFormData.courseParts, { name: "سريري", actual_hours: 0, rate: 0.33 }]
+                                  })}
+                                >
+                                  + سريري
+                                </Button>
+                              )}
+                            </div>
+                          )}
+                        
+                          {/* التحقق من الموازنة */}
+                          {(() => {
+                            const totalCredited = courseFormData.courseParts.reduce((sum, p) => 
+                              sum + Math.round(p.actual_hours * p.rate), 0
+                            );
+                            const isBalanced = totalCredited === courseFormData.creditHours;
+                            const difference = totalCredited - courseFormData.creditHours;
+                          
+                            return (
+                              <Alert className={cn(
+                                "border-2",
+                                isBalanced 
+                                  ? "bg-emerald-50 border-emerald-400" 
+                                  : difference > 0 
+                                  ? "bg-red-50 border-red-400" 
+                                  : "bg-amber-50 border-amber-400"
+                              )}>
+                                <AlertCircle className="h-5 w-5" />
+                                <AlertDescription className="flex items-center justify-between">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="font-semibold text-sm">
+                                      مجموع الساعات المحسوبة:
+                                    </span>
+                                    {!isBalanced && (
+                                      <span className="text-xs">
+                                        {difference > 0 
+                                          ? `⚠️ زيادة ${difference} ساعة` 
+                                          : `⚠️ نقص ${Math.abs(difference)} ساعة`
+                                        }
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={cn(
+                                      "text-2xl font-bold",
+                                      isBalanced 
+                                        ? "text-emerald-700" 
+                                        : difference > 0 
+                                        ? "text-red-700" 
+                                        : "text-amber-700"
+                                    )}>
+                                      {totalCredited}
+                                    </span>
+                                    <span className="text-slate-400">/</span>
+                                    <span className="text-xl font-bold text-slate-700">
+                                      {courseFormData.creditHours}
+                                    </span>
+                                    {isBalanced ? (
+                                      <Badge className="bg-emerald-100 text-emerald-700">
+                                        ✓ متوازن
+                                      </Badge>
+                                    ) : (
+                                      <Badge className={cn(
+                                        difference > 0 
+                                          ? "bg-red-100 text-red-700" 
+                                          : "bg-amber-100 text-amber-700"
+                                      )}>
+                                        {difference > 0 ? "⚠ زيادة" : "⚠ نقص"}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </AlertDescription>
+                              </Alert>
+                            );
+                          })()}
+                        </div>
+          
+                        {/* المتطلبات السابقة والمصاحبة */}
+                        <div className="bg-white p-4 rounded-lg border space-y-4">
+                          <h5 className="font-semibold text-slate-700 flex items-center gap-2 border-b pb-2">
+                            <Layers className="w-4 h-4 text-indigo-600" />
+                            المتطلبات السابقة والمصاحبة
+                          </h5>
+                      
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            
+                            {/* المتطلبات السابقة */}
+                            <div className="space-y-3">
+                              <Label className="font-semibold text-indigo-700">
+                                المتطلبات السابقة (Prerequisites)
+                              </Label>
+                              <div className="min-h-[80px] p-3 bg-indigo-50/30 rounded-lg border-2 border-dashed border-indigo-200">
+                                <div className="flex flex-wrap gap-2">
+                                  {courseFormData.prerequisiteIds.map(id => {
+                                    const course = availableCoursesForPrereq.find(c => c.id === id);
+                                    return course ? (
+                                      <Badge key={id} variant="secondary" className="gap-1 bg-indigo-100 text-indigo-700">
+                                        {course.course_code}
+                                        <X 
+                                          className="w-3 h-3 cursor-pointer hover:text-red-600" 
+                                          onClick={() => setCourseFormData({
+                                            ...courseFormData,
+                                            prerequisiteIds: courseFormData.prerequisiteIds.filter(i => i !== id)
+                                          })}
+                                        />
+                                      </Badge>
+                                    ) : null;
+                                  })}
+                                  {courseFormData.prerequisiteIds.length === 0 && (
+                                    <span className="text-xs text-slate-400">لا توجد متطلبات سابقة</span>
+                                  )}
+                                </div>
+                              </div>
+                              <Button 
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="w-full border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                onClick={() => setIsPrereqSelectOpen(true)}
+                              >
+                                <Plus className="w-3.5 h-3.5 mr-1" />
+                                اختيار متطلب سابق
+                              </Button>
+                            </div>
+                      
+                            {/* المتطلبات المصاحبة */}
+                            <div className="space-y-3">
+                              <Label className="font-semibold text-blue-700">
+                                المتطلبات المصاحبة (Corequisites)
+                              </Label>
+                              <div className="min-h-[80px] p-3 bg-blue-50/30 rounded-lg border-2 border-dashed border-blue-200">
+                                <div className="flex flex-wrap gap-2">
+                                  {courseFormData.corequisiteIds.map(id => {
+                                    const course = availableCoursesForPrereq.find(c => c.id === id);
+                                    return course ? (
+                                      <Badge key={id} variant="secondary" className="gap-1 bg-blue-100 text-blue-700">
+                                        {course.course_code}
+                                        <X 
+                                          className="w-3 h-3 cursor-pointer hover:text-red-600" 
+                                          onClick={() => setCourseFormData({
+                                            ...courseFormData,
+                                            corequisiteIds: courseFormData.corequisiteIds.filter(i => i !== id)
+                                          })}
+                                        />
+                                      </Badge>
+                                    ) : null;
+                                  })}
+                                  {courseFormData.corequisiteIds.length === 0 && (
+                                    <span className="text-xs text-slate-400">لا توجد متطلبات مصاحبة</span>
+                                  )}
+                                </div>
+                              </div>
+                              <Button 
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                                onClick={() => setIsCoreqSelectOpen(true)}
+                              >
+                                <Plus className="w-3.5 h-3.5 mr-1" />
+                                اختيار متطلب مصاحب
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+          
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label className="font-semibold">لغة التدريس</Label>
+                            <Select 
+                              value={courseFormData.teachingLanguage}
+                              onValueChange={(v) => setCourseFormData({
+                                ...courseFormData, 
+                                teachingLanguage: v as any
+                              })}
+                            >
+                              <SelectTrigger className="bg-white">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="العربية">العربية</SelectItem>
+                                <SelectItem value="الإنجليزية">الإنجليزية</SelectItem>
+                                <SelectItem value="ثنائي اللغة">ثنائي اللغة</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+          
+                          <div className="space-y-2">
+                            <Label>ملاحظات (اختياري)</Label>
+                            <Input 
+                              value={courseFormData.notes}
+                              onChange={e => setCourseFormData({...courseFormData, notes: e.target.value})}
+                              placeholder="ملاحظات إضافية..."
+                              className="bg-white"
+                            />
+                          </div>
+                        </div>
+          
+                        <div className="flex justify-end gap-2 pt-4 border-t">
+                          <Button type="button" variant="outline" onClick={() => {
+                            setIsCourseFormOpen(false);
+                            setEditingCourse(null);
+                          }}>
                             إلغاء
                           </Button>
                           <Button type="submit">
-                            حفظ
+                            حفظ المقرر
                           </Button>
                         </div>
                       </form>
                     </div>
                   )}
-
-                  <h3 className="text-lg font-bold text-slate-800 mb-4">{activeCategory}</h3>
-                  <div className="space-y-3">
-                    {categoryCourses.filter(c => c.category === activeCategory).map(course => (
-                      <div 
-                        key={course.id} 
-                        className="p-4 border rounded-xl bg-white hover:shadow-md transition-shadow flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="bg-blue-100 text-blue-800 w-12 h-12 flex items-center justify-center rounded-lg font-black text-lg shrink-0">
-                            {course.credit_hours}
-                          </div>
-                          <div>
-                            <h4 className="font-bold text-slate-800 flex items-center gap-2">
-                              {course.course_name} 
-                              <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                                {course.course_code}
-                              </span>
-                            </h4>
-                            <div className="flex gap-2 mt-2">
-                              {course.prerequisites && (
-                                <Badge variant="secondary" className="bg-amber-50 text-amber-700 border-amber-200">
-                                  متطلب: {course.prerequisites}
-                                </Badge>
+          
+                  {/* جدول المقررات */}
+                  <div className="border rounded-lg overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <Table className="bg-white">
+                        <TableHeader className="bg-gradient-to-r from-slate-50 to-slate-100">
+                          <TableRow>
+                            <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الكود</TableHead>
+                            <TableHead className="text-center font-bold text-slate-700 min-w-[150px]">اسم المقرر</TableHead>
+                            <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الساعات</TableHead>
+                            <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">الأجزاء</TableHead>
+                            <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">التصنيف</TableHead>
+                            <TableHead className="text-center font-bold text-emerald-700 min-w-[80px]">الوزن %</TableHead>
+                            <TableHead className="text-center font-bold text-slate-700 min-w-[100px]">اللغة</TableHead>
+                            <TableHead className="text-center font-bold text-indigo-700 min-w-[150px]">المتطلبات السابقة</TableHead>
+                            <TableHead className="text-center font-bold text-blue-700 min-w-[150px]">المتطلبات المصاحبة</TableHead>
+                            <TableHead className="text-center font-bold text-slate-700 min-w-[100px]">التوصيف</TableHead>
+                            <TableHead className="text-left font-bold text-slate-700 min-w-[120px]">الإجراءات</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {/* ✅ فلترة البيانات حسب التصنيف المختار */}
+                          {(() => {
+                            const filteredCourses = activeCourseCategory === null
+                              ? categoryCourses
+                              : categoryCourses.filter(c => c.category === activeCourseCategory);
+                  
+                            if (filteredCourses.length === 0) {
+                              return (
+                                <TableRow>
+                                  <TableCell colSpan={11} className="text-center py-12">
+                                    <div className="flex flex-col items-center gap-3">
+                                      <div className="bg-slate-100 p-4 rounded-full">
+                                        <BookOpen className="w-12 h-12 text-slate-300" />
+                                      </div>
+                                      <p className="text-slate-400 font-medium">
+                                        {activeCourseCategory ? `لا توجد مقررات من نوع "${activeCourseCategory}"` : 'لا توجد مقررات مسجلة'}
+                                      </p>
+                                      <p className="text-xs text-slate-400">
+                                        {activeCourseCategory ? 'جرّب اختيار تصنيف آخر' : 'ابدأ بإضافة المقررات للبرنامج'}
+                                      </p>
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            }
+                  
+                            return filteredCourses.map(course => (
+                                <TableRow 
+                                  key={course.id} 
+                                  className={cn(
+                                    "hover:bg-slate-50 transition-all border-b border-slate-100 duration-500",
+                                    highlightedCourseId === course.id ? "bg-yellow-300" : ""
+                                  )}
+                                >
+                                {/* الكود */}
+                                <TableCell className="font-mono text-slate-700 font-bold text-sm align-top py-4">
+                                  <div className="bg-slate-100 px-2 py-1 rounded border border-slate-200 inline-block">
+                                    {course.course_code}
+                                  </div>
+                                </TableCell>
+                            
+                                {/* الاسم */}
+                                <TableCell className="align-top py-4">
+                                  <div className="font-semibold text-slate-800 text-sm leading-snug">
+                                    {course.course_name}
+                                  </div>
+                                </TableCell>
+                            
+                                {/* الساعات */}
+                                <TableCell className="text-center align-top py-4">
+                                  <Badge 
+                                    variant="outline" 
+                                    className="font-bold bg-blue-50 text-blue-700 border-blue-200 text-sm px-3 py-1"
+                                  >
+                                    {course.credit_hours}
+                                  </Badge>
+                                </TableCell>
+                            
+                                {/* الأجزاء */}
+                                <TableCell className="text-center align-top py-4">
+                                  <div className="flex flex-col gap-1.5 items-center">
+                                    {course.course_parts?.map((part, idx) => (
+                                      <div 
+                                        key={idx}
+                                        className="flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-md px-2 py-1 w-full max-w-[120px]"
+                                      >
+                                        <span className="text-xs font-semibold text-purple-700 whitespace-nowrap">
+                                          {part.name}
+                                        </span>
+                                        <span className="text-[10px] text-purple-600 font-medium">
+                                          ({part.actual_hours}س)
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </TableCell>
+                            
+                                {/* التصنيف */}
+                                <TableCell className="text-center align-top py-4">
+                                  <Badge 
+                                    variant="outline" 
+                                    className={cn(
+                                      "text-xs font-medium px-2 py-1 whitespace-nowrap",
+                                      course.category === "متطلب جامعة" && "bg-slate-50 text-slate-700 border-slate-300",
+                                      course.category === "متطلب كلية" && "bg-blue-50 text-blue-700 border-blue-300",
+                                      course.category === "متطلب تخصص إجباري" && "bg-green-50 text-green-700 border-green-300",
+                                      course.category === "متطلب تخصص اختياري" && "bg-amber-50 text-amber-700 border-amber-300"
+                                    )}
+                                  >
+                                    {course.category?.replace('متطلب ', '')}
+                                  </Badge>
+                                </TableCell>
+                            
+                                {/* الوزن */}
+                                <TableCell className="text-center align-top py-4">
+                                  <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold text-sm px-3 py-1">
+                                    {course.weight || 0}%
+                                  </Badge>
+                                </TableCell>
+                            
+                                {/* اللغة */}
+                                <TableCell className="text-center align-top py-4">
+                                  <div className="text-xs text-slate-600 flex flex-col items-center gap-1">
+                                    <span className="text-lg">
+                                      {course.teaching_language === 'العربية' && '🇸🇦'}
+                                      {course.teaching_language === 'الإنجليزية' && '🇬🇧'}
+                                      {course.teaching_language === 'ثنائي اللغة' && '🌐'}
+                                    </span>
+                                    <span className="whitespace-nowrap">{course.teaching_language}</span>
+                                  </div>
+                                </TableCell>
+                  
+                                {/* المتطلبات السابقة */}
+                                <TableCell className="text-center align-top py-4">
+                                  {course.prerequisites && course.prerequisites.length > 0 ? (
+                                    <div className="flex flex-col gap-2 items-center justify-center">
+                                      {course.prerequisites.slice(0, 3).map(p => (
+                                        <button
+                                          key={p.id}
+                                          onClick={() => {
+                                            // ✅ تمييز الصف فقط
+                                            setHighlightedCourseId(p.id);
+                                            
+                                            // ✅ إظهار رسالة
+                                            setTimeout(() => {
+                                              alert(`🔍 ابحث عن المقرر: ${p.course_name}\n\nالكود: ${p.course_code}`);
+                                            }, 100);
+                                          }}
+                                          className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline transition-colors cursor-pointer font-medium"
+                                        >
+                                          {p.course_name}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-slate-400">-</span>
+                                  )}
+                                </TableCell>
+                                
+                                {/* المتطلبات المصاحبة */}
+                                <TableCell className="text-center align-top py-4">
+                                  {course.corequisites && course.corequisites.length > 0 ? (
+                                    <div className="flex flex-col gap-2 items-center justify-center">
+                                      {course.corequisites.slice(0, 3).map(c => (
+                                        <button
+                                          key={c.id}
+                                          onClick={() => {
+                                            // ✅ تمييز الصف
+                                            setHighlightedCourseId(c.id);
+                                            
+                                            // ✅ بحث بسيط عن الصف
+                                            const rows = Array.from(document.querySelectorAll('tbody tr'));
+                                            const targetRow = rows.find(row => 
+                                              row.textContent.includes(c.course_code)
+                                            );
+                                            
+                                            if (targetRow) {
+                                              // ✅ الانتقال السلس
+                                              targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            }
+                                          }}
+                                          className="text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer font-medium"
+                                        >
+                                          {c.course_name}
+                                        </button>
+                                      ))}
+                                      {course.corequisites.length > 3 && (
+                                        <span className="text-xs text-blue-500">
+                                          +{course.corequisites.length - 3}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-slate-400">-</span>
+                                  )}
+                                </TableCell>
+                            
+                                {/* التوصيف */}
+                                <TableCell className="text-center align-top py-4">
+                                  <Button 
+                                    size="sm" 
+                                    variant="secondary" 
+                                    className="gap-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 whitespace-nowrap" 
+                                    onClick={() => handleOpenQuality(course)}
+                                  >
+                                    <Target className="w-3.5 h-3.5" /> 
+                                    <span className="hidden sm:inline">التوصيف</span>
+                                  </Button>
+                                </TableCell>
+                            
+                                {/* الإجراءات */}
+                                <TableCell className="text-left align-top py-4">
+                                  <div className="flex gap-1 justify-end flex-wrap">
+                                    {can('study_plan.update') && (
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost"
+                                        className="hover:bg-blue-50 hover:text-blue-700 h-8 w-8 p-0"
+                                        onClick={() => handleEditCourse(course)}
+                                        title="تعديل"
+                                      >
+                                        <Edit className="w-4 h-4" />
+                                      </Button>
+                                    )}
+                            
+                                    {can('study_plan.delete') && (
+                                      <Button 
+                                        size="sm" 
+                                        variant="ghost" 
+                                        className="text-red-500 hover:bg-red-50 h-8 w-8 p-0"
+                                        onClick={() => handleDeleteCourse(course.id)}
+                                        title="حذف"
+                                      >
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            ));
+                          })()}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+          
+                  {/* Modals للمتطلبات */}
+                  <Dialog open={isPrereqSelectOpen} onOpenChange={setIsPrereqSelectOpen}>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Layers className="w-5 h-5 text-indigo-600" />
+                          اختيار المتطلبات السابقة
+                        </DialogTitle>
+                        <DialogDescription>
+                          اختر المقررات التي يجب على الطالب اجتيازها قبل هذا المقرر
+                        </DialogDescription>
+                      </DialogHeader>
+                      
+                      <div className="max-h-[400px] overflow-y-auto p-2 space-y-2">
+                        {availableCoursesForPrereq.map(course => (
+                          <div 
+                            key={course.id} 
+                            className={cn(
+                              "flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all",
+                              courseFormData.prerequisiteIds.includes(course.id)
+                                ? "bg-indigo-50 border-indigo-300"
+                                : "bg-white hover:bg-slate-50 border-slate-200"
+                            )}
+                            onClick={() => {
+                              const isSelected = courseFormData.prerequisiteIds.includes(course.id);
+                              setCourseFormData({
+                                ...courseFormData,
+                                prerequisiteIds: isSelected
+                                  ? courseFormData.prerequisiteIds.filter(id => id !== course.id)
+                                  : [...courseFormData.prerequisiteIds, course.id]
+                              });
+                            }}
+                          >
+                            <div className={cn(
+                              "w-5 h-5 rounded border-2 flex items-center justify-center",
+                              courseFormData.prerequisiteIds.includes(course.id)
+                                ? "bg-indigo-600 border-indigo-600"
+                                : "border-slate-300"
+                            )}>
+                              {courseFormData.prerequisiteIds.includes(course.id) && (
+                                <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                  <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
+                                </svg>
                               )}
-                              <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">
-                                الوزن: {course.weight}%
-                              </Badge>
+                            </div>
+                            <div className="flex-1">
+                              <div className="font-semibold text-slate-800">{course.course_name}</div>
+                              <div className="text-sm text-slate-500 flex items-center gap-2">
+                                <Badge variant="outline" className="font-mono">{course.course_code}</Badge>
+                                <span>•</span>
+                                <span>{course.credit_hours} ساعة</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <DialogFooter>
+                        <Button onClick={() => setIsPrereqSelectOpen(false)}>
+                          تم ({courseFormData.prerequisiteIds.length} مقرر)
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+          
+                  <Dialog open={isCoreqSelectOpen} onOpenChange={setIsCoreqSelectOpen}>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Layers className="w-5 h-5 text-blue-600" />
+                          اختيار المتطلبات المصاحبة
+                        </DialogTitle>
+                        <DialogDescription>
+                          اختر المقررات التي يجب دراستها في نفس الوقت مع هذا المقرر
+                        </DialogDescription>
+                      </DialogHeader>
+                      
+                      <div className="max-h-[400px] overflow-y-auto p-2 space-y-2">
+                        {availableCoursesForPrereq.map(course => (
+                          <div 
+                            key={course.id} 
+                            className={cn(
+                              "flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all",
+                              courseFormData.corequisiteIds.includes(course.id)
+                                ? "bg-blue-50 border-blue-300"
+                                : "bg-white hover:bg-slate-50 border-slate-200"
+                            )}
+                            onClick={() => {
+                              const isSelected = courseFormData.corequisiteIds.includes(course.id);
+                              setCourseFormData({
+                                ...courseFormData,
+                                corequisiteIds: isSelected
+                                  ? courseFormData.corequisiteIds.filter(id => id !== course.id)
+                                  : [...courseFormData.corequisiteIds, course.id]
+                              });
+                            }}
+                          >
+                            <div className={cn(
+                              "w-5 h-5 rounded border-2 flex items-center justify-center",
+                              courseFormData.corequisiteIds.includes(course.id)
+                                ? "bg-blue-600 border-blue-600"
+                                : "border-slate-300"
+                            )}>
+                              {courseFormData.corequisiteIds.includes(course.id) && (
+                                <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                  <path d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"/>
+                                </svg>
+                              )}
+                            </div>
+                            <div className="flex-1">
+                              <div className="font-semibold text-slate-800">{course.course_name}</div>
+                              <div className="text-sm text-slate-500 flex items-center gap-2">
+                                <Badge variant="outline" className="font-mono">{course.course_code}</Badge>
+                                <span>•</span>
+                                <span>{course.credit_hours} ساعة</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <DialogFooter>
+                        <Button onClick={() => setIsCoreqSelectOpen(false)}>
+                          تم ({courseFormData.corequisiteIds.length} مقرر)
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+          
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* ==========================================
+              نظام الساعات المعتمدة + البلوكات
+              ========================================== */}
+          {selectedProgram && selectedProgram.academic_system === 'credit' && selectedProgram.block_based && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-top-4">
+              
+              {/* عرض معلومات البرنامج */}
+              <Card className="border-t-4 border-t-purple-600 shadow-sm bg-gradient-to-br from-purple-50 to-white sticky top-6 z-10">
+                <CardHeader className="pb-4">
+                  {/* ✅ الحسابات */}
+                  {(() => {
+          
+                    const totalBlockHours = programBlocks?.length > 0
+                      ? programBlocks.reduce((sum, b) => sum + (Number(b.credit_hours) || 0), 0)
+                      : 0;
+                    
+                    const maxHours = Number(selectedProgram?.total_hours) || 0;
+                    const remainingHours = maxHours - totalBlockHours;
+                    const progressPercentage = maxHours > 0
+                      ? Math.round((totalBlockHours / maxHours) * 100)
+                      : 0;
+          
+                    return (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="bg-purple-100 p-3 rounded-xl">
+                              <LayoutGrid className="w-6 h-6 text-purple-700" />
+                            </div>
+                            <div className="flex-1">
+                              <CardTitle className="text-lg text-purple-900">
+                                نظام الساعات المعتمدة + البلوكات
+                              </CardTitle>
+                              <CardDescription className="mt-1">
+                                {selectedProgram.name}
+                              </CardDescription>
                             </div>
                           </div>
                         </div>
-                        <div className="flex gap-2 shrink-0">
-                          <Button 
-                            size="sm" 
-                            variant="secondary" 
-                            className="bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200" 
-                            onClick={() => handleOpenQuality(course)}
+          
+                        {/* ✅ إحصائيات الساعات */}
+                        <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-3">
+                          
+                          {/* الإجمالي */}
+                          <div className="bg-white px-4 py-3 rounded-lg border-2 border-purple-200 shadow-sm">
+                            <div className="text-xs text-slate-500 font-medium mb-1">إجمالي الساعات</div>
+                            <div className="text-2xl font-bold text-purple-700">
+                              {maxHours}
+                            </div>
+                          </div>
+          
+                          {/* المضافة */}
+                          <div className={cn(
+                            "px-4 py-3 rounded-lg border-2 shadow-sm",
+                            totalBlockHours > maxHours
+                              ? "bg-red-50 border-red-200"
+                              : "bg-emerald-50 border-emerald-200"
+                          )}>
+                            <div className="text-xs text-slate-500 font-medium mb-1">المضافة</div>
+                            <div className={cn(
+                              "text-2xl font-bold",
+                              totalBlockHours > maxHours ? "text-red-700" : "text-emerald-700"
+                            )}>
+                              {totalBlockHours}
+                            </div>
+                          </div>
+          
+                          {/* المتبقي */}
+                          <div className={cn(
+                            "px-4 py-3 rounded-lg border-2 shadow-sm",
+                            remainingHours < 0
+                              ? "bg-red-50 border-red-200"
+                              : "bg-amber-50 border-amber-200"
+                          )}>
+                            <div className="text-xs text-slate-500 font-medium mb-1">المتبقي</div>
+                            <div className={cn(
+                              "text-2xl font-bold",
+                              remainingHours < 0 ? "text-red-700" : "text-amber-700"
+                            )}>
+                              {Math.max(0, remainingHours)}
+                            </div>
+                          </div>
+          
+                          {/* النسبة */}
+                          <div className="bg-gradient-to-br from-purple-50 to-indigo-50 px-4 py-3 rounded-lg border-2 border-purple-200 shadow-sm">
+                            <div className="text-xs text-slate-500 font-medium mb-1">النسبة</div>
+                            <div className="text-2xl font-bold text-purple-700">{progressPercentage}%</div>
+                            <div className="w-full bg-slate-200 rounded-full h-1.5 mt-2 overflow-hidden">
+                              <div 
+                                className={cn(
+                                  "h-full transition-all",
+                                  totalBlockHours > maxHours ? "bg-red-500" : "bg-purple-500"
+                                )}
+                                style={{ width: `${Math.min(100, progressPercentage)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+          
+                        {/* ⚠️ تنبيه */}
+                        {totalBlockHours > maxHours && (
+                          <Alert className="mt-4 bg-red-50 border-red-300">
+                            <AlertCircle className="h-5 w-5 text-red-600" />
+                            <AlertDescription className="text-red-700">
+                              <b>⚠️ تجاوزت الساعات!</b>
+                              <p className="text-sm mt-1">
+                                الساعات ({totalBlockHours}) تتجاوز المسموح ({maxHours})
+                              </p>
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </>
+                    );
+                  })()}
+                </CardHeader>
+              </Card>
+          
+              {/* إدارة البلوكات */}
+              <Card className="border shadow-sm bg-white">
+                <CardHeader className="bg-purple-50/50 border-b pb-4">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <CardTitle className="text-lg text-slate-800 flex items-center gap-2">
+                        <Box className="w-5 h-5 text-purple-600" /> البلوكات الدراسية
+                      </CardTitle>
+                      <CardDescription>
+                        تنظيم المحتوى الدراسي في وحدات تكاملية مع تحديد الساعات المعتمدة
+                      </CardDescription>
+                    </div>
+                    {can('study_plan.create') && (
+                      <Button 
+                        onClick={handleAddBlock} 
+                        className="bg-purple-600 hover:bg-purple-700 shadow-sm"
+                      >
+                        <Plus className="w-4 h-4 mr-2" /> إضافة بلوك
+                      </Button>
+                    )}
+                  </div>
+                </CardHeader>
+                
+                <CardContent className="pt-6">
+                  
+                  {/* فورم إضافة/تعديل البلوك */}
+                  {isBlockFormOpen && (
+                    <form 
+                      onSubmit={handleSubmitBlock} 
+                      className="bg-purple-50/50 p-5 rounded-xl border-2 border-purple-100 mb-6 space-y-5 shadow-inner"
+                    >
+                      <div className="flex justify-between items-center border-b border-purple-200 pb-3">
+                        <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                          <Edit2 className="w-4 h-4 text-purple-600" />
+                          {editingBlock ? "تعديل البلوك" : "إضافة بلوك جديد"}
+                        </h4>
+                        <Badge className="bg-purple-100 text-purple-700 border-purple-200">
+                          نظام الساعات + البلوكات
+                        </Badge>
+                      </div>
+          
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        {/* اسم البلوك */}
+                        <div className="md:col-span-2 space-y-2">
+                          <Label className="text-slate-700 font-semibold">اسم البلوك *</Label>
+                          <Input 
+                            value={blockFormData.blockName}
+                            onChange={(e) => setBlockFormData({...blockFormData, blockName: e.target.value})}
+                            placeholder="مثال: بلوك العلوم الأساسية"
+                            className="bg-white border-purple-200 focus:border-purple-400"
+                            required
+                          />
+                        </div>
+          
+                        {/* رقم البلوك */}
+                        <div className="space-y-2">
+                          <Label className="text-slate-700 font-semibold">رقم البلوك</Label>
+                          <Input 
+                            type="number"
+                            min="1"
+                            value={blockFormData.blockNumber}
+                            onChange={(e) => setBlockFormData({...blockFormData, blockNumber: Number(e.target.value)})}
+                            className="bg-white border-purple-200"
+                          />
+                        </div>
+          
+                        {/* الساعات المعتمدة - مميز في هذا النظام */}
+                        <div className="space-y-2">
+                          <Label className="text-purple-700 font-bold flex items-center gap-1">
+                            <Clock className="w-4 h-4" />
+                            الساعات المعتمدة *
+                          </Label>
+                          <Input 
+                            type="number"
+                            min="0"
+                            value={blockFormData.credit_hours}
+                            onChange={(e) => setBlockFormData({...blockFormData, credit_hours: Number(e.target.value)})}
+                            placeholder="مثلاً: 12"
+                            className="bg-purple-50/50 border-purple-300 font-bold text-purple-700"
+                            required
+                          />
+                        </div>
+          
+                        {/* نوع البلوك */}
+                        <div className="space-y-2">
+                          <Label className="text-slate-700 font-semibold">نوع البلوك</Label>
+                          <Select 
+                            value={blockFormData.type} 
+                            onValueChange={(val) => setBlockFormData({...blockFormData, type: val})}
                           >
-                            <Target className="w-4 h-4 mr-1.5"/> التوصيف
-                          </Button>
-                          <Button size="icon" variant="ghost" onClick={() => handleEditCourse(course)}>
-                            <Edit className="w-4 h-4 text-slate-500"/>
-                          </Button>
-                          <Button 
-                            size="icon" 
-                            variant="ghost" 
-                            className="text-red-500"
-                            onClick={() => handleDeleteCourse(course.id)}
-                          >
-                            <Trash2 className="w-4 h-4"/>
-                          </Button>
+                            <SelectTrigger className="bg-white border-purple-200">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="compulsory">إجباري</SelectItem>
+                              <SelectItem value="elective">اختياري</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+          
+                        {/* عدد الأسابيع */}
+                        <div className="space-y-2">
+                          <Label className="text-slate-700 font-semibold">عدد الأسابيع</Label>
+                          <Input 
+                            type="number"
+                            min="1"
+                            value={blockFormData.weeks}
+                            onChange={(e) => setBlockFormData({...blockFormData, weeks: Number(e.target.value)})}
+                            className="bg-white border-purple-200"
+                          />
+                        </div>
+          
+                        {/* الوزن */}
+                        <div className="space-y-2">
+                          <Label className="text-slate-700 font-semibold">الوزن (%)</Label>
+                          <Input 
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={blockFormData.weight}
+                            onChange={(e) => setBlockFormData({...blockFormData, weight: Number(e.target.value)})}
+                            className="bg-white border-purple-200"
+                          />
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          
+                      {/* وصف البلوك */}
+                      <div className="space-y-2">
+                        <Label className="text-slate-700 font-semibold">الوصف (اختياري)</Label>
+                        <Textarea 
+                          value={blockFormData.description}
+                          onChange={(e) => setBlockFormData({...blockFormData, description: e.target.value})}
+                          placeholder="وصف مختصر عن محتوى البلوك..."
+                          className="bg-white border-purple-200 min-h-[80px]"
+                        />
+                      </div>
+          
+                      {/* أزرار التحكم */}
+                      <div className="flex justify-end gap-2 pt-4 border-t border-purple-200">
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          onClick={() => {
+                            setIsBlockFormOpen(false);
+                            setEditingBlock(null);
+                          }}
+                          className="border-purple-200"
+                        >
+                          إلغاء
+                        </Button>
+                        <Button 
+                          type="submit" 
+                          className="bg-purple-600 hover:bg-purple-700"
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          حفظ البلوك
+                        </Button>
+                      </div>
+                    </form>
+                  )}
+          
+                  {/* عرض البلوكات */}
+                  {programBlocks.length > 0 ? (
+                    <div className="space-y-4">
 
+                      {/* قائمة البلوكات */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {programBlocks.map((block) => (
+                          <div 
+                            key={block.id} 
+                            className={cn(
+                              "border-2 rounded-xl p-5 bg-white transition-all group relative",
+                              "hover:shadow-lg hover:border-purple-300",
+                              selectedBlock?.id === block.id 
+                                ? "border-purple-600 bg-purple-50/30 shadow-md" 
+                                : "border-slate-200"
+                            )}
+                          >
+                            {/* رأس الكارت */}
+                            <div className="flex justify-between items-start mb-3">
+                              <Badge 
+                                className={cn(
+                                  "text-xs",
+                                  block.type === 'compulsory' 
+                                    ? "bg-blue-100 text-blue-700 border-blue-200" 
+                                    : "bg-amber-100 text-amber-700 border-amber-200"
+                                )}
+                              >
+                                {block.type === 'compulsory' ? 'إجباري' : 'اختياري'}
+                              </Badge>
+                              
+                              {/* أزرار التحكم */}
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {can('study_plan.update') && (
+                                  <Button 
+                                    size="icon" 
+                                    variant="ghost" 
+                                    className="h-7 w-7 text-purple-600 hover:bg-purple-100"
+                                    onClick={() => handleEditBlock(block)}
+                                  >
+                                    <Edit className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                                {can('study_plan.delete') && (
+                                  <Button 
+                                    size="icon" 
+                                    variant="ghost" 
+                                    className="h-7 w-7 text-red-500 hover:bg-red-50"
+                                    onClick={() => handleDeleteBlock(block.id)}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+          
+                            {/* اسم البلوك */}
+                            <h3 className="font-bold text-slate-800 text-lg mb-3 leading-tight">
+                              {block.block_name}
+                            </h3>
+          
+                            {/* معلومات البلوك */}
+                            <div className="space-y-2 mb-4">
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-slate-500 flex items-center gap-1">
+                                  <Clock className="w-3.5 h-3.5" /> الساعات:
+                                </span>
+                                <span className="font-bold text-purple-700 text-base">
+                                  {block.credit_hours || 0} ساعة
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-slate-500 flex items-center gap-1">
+                                  <Calendar className="w-3.5 h-3.5" /> المدة:
+                                </span>
+                                <span className="font-semibold text-slate-700">
+                                  {block.weeks} أسابيع
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className="text-slate-500 flex items-center gap-1">
+                                  <Target className="w-3.5 h-3.5" /> الوزن:
+                                </span>
+                                <span className="font-semibold text-slate-700">
+                                  {block.weight}%
+                                </span>
+                              </div>
+                            </div>
+          
+                            {/* زر عرض المقررات */}
+                            <Button 
+                              variant="secondary" 
+                              className={cn(
+                                "w-full h-9 text-xs transition-all",
+                                selectedBlock?.id === block.id 
+                                  ? "bg-purple-600 text-white hover:bg-purple-700" 
+                                  : "bg-slate-100 hover:bg-purple-600 hover:text-white"
+                              )}
+                              onClick={() => setSelectedBlock(block)}
+                            >
+                              <ChevronRight className="w-4 h-4 mr-1" />
+                              عرض مقررات البلوك
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    !isBlockFormOpen && (
+                      <div className="text-center py-12 border-2 border-dashed border-purple-200 rounded-xl bg-purple-50/30">
+                        <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Box className="text-purple-400 w-8 h-8" />
+                        </div>
+                        <p className="text-slate-500 font-medium mb-2">
+                          لم يتم إضافة بلوكات بعد
+                        </p>
+                        <p className="text-sm text-slate-400">
+                          ابدأ بإضافة البلوكات الدراسية وتحديد الساعات المعتمدة لكل بلوك
+                        </p>
+                      </div>
+                    )
+                  )}
+                </CardContent>
+              </Card>
+          
+              {/* المقررات (تظهر عند اختيار بلوك) */}
+              {selectedBlock && (
+                <Card className="border-t-4 border-t-indigo-600 shadow-lg animate-in slide-in-from-bottom-4">
+                  <CardHeader className="bg-indigo-50/50 border-b">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <GraduationCap className="w-5 h-5 text-indigo-600" />
+                          {selectedBlock?.block_name ? `مقررات ${selectedBlock.block_name}` : 'المقررات'}
+                        </CardTitle>
+                        <CardDescription className="mt-1">
+                          إدارة المواد الدراسية
+                          {selectedBlock?.credit_hours && (() => {
+                            // ✅ حساب مجموع ساعات المقررات
+                            const totalCourseHours = blockCourses.reduce((sum, c) => sum + (Number(c.credit_hours) || 0), 0);
+                            const blockCapacity = Number(selectedBlock.credit_hours) || 0;
+                            
+                            return (
+                              <>
+                                <Badge 
+                                  variant="outline" 
+                                  className={cn(
+                                    "mr-2",
+                                    totalCourseHours > blockCapacity
+                                      ? "bg-red-50 text-red-700 border-red-200"
+                                      : totalCourseHours === blockCapacity
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : "bg-amber-50 text-amber-700 border-amber-200"
+                                  )}
+                                >
+                                  {totalCourseHours} / {blockCapacity} ساعة معتمدة
+                                </Badge>
+                                
+                                {/* ✅ عرض المتبقي */}
+                                {totalCourseHours < blockCapacity && (
+                                  <Badge variant="secondary" className="mr-2 bg-blue-50 text-blue-700 border-blue-200">
+                                    متبقي: {blockCapacity - totalCourseHours} ساعة
+                                  </Badge>
+                                )}
+                                
+                                {/* ⚠️ تنبيه إذا تجاوز */}
+                                {totalCourseHours > blockCapacity && (
+                                  <Badge className="mr-2 bg-red-100 text-red-700 border-red-300">
+                                    تجاوز: +{totalCourseHours - blockCapacity} ساعة
+                                  </Badge>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </CardDescription>
+                      </div>
+                      {can('study_plan.create') && (
+                        <Button 
+                          onClick={handleAddCourse}
+                          className="bg-indigo-600 hover:bg-indigo-700"
+                        >
+                          <Plus className="w-4 h-4 mr-2" /> إضافة مقرر
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* ✅ Tabs للتصنيفات */}
+                    <div className="flex flex-wrap gap-2 border-b pb-3">
+                      {/* الكل */}
+                      <button
+                        onClick={() => setActiveCourseCategory(null)}
+                        className={cn(
+                          "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                          activeCourseCategory === null
+                            ? "bg-indigo-600 text-white border-indigo-600"
+                            : "bg-white text-slate-700 border-slate-200 hover:border-indigo-300"
+                        )}
+                      >
+                        الكل <Badge className="ml-2">{blockCourses.length}</Badge>
+                      </button>
+              
+                      {/* جامعة */}
+                      <button
+                        onClick={() => setActiveCourseCategory('متطلب جامعة')}
+                        className={cn(
+                          "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                          activeCourseCategory === 'متطلب جامعة'
+                            ? "bg-slate-600 text-white border-slate-600"
+                            : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                        )}
+                      >
+                        🏫 جامعة <Badge className="ml-2">{blockCourses.filter(c => c.category === 'متطلب جامعة').length}</Badge>
+                      </button>
+              
+                      {/* كلية */}
+                      <button
+                        onClick={() => setActiveCourseCategory('متطلب كلية')}
+                        className={cn(
+                          "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                          activeCourseCategory === 'متطلب كلية'
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "bg-white text-blue-700 border-blue-200 hover:border-blue-400"
+                        )}
+                      >
+                        🏢 كلية <Badge className="ml-2">{blockCourses.filter(c => c.category === 'متطلب كلية').length}</Badge>
+                      </button>
+              
+                      {/* إجباري */}
+                      <button
+                        onClick={() => setActiveCourseCategory('متطلب تخصص إجباري')}
+                        className={cn(
+                          "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                          activeCourseCategory === 'متطلب تخصص إجباري'
+                            ? "bg-green-600 text-white border-green-600"
+                            : "bg-white text-green-700 border-green-200 hover:border-green-400"
+                        )}
+                      >
+                        ⭐ إجباري <Badge className="ml-2">{blockCourses.filter(c => c.category === 'متطلب تخصص إجباري').length}</Badge>
+                      </button>
+              
+                      {/* اختياري */}
+                      <button
+                        onClick={() => setActiveCourseCategory('متطلب تخصص اختياري')}
+                        className={cn(
+                          "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
+                          activeCourseCategory === 'متطلب تخصص اختياري'
+                            ? "bg-amber-600 text-white border-amber-600"
+                            : "bg-white text-amber-700 border-amber-200 hover:border-amber-400"
+                        )}
+                      >
+                        ♦️ اختياري <Badge className="ml-2">{blockCourses.filter(c => c.category === 'متطلب تخصص اختياري').length}</Badge>
+                      </button>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="pt-6">
+
+                    {/* نموذج إضافة المقرر */}
+                    {isCourseFormOpen && (
+                      <div className="bg-slate-50 p-5 rounded-xl border border-slate-200 mb-6 shadow-sm">
+                        <h4 className="font-semibold mb-4 text-slate-700 border-b pb-2">
+                          {editingCourse ? "تعديل المقرر" : "إضافة مقرر جديد"}
+                        </h4>
+                        <form onSubmit={handleSubmitCourse} className="space-y-6">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label>كود المقرر *</Label>
+                              <Input 
+                                value={courseFormData.courseCode}
+                                onChange={e => setCourseFormData({...courseFormData, courseCode: e.target.value})}
+                                placeholder="CS101"
+                                className="bg-white font-mono"
+                                required
+                              />
+                            </div>
+            
+                            <div className="space-y-2 md:col-span-2">
+                              <Label>اسم المقرر *</Label>
+                              <Input 
+                                value={courseFormData.courseName}
+                                onChange={e => setCourseFormData({...courseFormData, courseName: e.target.value})}
+                                placeholder="مثال: مقدمة في البرمجة"
+                                className="bg-white"
+                                required
+                              />
+                            </div>
+            
+                            <div className="space-y-2">
+                              <Label>الساعات المعتمدة *</Label>
+                              <Input 
+                                type="number"
+                                min="1"
+                                value={courseFormData.creditHours}
+                                onChange={e => setCourseFormData({...courseFormData, creditHours: +e.target.value})}
+                                className="bg-white"
+                                required
+                              />
+                            </div>
+            
+                            <div className="space-y-2">
+                              <Label className="text-emerald-700 font-bold">وزن المقرر % (من البرنامج)</Label>
+                              <Input 
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={courseFormData.weight}
+                                onChange={e => setCourseFormData({...courseFormData, weight: +e.target.value})}
+                                placeholder="0"
+                                className="bg-emerald-50/50 border-emerald-200"
+                              />
+                            </div>
+            
+                            <div className="space-y-2">
+                              <Label>نوع المتطلب</Label>
+                              <Select 
+                                value={courseFormData.category}
+                                onValueChange={v => setCourseFormData({...courseFormData, category: v as any})}
+                              >
+                                <SelectTrigger className="bg-white">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
+                                  <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
+                                  <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
+                                  <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+            
+                          {/* أجزاء المقرر */}
+                          <div className="bg-white p-4 rounded-lg border space-y-4">
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <h5 className="font-semibold text-slate-700 flex items-center gap-2">
+                                <Layers className="w-4 h-4 text-purple-600" />
+                                أجزاء المقرر والساعات المعتمدة
+                              </h5>
+                            </div>
+                          
+                            {/* الساعات المعتمدة */}
+                            <Alert className="bg-blue-50 border-2 border-blue-400">
+                              <Clock className="h-5 w-5 text-blue-700" />
+                              <AlertDescription>
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-blue-900 text-base">
+                                    إجمالي الساعات المعتمدة للمقرر:
+                                  </span>
+                                  <div className="flex items-center gap-3">
+                                    <Input 
+                                      type="number"
+                                      min="1"
+                                      max="10"
+                                      step="1"
+                                      value={courseFormData.creditHours}
+                                      onChange={(e) => {
+                                        const val = parseInt(e.target.value) || 0;
+                                        setCourseFormData({...courseFormData, creditHours: val});
+                                      }}
+                                      className="w-24 h-10 font-bold text-xl text-center bg-white border-2 border-blue-300 text-blue-700"
+                                      required
+                                    />
+                                    <span className="text-blue-800 font-bold">ساعة</span>
+                                  </div>
+                                </div>
+                              </AlertDescription>
+                            </Alert>
+                          
+                            {/* تنبيه */}
+                            <Alert className="bg-amber-50 border-amber-300">
+                              <AlertCircle className="h-4 w-4 text-amber-700" />
+                              <AlertDescription className="text-xs text-amber-800">
+                                💡 <b>ملاحظة:</b> يجب أن يساوي مجموع الساعات المحسوبة من الأجزاء الساعات المعتمدة.
+                              </AlertDescription>
+                            </Alert>
+                          
+                            {/* عرض الأجزاء */}
+                            <div className="space-y-3">
+                              {courseFormData.courseParts.map((part, idx) => {
+                                const creditedHours = Math.round(part.actual_hours * part.rate);
+                                
+                                return (
+                                  <div key={idx} className="p-4 bg-slate-50 rounded-lg border-2 border-slate-200 space-y-3">
+                                    
+                                    <div className="flex items-center gap-3">
+                                      <Badge variant="secondary" className="shrink-0 min-w-[80px] justify-center">
+                                        {part.name}
+                                      </Badge>
+                                      
+                                      <div className="flex items-center gap-2 flex-1">
+                                        <Label className="text-xs text-slate-600 w-28">الساعات الفعلية:</Label>
+                                        <Input 
+                                          type="number"
+                                          min="0"
+                                          step={
+                                            part.name === "نظري" ? 1 :
+                                            part.name === "عملي" ? 2 :
+                                            part.name === "تمارين" ? 2 :
+                                            part.name === "سريري" ? 3 : 1
+                                          }
+                                          value={part.actual_hours}
+                                          onChange={(e) => {
+                                            let val = parseInt(e.target.value) || 0;
+                                            
+                                            if (part.name === "عملي" || part.name === "تمارين") {
+                                              val = Math.floor(val / 2) * 2;
+                                            } else if (part.name === "سريري") {
+                                              val = Math.floor(val / 3) * 3;
+                                            }
+                                            
+                                            handleUpdateCoursePart(idx, 'actual_hours', val);
+                                          }}
+                                          className="bg-white h-9 w-24 text-center font-semibold"
+                                        />
+                                        <span className="text-xs text-slate-500">ساعة</span>
+                                      </div>
+                            
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                                          {part.name === "سريري" ? "÷3" : part.name === "نظري" ? "×1" : "÷2"}
+                                        </Badge>
+                                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                                        <Badge className={cn(
+                                          "font-bold min-w-[100px] justify-center",
+                                          creditedHours <= courseFormData.creditHours 
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : "bg-red-50 text-red-700 border-red-200"
+                                        )}>
+                                          {creditedHours} ساعة
+                                        </Badge>
+                                      </div>
+                            
+                                      {courseFormData.courseParts.length > 1 && (
+                                        <Button 
+                                          type="button"
+                                          size="icon" 
+                                          variant="ghost"
+                                          className="text-red-500 hover:bg-red-50 shrink-0"
+                                          onClick={() => handleRemoveCoursePart(idx)}
+                                        >
+                                          <Trash2 className="w-4 h-4" />
+                                        </Button>
+                                      )}
+                                    </div>
+                            
+                                    <div className="text-xs text-slate-500 bg-white p-2 rounded border flex items-center gap-2">
+                                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        <b>{part.name}:</b> 
+                                        {part.name === "نظري" && " كل ساعة فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "عملي" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "تمارين" && " كل ساعتين فعلية = 1 ساعة معتمدة"}
+                                        {part.name === "سريري" && " كل 3 ساعات فعلية = 1 ساعة معتمدة"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          
+                            {/* زر إضافة جزء */}
+                            {courseFormData.courseParts.length < 4 && (
+                              <div className="flex gap-2">
+                                {!courseFormData.courseParts.find(p => p.name === "نظري") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "نظري", actual_hours: 0, rate: 1.0 }]
+                                    })}
+                                  >
+                                    + نظري
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "عملي") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "عملي", actual_hours: 0, rate: 0.5 }]
+                                    })}
+                                  >
+                                    + عملي
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "تمارين") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "تمارين", actual_hours: 0, rate: 0.5 }]
+                                    })}
+                                  >
+                                    + تمارين
+                                  </Button>
+                                )}
+                                {!courseFormData.courseParts.find(p => p.name === "سريري") && (
+                                  <Button 
+                                    type="button" 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setCourseFormData({
+                                      ...courseFormData,
+                                      courseParts: [...courseFormData.courseParts, { name: "سريري", actual_hours: 0, rate: 0.33 }]
+                                    })}
+                                  >
+                                    + سريري
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          
+                            {/* التحقق من الموازنة */}
+                            {(() => {
+                              const totalCredited = courseFormData.courseParts.reduce((sum, p) => 
+                                sum + Math.round(p.actual_hours * p.rate), 0
+                              );
+                              const isBalanced = totalCredited === courseFormData.creditHours;
+                              const difference = totalCredited - courseFormData.creditHours;
+                            
+                              return (
+                                <Alert className={cn(
+                                  "border-2",
+                                  isBalanced 
+                                    ? "bg-emerald-50 border-emerald-400" 
+                                    : difference > 0 
+                                    ? "bg-red-50 border-red-400" 
+                                    : "bg-amber-50 border-amber-400"
+                                )}>
+                                  <AlertCircle className="h-5 w-5" />
+                                  <AlertDescription className="flex items-center justify-between">
+                                    <div className="flex flex-col gap-1">
+                                      <span className="font-semibold text-sm">
+                                        مجموع الساعات المحسوبة:
+                                      </span>
+                                      {!isBalanced && (
+                                        <span className="text-xs">
+                                          {difference > 0 
+                                            ? `⚠️ زيادة ${difference} ساعة` 
+                                            : `⚠️ نقص ${Math.abs(difference)} ساعة`
+                                          }
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className={cn(
+                                        "text-2xl font-bold",
+                                        isBalanced 
+                                          ? "text-emerald-700" 
+                                          : difference > 0 
+                                          ? "text-red-700" 
+                                          : "text-amber-700"
+                                      )}>
+                                        {totalCredited}
+                                      </span>
+                                      <span className="text-slate-400">/</span>
+                                      <span className="text-xl font-bold text-slate-700">
+                                        {courseFormData.creditHours}
+                                      </span>
+                                      {isBalanced ? (
+                                        <Badge className="bg-emerald-100 text-emerald-700">
+                                          ✓ متوازن
+                                        </Badge>
+                                      ) : (
+                                        <Badge className={cn(
+                                          difference > 0 
+                                            ? "bg-red-100 text-red-700" 
+                                            : "bg-amber-100 text-amber-700"
+                                        )}>
+                                          {difference > 0 ? "⚠ زيادة" : "⚠ نقص"}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </AlertDescription>
+                                </Alert>
+                              );
+                            })()}
+                          </div>
+            
+                          {/* المتطلبات السابقة والمصاحبة */}
+                          <div className="bg-white p-4 rounded-lg border space-y-4">
+                            <h5 className="font-semibold text-slate-700 flex items-center gap-2 border-b pb-2">
+                              <Layers className="w-4 h-4 text-indigo-600" />
+                              المتطلبات السابقة والمصاحبة
+                            </h5>
+                        
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              
+                              {/* المتطلبات السابقة */}
+                              <div className="space-y-3">
+                                <Label className="font-semibold text-indigo-700">
+                                  المتطلبات السابقة (Prerequisites)
+                                </Label>
+                                <div className="min-h-[80px] p-3 bg-indigo-50/30 rounded-lg border-2 border-dashed border-indigo-200">
+                                  <div className="flex flex-wrap gap-2">
+                                    {courseFormData.prerequisiteIds.map(id => {
+                                      const course = availableCoursesForPrereq.find(c => c.id === id);
+                                      return course ? (
+                                        <Badge key={id} variant="secondary" className="gap-1 bg-indigo-100 text-indigo-700">
+                                          {course.course_code}
+                                          <X 
+                                            className="w-3 h-3 cursor-pointer hover:text-red-600" 
+                                            onClick={() => setCourseFormData({
+                                              ...courseFormData,
+                                              prerequisiteIds: courseFormData.prerequisiteIds.filter(i => i !== id)
+                                            })}
+                                          />
+                                        </Badge>
+                                      ) : null;
+                                    })}
+                                    {courseFormData.prerequisiteIds.length === 0 && (
+                                      <span className="text-xs text-slate-400">لا توجد متطلبات سابقة</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <Button 
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="w-full border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                  onClick={() => setIsPrereqSelectOpen(true)}
+                                >
+                                  <Plus className="w-3.5 h-3.5 mr-1" />
+                                  اختيار متطلب سابق
+                                </Button>
+                              </div>
+                        
+                              {/* المتطلبات المصاحبة */}
+                              <div className="space-y-3">
+                                <Label className="font-semibold text-blue-700">
+                                  المتطلبات المصاحبة (Corequisites)
+                                </Label>
+                                <div className="min-h-[80px] p-3 bg-blue-50/30 rounded-lg border-2 border-dashed border-blue-200">
+                                  <div className="flex flex-wrap gap-2">
+                                    {courseFormData.corequisiteIds.map(id => {
+                                      const course = availableCoursesForPrereq.find(c => c.id === id);
+                                      return course ? (
+                                        <Badge key={id} variant="secondary" className="gap-1 bg-blue-100 text-blue-700">
+                                          {course.course_code}
+                                          <X 
+                                            className="w-3 h-3 cursor-pointer hover:text-red-600" 
+                                            onClick={() => setCourseFormData({
+                                              ...courseFormData,
+                                              corequisiteIds: courseFormData.corequisiteIds.filter(i => i !== id)
+                                            })}
+                                          />
+                                        </Badge>
+                                      ) : null;
+                                    })}
+                                    {courseFormData.corequisiteIds.length === 0 && (
+                                      <span className="text-xs text-slate-400">لا توجد متطلبات مصاحبة</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <Button 
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                                  onClick={() => setIsCoreqSelectOpen(true)}
+                                >
+                                  <Plus className="w-3.5 h-3.5 mr-1" />
+                                  اختيار متطلب مصاحب
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+            
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label className="font-semibold">لغة التدريس</Label>
+                              <Select 
+                                value={courseFormData.teachingLanguage}
+                                onValueChange={(v) => setCourseFormData({
+                                  ...courseFormData, 
+                                  teachingLanguage: v as any
+                                })}
+                              >
+                                <SelectTrigger className="bg-white">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="العربية">العربية</SelectItem>
+                                  <SelectItem value="الإنجليزية">الإنجليزية</SelectItem>
+                                  <SelectItem value="ثنائي اللغة">ثنائي اللغة</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+            
+                            <div className="space-y-2">
+                              <Label>ملاحظات (اختياري)</Label>
+                              <Input 
+                                value={courseFormData.notes}
+                                onChange={e => setCourseFormData({...courseFormData, notes: e.target.value})}
+                                placeholder="ملاحظات إضافية..."
+                                className="bg-white"
+                              />
+                            </div>
+                          </div>
+            
+                          <div className="flex justify-end gap-2 pt-4 border-t">
+                            <Button type="button" variant="outline" onClick={() => {
+                              setIsCourseFormOpen(false);
+                              setEditingCourse(null);
+                            }}>
+                              إلغاء
+                            </Button>
+                            <Button type="submit">
+                              حفظ المقرر
+                            </Button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
+              
+                    {/* جدول المقررات */}
+                    {(() => {
+                      // ✅ فلترة المقررات حسب التصنيف المختار
+                      const filteredCourses = activeCourseCategory === null
+                        ? blockCourses
+                        : blockCourses.filter(c => c.category === activeCourseCategory);
+                    
+                      return (
+                        <div className="rounded-md border">
+                          <div className="overflow-x-auto">
+                            <Table>
+                              <TableHeader className="bg-gradient-to-r from-slate-50 to-slate-100">
+                                <TableRow>
+                                  <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الكود</TableHead>
+                                  <TableHead className="text-center font-bold text-slate-700 min-w-[150px]">اسم المقرر</TableHead>
+                                  <TableHead className="text-center font-bold text-slate-700 min-w-[80px]">الساعات</TableHead>
+                                  <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">الأجزاء</TableHead>
+                                  <TableHead className="text-center font-bold text-slate-700 min-w-[140px]">التصنيف</TableHead>
+                                  <TableHead className="text-center font-bold text-emerald-700 min-w-[80px]">الوزن %</TableHead>
+                                  <TableHead className="text-center font-bold text-indigo-700 min-w-[150px]">المتطلبات</TableHead>
+                                  <TableHead className="text-center font-bold text-slate-700 min-w-[100px]">التوصيف</TableHead>
+                                  <TableHead className="text-left font-bold text-slate-700 min-w-[120px]">الإجراءات</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {filteredCourses.length === 0 ? (
+                                  <TableRow>
+                                    <TableCell colSpan={9} className="text-center py-12">
+                                      <div className="flex flex-col items-center gap-3">
+                                        <div className="bg-slate-100 p-4 rounded-full">
+                                          <BookOpen className="w-12 h-12 text-slate-300" />
+                                        </div>
+                                        <p className="text-slate-400 font-medium">
+                                          {blockCourses.length === 0 
+                                            ? "لا توجد مقررات مسجلة"
+                                            : `لا توجد مقررات من نوع "${activeCourseCategory}"`
+                                          }
+                                        </p>
+                                        <p className="text-xs text-slate-400">
+                                          {blockCourses.length > 0 && activeCourseCategory 
+                                            ? "جرّب اختيار تصنيف آخر"
+                                            : "ابدأ بإضافة المقررات لهذا البلوك"
+                                          }
+                                        </p>
+                                      </div>
+                                    </TableCell>
+                                  </TableRow>
+                                ) : (
+                                  filteredCourses.map(course => (
+                                    <TableRow 
+                                      key={course.id} 
+                                      className="hover:bg-slate-50 transition-colors border-b border-slate-100"
+                                    >
+                                      {/* الكود */}
+                                      <TableCell className="font-mono text-slate-700 font-bold text-sm align-top py-4">
+                                        <div className="bg-slate-100 px-2 py-1 rounded border border-slate-200 inline-block">
+                                          {course.course_code}
+                                        </div>
+                                      </TableCell>
+                              
+                                      {/* الاسم */}
+                                      <TableCell className="align-top py-4">
+                                        <div className="font-semibold text-slate-800 text-sm leading-snug">
+                                          {course.course_name}
+                                        </div>
+                                      </TableCell>
+                              
+                                      {/* الساعات */}
+                                      <TableCell className="text-center align-top py-4">
+                                        <Badge 
+                                          variant="outline" 
+                                          className="font-bold bg-blue-50 text-blue-700 border-blue-200 text-sm px-3 py-1"
+                                        >
+                                          {course.credit_hours}
+                                        </Badge>
+                                      </TableCell>
+                              
+                                      {/* الأجزاء */}
+                                      <TableCell className="text-center align-top py-4">
+                                        <div className="flex flex-col gap-1.5 items-center">
+                                          {course.course_parts?.map((part, idx) => (
+                                            <div 
+                                              key={idx}
+                                              className="flex items-center gap-1.5 bg-purple-50 border border-purple-200 rounded-md px-2 py-1 w-full max-w-[120px]"
+                                            >
+                                              <span className="text-xs font-semibold text-purple-700 whitespace-nowrap">
+                                                {part.name}
+                                              </span>
+                                              <span className="text-[10px] text-purple-600 font-medium">
+                                                ({part.actual_hours}س)
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </TableCell>
+                              
+                                      {/* التصنيف */}
+                                      <TableCell className="text-center align-top py-4">
+                                        <Badge 
+                                          variant="outline" 
+                                          className={cn(
+                                            "text-xs font-medium px-2 py-1 whitespace-nowrap",
+                                            course.category === "متطلب جامعة" && "bg-slate-50 text-slate-700 border-slate-300",
+                                            course.category === "متطلب كلية" && "bg-blue-50 text-blue-700 border-blue-300",
+                                            course.category === "متطلب تخصص إجباري" && "bg-green-50 text-green-700 border-green-300",
+                                            course.category === "متطلب تخصص اختياري" && "bg-amber-50 text-amber-700 border-amber-300"
+                                          )}
+                                        >
+                                          {course.category?.replace('متطلب ', '')}
+                                        </Badge>
+                                      </TableCell>
+                              
+                                      {/* الوزن */}
+                                      <TableCell className="text-center align-top py-4">
+                                        <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold text-sm px-3 py-1">
+                                          {course.weight || 0}%
+                                        </Badge>
+                                      </TableCell>
+                              
+                                      {/* المتطلبات */}
+                                      <TableCell className="text-center align-top py-4">
+                                        {course.prerequisites && course.prerequisites.length > 0 ? (
+                                          <div className="flex flex-col gap-1 items-center justify-center text-[10px]">
+                                            {course.prerequisites.slice(0, 2).map(p => (
+                                              <Badge 
+                                                key={p.id} 
+                                                variant="outline" 
+                                                className="bg-indigo-50 text-indigo-700 border-indigo-200"
+                                              >
+                                                {p.course_code}
+                                              </Badge>
+                                            ))}
+                                            {course.prerequisites.length > 2 && (
+                                              <Badge variant="secondary" className="text-[10px]">
+                                                +{course.prerequisites.length - 2}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                        ) : (
+                                          <span className="text-xs text-slate-400">-</span>
+                                        )}
+                                      </TableCell>
+                              
+                                      {/* التوصيف */}
+                                      <TableCell className="text-center align-top py-4">
+                                        <Button 
+                                          size="sm" 
+                                          variant="secondary" 
+                                          className="gap-1.5 text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 whitespace-nowrap text-xs" 
+                                          onClick={() => handleOpenQuality(course)}
+                                        >
+                                          <Target className="w-3 h-3" /> 
+                                          التوصيف
+                                        </Button>
+                                      </TableCell>
+                              
+                                      {/* الإجراءات */}
+                                      <TableCell className="text-left align-top py-4">
+                                        <div className="flex gap-1 justify-end flex-wrap">
+                                          {can('study_plan.update') && (
+                                            <Button 
+                                              size="sm" 
+                                              variant="ghost"
+                                              className="hover:bg-blue-50 hover:text-blue-700 h-8 w-8 p-0"
+                                              onClick={() => handleEditCourse(course)}
+                                            >
+                                              <Edit className="w-4 h-4" />
+                                            </Button>
+                                          )}
+                              
+                                          {can('study_plan.delete') && (
+                                            <Button 
+                                              size="sm" 
+                                              variant="ghost" 
+                                              className="text-red-500 hover:bg-red-50 h-8 w-8 p-0"
+                                              onClick={() => handleDeleteCourse(course.id)}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          )}
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))
+                                )}
+                              </TableBody>
+                            </Table>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Modals للمتطلبات */}
+                  <Dialog open={isPrereqSelectOpen} onOpenChange={setIsPrereqSelectOpen}>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Layers className="w-5 h-5 text-indigo-600" />
+                          اختيار المتطلبات السابقة
+                        </DialogTitle>
+                      </DialogHeader>
+                      
+                      <div className="max-h-[400px] overflow-y-auto p-2 space-y-2">
+                        {availableCoursesForPrereq.map(course => (
+                          <div 
+                            key={course.id} 
+                            className={cn(
+                              "flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all",
+                              courseFormData.prerequisiteIds.includes(course.id)
+                                ? "bg-indigo-50 border-indigo-300"
+                                : "bg-white hover:bg-slate-50 border-slate-200"
+                            )}
+                            onClick={() => {
+                              const isSelected = courseFormData.prerequisiteIds.includes(course.id);
+                              setCourseFormData({
+                                ...courseFormData,
+                                prerequisiteIds: isSelected
+                                  ? courseFormData.prerequisiteIds.filter(id => id !== course.id)
+                                  : [...courseFormData.prerequisiteIds, course.id]
+                              });
+                            }}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={courseFormData.prerequisiteIds.includes(course.id)}
+                              onChange={() => {}}
+                              className="w-4 h-4"
+                            />
+                            <div className="flex-1">
+                              <div className="font-semibold text-slate-800">{course.course_name}</div>
+                              <div className="text-sm text-slate-500">{course.course_code}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <DialogFooter>
+                        <Button onClick={() => setIsPrereqSelectOpen(false)}>
+                          تم ({courseFormData.prerequisiteIds.length} مقرر)
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                  
+                  
+                  <Dialog open={isCoreqSelectOpen} onOpenChange={setIsCoreqSelectOpen}>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                          <Layers className="w-5 h-5 text-blue-600" />
+                          اختيار المتطلبات المصاحبة
+                        </DialogTitle>
+                      </DialogHeader>
+                      
+                      <div className="max-h-[400px] overflow-y-auto p-2 space-y-2">
+                        {availableCoursesForPrereq.map(course => (
+                          <div 
+                            key={course.id} 
+                            className={cn(
+                              "flex items-center gap-3 p-3 rounded-lg border-2 cursor-pointer transition-all",
+                              courseFormData.corequisiteIds.includes(course.id)
+                                ? "bg-blue-50 border-blue-300"
+                                : "bg-white hover:bg-slate-50 border-slate-200"
+                            )}
+                            onClick={() => {
+                              const isSelected = courseFormData.corequisiteIds.includes(course.id);
+                              setCourseFormData({
+                                ...courseFormData,
+                                corequisiteIds: isSelected
+                                  ? courseFormData.corequisiteIds.filter(id => id !== course.id)
+                                  : [...courseFormData.corequisiteIds, course.id]
+                              });
+                            }}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={courseFormData.corequisiteIds.includes(course.id)}
+                              onChange={() => {}}
+                              className="w-4 h-4"
+                            />
+                            <div className="flex-1">
+                              <div className="font-semibold text-slate-800">{course.course_name}</div>
+                              <div className="text-sm text-slate-500">{course.course_code}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <DialogFooter>
+                        <Button onClick={() => setIsCoreqSelectOpen(false)}>
+                          تم ({courseFormData.corequisiteIds.length} مقرر)
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+ 
         </div>
       )}
 
-      <CourseQualityDialog 
+      <CourseQualityDialog
         isOpen={!!qualityDialogCourse}
         onClose={() => setQualityDialogCourse(null)}
         course={qualityDialogCourse}
