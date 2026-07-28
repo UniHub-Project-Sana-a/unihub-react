@@ -27,6 +27,7 @@ import LecturerPage from "./pages/LecturerPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import CertInstructionPage from "@/pages/CertInstructionPage";
 import StudentQaPage from "@/components/student/qa/StudentQaPage";
+import LocationsPage from "@/pages/LocationsPage";
 
 // استيراد مكونات الحماية
 import { AuthProvider } from "@/context/AuthContext";
@@ -92,6 +93,7 @@ const App = () => (
                   <Route path="/excuses/*" element={<ExcusesPage />} />
                   <Route path="/course-management/*" element={<CourseManagementPage />} />
                   <Route path="/academic-staff" element={<AcademicStaffPage />} />
+                  <Route path="/locations" element={<LocationsPage />} />
                 </Route>
   
                 {/* 🔒 ج) منطقة المحاضر فقط */}

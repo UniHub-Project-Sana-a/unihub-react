@@ -10,7 +10,27 @@ export type Classroom = {
   latitude?: number | null;
   longitude?: number | null;
   allowedDistance?: number | null;
-  type: 'CLASSROOM' | 'LAB';
+  type: 'CLASSROOM' | 'LAB' | 'AUDITORIUM' | 'LIBRARY' | 'WORKSHOP';
+};
+
+const typeIntToStr = (v: number): 'CLASSROOM' | 'LAB' | 'AUDITORIUM' | 'LIBRARY' | 'WORKSHOP' => {
+  switch (v) {
+    case 1: return 'LAB';
+    case 2: return 'AUDITORIUM';
+    case 3: return 'LIBRARY';
+    case 4: return 'WORKSHOP';
+    default: return 'CLASSROOM';
+  }
+};
+
+const typeStrToInt = (v: 'CLASSROOM' | 'LAB' | 'AUDITORIUM' | 'LIBRARY' | 'WORKSHOP'): number => {
+  switch (v) {
+    case 'LAB': return 1;
+    case 'AUDITORIUM': return 2;
+    case 'LIBRARY': return 3;
+    case 'WORKSHOP': return 4;
+    default: return 0;
+  }
 };
 
 const map = (d: any): Classroom => ({
@@ -22,7 +42,7 @@ const map = (d: any): Classroom => ({
   latitude: d.latitude,
   longitude: d.longitude,
   allowedDistance: d.allowed_distance,
-  type: d.classroom_type,
+  type: typeIntToStr(d.classroom_type),
 });
 
 export const getClassroomsByBuilding = async (buildingId: string): Promise<Classroom[]> => {
@@ -45,7 +65,7 @@ export const createClassroom = async (p: Omit<Classroom, 'id'>) => {
     latitude: p.latitude,
     longitude: p.longitude,
     allowed_distance: p.allowedDistance,
-    classroom_type: p.type,
+    classroom_type: typeStrToInt(p.type),
   });
   return map(data);
 };
@@ -59,7 +79,7 @@ export const updateClassroom = async (id: string, p: Partial<Classroom>) => {
   if (p.latitude !== undefined) body.latitude = p.latitude;
   if (p.longitude !== undefined) body.longitude = p.longitude;
   if (p.allowedDistance !== undefined) body.allowed_distance = p.allowedDistance;
-  if (p.type !== undefined) body.classroom_type = p.type;
+  if (p.type !== undefined) body.classroom_type = typeStrToInt(p.type);
   const { data } = await api.put(`/classrooms/${id}`, body);
   return map(data);
 };
