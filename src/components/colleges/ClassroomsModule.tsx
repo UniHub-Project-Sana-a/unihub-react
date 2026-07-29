@@ -5,11 +5,21 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, FileJson } from "lucide-react";
+import JsonImportModal from "@/components/colleges/JsonImportModal";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { usePermission } from "@/hooks/usePermission";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type ApiBuilding = {
   building_id: number;
@@ -34,13 +44,13 @@ type ApiClassroom = {
   latitude: number | null;
   longitude: number | null;
   allowed_distance: number | null;
-  classroom_type: number; // 0: CLASSROOM, 1: LAB
+  classroom_type: number; // 0: CLASSROOM, 1: LAB, 2: AUDITORIUM, 3: LIBRARY, 4: WORKSHOP
 };
 
 interface Classroom {
   id: string;
   name: string;
-  type: "CLASSROOM" | "LAB";
+  type: "CLASSROOM" | "LAB" | "AUDITORIUM" | "LIBRARY" | "WORKSHOP";
   capacity: number;
   floor: number | null;
   latitude?: number | null;
@@ -51,7 +61,7 @@ interface Classroom {
 
 type ClassroomFormData = {
   name: string;
-  type: "CLASSROOM" | "LAB";
+  type: "CLASSROOM" | "LAB" | "AUDITORIUM" | "LIBRARY" | "WORKSHOP";
   capacity: number;
   floor: number;
   latitude: string | number | "";
@@ -63,8 +73,24 @@ interface Props {
   collegeId: string;
 }
 
-const typeIntToStr = (v: number): "CLASSROOM" | "LAB" => (v === 1 ? "LAB" : "CLASSROOM");
-const typeStrToInt = (v: "CLASSROOM" | "LAB"): number => (v === "LAB" ? 1 : 0);
+const typeIntToStr = (v: number): "CLASSROOM" | "LAB" | "AUDITORIUM" | "LIBRARY" | "WORKSHOP" => {
+  switch (v) {
+    case 1: return "LAB";
+    case 2: return "AUDITORIUM";
+    case 3: return "LIBRARY";
+    case 4: return "WORKSHOP";
+    default: return "CLASSROOM";
+  }
+};
+const typeStrToInt = (v: "CLASSROOM" | "LAB" | "AUDITORIUM" | "LIBRARY" | "WORKSHOP"): number => {
+  switch (v) {
+    case "LAB": return 1;
+    case "AUDITORIUM": return 2;
+    case "LIBRARY": return 3;
+    case "WORKSHOP": return 4;
+    default: return 0;
+  }
+};
 
 // دالة تجلب إحداثيات دقيقة قدر الإمكان مع تحسين تدريجي حتى نصل لدقة الهدف
 function getPreciseLocation(
@@ -140,14 +166,63 @@ export default function ClassroomsModule({ collegeId }: Props) {
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null);
 
+  // JSON Import Modal State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
   
 
   // Building form (جديد)
   const [isBuildingFormOpen, setIsBuildingFormOpen] = useState(false);
+  const [globalCampusBuildings, setGlobalCampusBuildings] = useState<Building[]>([]);
+  const [selectedGlobalBuildingId, setSelectedGlobalBuildingId] = useState<string>("new");
   const [buildingFormData, setBuildingFormData] = useState<{ name: string; floorCount: number }>({
     name: "",
     floorCount: 1,
   });
+
+  const fetchGlobalCampusBuildings = async () => {
+    try {
+      const res = await api.get("/v1/buildings");
+      const raw = res.data?.data ?? res.data ?? [];
+      setGlobalCampusBuildings(
+        raw.map((b: any) => ({
+          id: String(b.building_id),
+          name: b.building_name,
+          floorCount: b.floors_count || 1,
+        }))
+      );
+    } catch {
+      // ignored
+    }
+  };
+
+  // Building delete state
+  const [deletingBuilding, setDeletingBuilding] = useState<Building | null>(null);
+  const [isDeletingBuilding, setIsDeletingBuilding] = useState(false);
+
+  const handleConfirmDeleteBuilding = async () => {
+    if (!deletingBuilding) return;
+    setIsDeletingBuilding(true);
+    try {
+      await api.delete(`/v1/buildings/${deletingBuilding.id}`);
+      setBuildings((prev) => prev.filter((b) => b.id !== deletingBuilding.id));
+      if (selectedBuilding?.id === deletingBuilding.id) {
+        setSelectedBuilding(null);
+        setClassrooms([]);
+      }
+      toast({ title: "نجاح", description: "تم حذف المبنى بنجاح" });
+      setDeletingBuilding(null);
+    } catch (error: any) {
+      const err = error?.response?.data?.message || "فشل حذف المبنى";
+      toast({
+        title: "تعذّر حذف المبنى",
+        description: String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingBuilding(false);
+    }
+  };
 
   // Classrooms
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
@@ -232,7 +307,9 @@ export default function ClassroomsModule({ collegeId }: Props) {
   // إنشاء مبنى (جديد)
   const handleAddBuilding = () => {
     setIsBuildingFormOpen(true);
+    setSelectedGlobalBuildingId("new");
     setBuildingFormData({ name: "", floorCount: 1 });
+    fetchGlobalCampusBuildings();
   };
 
   const handleSubmitBuilding = async (e: React.FormEvent) => {
@@ -405,12 +482,20 @@ const handleAddClassroom = () => {
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">القاعات الدراسية</h2>
-        {can('locations.create') && (
-          <Button onClick={handleAddClassroom} disabled={!selectedBuilding}>
-            <Plus className="w-4 h-4 mr-2" />
-            إضافة قاعة
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {can('locations.create') && (
+            <Button variant="outline" className="gap-2" onClick={() => setIsImportModalOpen(true)}>
+              <FileJson className="w-4 h-4 text-primary" />
+              استيراد ملف JSON (الموبايل)
+            </Button>
+          )}
+          {can('locations.create') && (
+            <Button onClick={handleAddClassroom} disabled={!selectedBuilding}>
+              <Plus className="w-4 h-4 ml-2" />
+              إضافة قاعة
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Buildings grid */}
@@ -429,33 +514,73 @@ const handleAddClassroom = () => {
         <CardContent>
           {/* Building form (جديد) */}
           {isBuildingFormOpen && (
-            <div className="mb-4">
-              <form onSubmit={handleSubmitBuilding} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="mb-6 p-4 border rounded-xl bg-muted/20 space-y-4">
+              <div className="flex justify-between items-center pb-2 border-b">
+                <span className="font-bold text-sm text-primary flex items-center gap-2">
+                  <FileJson className="w-4 h-4" />
+                  اختيار أو تسجيل مبنى للحرم الجامعي
+                </span>
+              </div>
+
+              <div className="space-y-3">
                 <div>
-                  <Label>اسم المبنى *</Label>
-                  <Input
-                    value={buildingFormData.name}
-                    onChange={(e) => setBuildingFormData({ ...buildingFormData, name: e.target.value })}
-                    required
-                  />
+                  <Label className="font-semibold block mb-1">اختر من المباني المعتمدة للحرم الجامعي *</Label>
+                  <Select
+                    value={selectedGlobalBuildingId}
+                    onValueChange={(val) => {
+                      setSelectedGlobalBuildingId(val);
+                      if (val !== "new") {
+                        const found = globalCampusBuildings.find((g) => g.id === val);
+                        if (found) {
+                          setBuildingFormData({ name: found.name, floorCount: found.floorCount });
+                        }
+                      } else {
+                        setBuildingFormData({ name: "", floorCount: 1 });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="bg-background">
+                      <SelectValue placeholder="اختر مبنى قائماً بالحرم الجامعي..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new">➕ تسجيل مبنى مادي جديد للحرم الجامعي</SelectItem>
+                      {globalCampusBuildings.map((gb) => (
+                        <SelectItem key={gb.id} value={gb.id}>
+                          🏢 {gb.name} ({gb.floorCount} أدوار)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div>
-                  <Label>عدد الأدوار *</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    value={buildingFormData.floorCount}
-                    onChange={(e) => setBuildingFormData({ ...buildingFormData, floorCount: parseInt(e.target.value || "1") })}
-                    required
-                  />
-                </div>
-                <div className="flex items-end gap-2">
-                  <Button type="submit">حفظ</Button>
-                  <Button type="button" variant="outline" onClick={() => setIsBuildingFormOpen(false)}>
-                    إلغاء
-                  </Button>
-                </div>
-              </form>
+
+                <form onSubmit={handleSubmitBuilding} className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                  <div>
+                    <Label>اسم المبنى *</Label>
+                    <Input
+                      value={buildingFormData.name}
+                      onChange={(e) => setBuildingFormData({ ...buildingFormData, name: e.target.value })}
+                      placeholder="اسم المبنى"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <Label>عدد الأدوار *</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={buildingFormData.floorCount}
+                      onChange={(e) => setBuildingFormData({ ...buildingFormData, floorCount: parseInt(e.target.value || "1") })}
+                      required
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Button type="submit">حفظ وتخصيص المبنى</Button>
+                    <Button type="button" variant="outline" onClick={() => setIsBuildingFormOpen(false)}>
+                      إلغاء
+                    </Button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
 
@@ -463,13 +588,32 @@ const handleAddClassroom = () => {
             {buildings.map((b) => (
               <Card
                 key={b.id}
-                className={cn("cursor-pointer", selectedBuilding?.id === b.id && "border-primary")}
+                className={cn(
+                  "cursor-pointer relative group transition-all hover:border-primary/50",
+                  selectedBuilding?.id === b.id && "border-primary shadow-sm bg-primary/5"
+                )}
                 onClick={() => onSelectBuilding(b)}
               >
-                <CardContent className="pt-6">
-                  <div className="flex justify-between">
-                    <span className="font-semibold">{b.name}</span>
-                    <span className="text-sm text-muted-foreground">الأدوار: {b.floorCount}</span>
+                <CardContent className="pt-5 pb-4 px-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="font-semibold text-base block">{b.name}</span>
+                      <span className="text-xs text-muted-foreground mt-1 block">الأدوار: {b.floorCount}</span>
+                    </div>
+                    {(can('locations.delete') || can('locations.create') || can('delete_building')) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingBuilding(b);
+                        }}
+                        title="حذف المبنى"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -502,7 +646,7 @@ const handleAddClassroom = () => {
                   <Label>النوع *</Label>
                   <Select
                     value={classroomFormData.type}
-                    onValueChange={(value: "CLASSROOM" | "LAB") =>
+                    onValueChange={(value: "CLASSROOM" | "LAB" | "AUDITORIUM" | "LIBRARY" | "WORKSHOP") =>
                       setClassroomFormData({ ...classroomFormData, type: value })
                     }
                   >
@@ -512,6 +656,9 @@ const handleAddClassroom = () => {
                     <SelectContent>
                       <SelectItem value="CLASSROOM">قاعة</SelectItem>
                       <SelectItem value="LAB">معمل</SelectItem>
+                      <SelectItem value="AUDITORIUM">مدرج</SelectItem>
+                      <SelectItem value="LIBRARY">مكتبة</SelectItem>
+                      <SelectItem value="WORKSHOP">ورشة</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -598,7 +745,17 @@ const handleAddClassroom = () => {
               {classrooms.map((classroom) => (
                 <TableRow key={classroom.id}>
                   <TableCell className="font-medium">{classroom.name}</TableCell>
-                  <TableCell>{classroom.type === "CLASSROOM" ? "قاعة" : "معمل"}</TableCell>
+                  <TableCell>
+                    {classroom.type === "CLASSROOM"
+                      ? "قاعة"
+                      : classroom.type === "LAB"
+                      ? "معمل"
+                      : classroom.type === "AUDITORIUM"
+                      ? "مدرج"
+                      : classroom.type === "LIBRARY"
+                      ? "مكتبة"
+                      : "ورشة"}
+                  </TableCell>
                   <TableCell>{classroom.capacity}</TableCell>
                   <TableCell>{classroom.floor ?? 0}</TableCell>
                   <TableCell>
@@ -654,6 +811,42 @@ const handleAddClassroom = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Building Delete Dialog */}
+      <AlertDialog open={!!deletingBuilding} onOpenChange={(open) => !open && !isDeletingBuilding && setDeletingBuilding(null)}>
+        <AlertDialogContent dir="rtl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>تأكيد حذف المبنى</AlertDialogTitle>
+            <AlertDialogDescription>
+              هل أنت تأكد من رغبتك في حذف المبنى <strong className="text-foreground">"{deletingBuilding?.name}"</strong>؟
+              <br />
+              ملاحظة: يمنع النظام حذف المبنى إذا كان يحتوي على قاعات مرتبطة به لحماية البيانات.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-row-reverse justify-start gap-2">
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDeleteBuilding}
+              disabled={isDeletingBuilding}
+            >
+              {isDeletingBuilding ? "جاري الحذف..." : "نعم، احذف المبنى"}
+            </Button>
+            <AlertDialogCancel disabled={isDeletingBuilding}>إلغاء</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {/* Json Import Modal */}
+      <JsonImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSuccess={async () => {
+          await fetchBuildings();
+          if (selectedBuilding) {
+            await fetchClassrooms(selectedBuilding.id);
+          }
+        }}
+        collegeId={collegeId}
+      />
     </div>
   );
 }
