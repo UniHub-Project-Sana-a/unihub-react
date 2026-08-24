@@ -37,6 +37,8 @@ import RequireRole from "@/auth/RequireRole";
 import ChangePasswordPage from '@/components/auth/ChangePasswordPage';
 import RequirePermission from "@/auth/RequirePermission";
 import UniversityComprehensiveReport from "@/components/reports/UniversityComprehensiveReport";
+import CourseSpecificationPrintPage from "@/pages/print/CourseSpecificationPrintPage";
+import ForceLogout from "@/auth/ForceLogout";
 
 const queryClient = new QueryClient();
 
@@ -60,12 +62,16 @@ const App = () => (
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/change-password" element={<ChangePasswordPage />} />
               <Route path="/install-cert" element={<CertInstructionPage />} />
+              {/* <Route path="/logout" element={<ForceLogout />} /> */}
               
               {/* صفحة "غير مصرح لك" يجب أن تكون متاحة للجميع لتجنب الحلقات المفرغة */}
               <Route path="/unauthorized" element={<UnauthorizedPage />} />
   
               {/* 2. المسارات المحمية (تتطلب تسجيل دخول أولاً) */}
               <Route element={<RequireAuth />}>
+
+                {/* صفحة طباعة توصيف المقرر - متاحة لأي مستخدم مسجل دخول */}
+                <Route path="/print/course-specification" element={<CourseSpecificationPrintPage />} />
   
                 {/* 🔒 أ) منطقة المشرف العام فقط (رئاسة الجامعة) */}
                 <Route element={<RequireRole allowedRoles={['presidency' , 'admin']} />}>

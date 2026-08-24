@@ -71,14 +71,16 @@ interface CourseInfoData {
   
   // أجزاء المقرر
   course_parts?: Array<{
-    id: number;
+    id?: number;
     name: string;
-    theoretical_hours: number;
-    practical_hours: number;
-    exercise_hours: number;
-    seminar_hours: number;
-    clinical_hours: number;
-    total_hours: number;
+    actual_hours?: number;
+    rate?: number;
+    theoretical_hours?: number;
+    practical_hours?: number;
+    exercise_hours?: number;
+    seminar_hours?: number;
+    clinical_hours?: number;
+    total_hours?: number;
   }>;
   
   // المتطلبات
@@ -156,7 +158,9 @@ interface CourseTopic {
 
 interface TopicQuestion {
   question_id: number;
-  topic_id: number;
+  topic_id: number | null;
+  course_id?: number;
+  part?: string;
   subtopic: string;
   question_text: string;
   question_type: "MCQ" | "essay";
@@ -177,6 +181,7 @@ interface CourseAssignment {
   clo_ids: string[];
   assignment_type: "homework" | "project" | "presentation" | "quiz" | "other";
   is_mandatory: boolean;
+  notes?: string;
 }
 
 interface CourseAssessment {
@@ -207,13 +212,15 @@ interface AssessmentMethod {
 interface CourseReference {
   reference_id: number;
   type: "main" | "support" | "electronic";
+  category?: "website" | "journal" | "other";
   author?: string;
-  year?: string;
+  year?: string | number;
   title: string;
   edition?: string;
   publisher?: string;
   country?: string;
   url?: string;
+  order?: number;
 }
 
 interface CoursePolicy {
@@ -246,6 +253,7 @@ export default function CourseQualityDialog({
   const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set(["info"]));
   const [courseInfo, setCourseInfo] = useState<CourseInfoData | null>(null);
   const [courseInfoLoading, setCourseInfoLoading] = useState(false);
+  const [printPreparing, setPrintPreparing] = useState(false);
 
   // ============ STATE - برنامج مخرجات التعلم ============
   const [programOutcomes, setProgramOutcomes] = useState<ProgramLearningOutcome[]>([]);
@@ -274,7 +282,10 @@ export default function CourseQualityDialog({
   const [questions, setQuestions] = useState<TopicQuestion[]>([]);
   const [isAddingQuestion, setIsAddingQuestion] = useState(false);
   const [selectedTopicForQuestion, setSelectedTopicForQuestion] = useState<number | null>(null);
+  const [questionBankPart, setQuestionBankPart] = useState<string | null>(null);
+  const [isQuestionBankOpen, setIsQuestionBankOpen] = useState(false);
   const [questionFormData, setQuestionFormData] = useState<Partial<TopicQuestion>>({});
+  const [editingQuestionId, setEditingQuestionId] = useState<number | null>(null);
 
   // ============ STATE - التكليفات والأنشطة ============
   const [assignments, setAssignments] = useState<CourseAssignment[]>([]);
@@ -284,9 +295,6 @@ export default function CourseQualityDialog({
 
   // ============ STATE - التقييمات ============
   const [assessments, setAssessments] = useState<CourseAssessment[]>([]);
-  const [isAddingAssessment, setIsAddingAssessment] = useState(false);
-  const [assessmentFormData, setAssessmentFormData] = useState<Partial<CourseAssessment>>({});
-  const [editingAssessmentId, setEditingAssessmentId] = useState<number | null>(null);
 
   // ============ STATE - استراتيجيات التدريس والتقييم ============
   const [teachingStrategies, setTeachingStrategies] = useState<TeachingStrategy[]>([]);
@@ -376,22 +384,83 @@ export default function CourseQualityDialog({
   };
 
   // ============ HELPER FUNCTIONS ============
-  const getCourseParts = () => {
-    // الحصول على أجزاء المقرر من قاعدة البيانات
-    // هذا سيتم تعديله حسب طريقة تخزين البيانات
-    const parts = new Set<string>();
-    topics.forEach(t => {
-      if (t.hours > 0 || t.is_exam) {
-        parts.add(t.part);
+  const getCoursePartRecords = (): any[] => {
+    const value = courseInfo?.course_parts;
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
       }
-    });
-    return Array.from(parts);
+    }
+    return [];
+  };
+
+  const getCoursePartName = (part: any): string =>
+    safeString(part?.name ?? part?.part ?? part?.type);
+
+  const getCourseParts = () => {
+    return ["نظري", "عملي", "تمارين", "سريري"];
+  };
+
+  const getConfiguredCourseParts = () =>
+    ["نظري", "عملي", "تمارين", "سريري"].filter(part => hasConfiguredPart(part));
+
+  const getPartWeeks = (part: string): number => part === "نظري" ? 16 : 15;
+
+  const getPartActualHours = (part: string): number => {
+    const coursePart = getCoursePartRecords().find((item: any) => getCoursePartName(item) === part);
+    if (!coursePart) return 0;
+    return safeNumber(coursePart.actual_hours ?? coursePart.total_hours, 0);
+  };
+
+  const getPartDisplayHours = (part: string): number => {
+    const actualHours = getPartActualHours(part);
+    if (part === "عملي" || part === "تمارين") return actualHours / 2;
+    if (part === "سريري") return actualHours / 3;
+    return actualHours;
+  };
+
+  const hasConfiguredPart = (part: string): boolean =>
+    getCoursePartRecords().some((item: any) => getCoursePartName(item) === part);
+
+  const getContentRows = (part: string): CourseTopic[] => {
+    if (!hasConfiguredPart(part)) return [];
+
+    const weekLimit = getPartWeeks(part);
+    const existingTopics = getTopicsByPart(part);
+    const rows: CourseTopic[] = [];
+
+    for (let week = 1; week <= weekLimit; week += 1) {
+      const weekTopics = existingTopics.filter(topic => topic.week === week);
+      if (weekTopics.length > 0) {
+        rows.push(...weekTopics);
+        continue;
+      }
+
+      const isMidterm = week === 8;
+      const isFinal = week === weekLimit;
+      rows.push({
+        topic_id: -(part.charCodeAt(0) + week),
+        part,
+        week,
+        unit_name: isMidterm ? "اختبار منتصف الفصل" : isFinal ? "الاختبار النهائي" : "",
+        subtopics: [],
+        outcome_ids: [],
+        hours: getPartDisplayHours(part),
+        is_exam: isMidterm || isFinal,
+        exam_type: isMidterm ? "midterm" : isFinal ? "final" : undefined,
+      });
+    }
+    return rows;
   };
 
   // ✅ حماية من القيم الفارغة
   const getTotalOutcomeWeight = (): number => {
     return courseOutcomes.reduce((sum, o) => {
-      return sum + safeWeight(o.weight); // ✅ استخدام الدالة الجديدة
+      return sum + safeWeight(o.weight);
     }, 0);
   };
 
@@ -427,7 +496,200 @@ export default function CourseQualityDialog({
   };
 
   const getTotalAssessmentPercentage = () => {
-    return assessments.reduce((sum, a) => sum + (a.percentage || 0), 0);
+    return getAssessmentRows().reduce((sum, a) => sum + (Number(a.percentage) || 0), 0);
+  };
+
+  const getTotalAssessmentGrade = () => {
+    return getAssessmentRows().reduce((sum, assessment) => sum + (Number(assessment.grade) || 0), 0);
+  };
+
+  const fixedAssessmentRows: CourseAssessment[] = [
+    { assessment_id: -1, name: "الأنشطة والتكليفات", grade: 0, weight: 0, percentage: 0, clo_ids: [], assessment_type: "activities" },
+    { assessment_id: -2, name: "اختبارات قصيرة", grade: 0, weight: 0, percentage: 0, clo_ids: [], assessment_type: "quizzes" },
+    { assessment_id: -3, name: "اختبار منتصف الترم", grade: 0, weight: 0, percentage: 0, clo_ids: [], assessment_type: "midterm_exam" },
+    { assessment_id: -4, name: "اختبار منتصف الترم العملي", grade: 0, weight: 0, percentage: 0, clo_ids: [], assessment_type: "practical_exam" },
+    { assessment_id: -5, name: "الاختبار العملي النهائي بما في ذلك عرض المشروع وتقييمه", grade: 0, weight: 0, percentage: 0, clo_ids: [], assessment_type: "practical_exam" },
+    { assessment_id: -6, name: "الاختبار النهائي", grade: 0, weight: 0, percentage: 0, clo_ids: [], assessment_type: "final_exam" },
+  ];
+
+  /**
+   * تجميع كل بيانات توصيف المقرر (بكل تبويباته) من الـ API لأجل صفحة الطباعة المخصصة
+   */
+  const buildPrintPayload = async () => {
+    if (!course?.id || !courseInfo) return null;
+
+    let descriptionPayload = { description: descriptionText, goals: courseGoals };
+    try {
+      const descRes = await api.get(`/v1/courses/${course.id}/description`);
+      if (descRes.data?.success && descRes.data?.description) {
+        const desc = descRes.data.description;
+        descriptionPayload = {
+          description: typeof desc.description === 'string' ? desc.description : '',
+          goals: Array.isArray(desc.goals) ? desc.goals : [],
+        };
+      }
+    } catch { /* استخدم القيم الحالية */ }
+
+    let plosData: any[] = [];
+    if (courseInfo.program?.id) {
+      try {
+        const res = await api.get(`/v1/program-learning-outcomes/${courseInfo.program.id}`);
+        plosData = safeArray(res.data?.data || res.data).map((plo: any) => ({
+          plo_id: safeNumber(plo.plo_id),
+          code: safeString(plo.code),
+          domain: safeDomain(plo.domain),
+          description: safeString(plo.description),
+          weight: safeWeight(plo.weight),
+          order: safeNumber(plo.order, 0),
+          is_active: Boolean(plo.is_active),
+        }));
+      } catch { /* تجاهل */ }
+    }
+
+    let closData: any[] = [];
+    try {
+      const res = await api.get(`/v1/courses/${course.id}/learning-outcomes`);
+      closData = safeArray(res.data?.data || res.data).map(normalizeCourseOutcome);
+    } catch { /* تجاهل */ }
+
+    let strategiesData: any[] = [];
+    let methodsData: any[] = [];
+    let mappingsData: any[] = [];
+    try {
+      const stratRes = await api.get(`/v1/teaching-strategies`, { params: { program_id: courseInfo.program?.id } });
+      strategiesData = safeArray(stratRes.data?.data || stratRes.data?.strategies || stratRes.data).map((s: any) => ({
+        id: safeNumber(s.id), name: safeString(s.name), category: safeString(s.category), is_active: Boolean(s.is_active)
+      }));
+    } catch { /* تجاهل */ }
+    try {
+      const methodsRes = await api.get(`/v1/assessment-methods`, { params: { program_id: courseInfo.program?.id } });
+      methodsData = safeArray(methodsRes.data?.data || methodsRes.data?.methods || methodsRes.data).map((m: any) => ({
+        id: safeNumber(m.id), name: safeString(m.name), category: safeString(m.category), is_active: Boolean(m.is_active)
+      }));
+    } catch { /* تجاهل */ }
+    try {
+      const mapRes = await api.get(`/v1/courses/${course.id}/outcome-mappings`);
+      mappingsData = safeArray(mapRes.data?.data || mapRes.data).map((mapping: any) => ({
+        clo_id: safeString(mapping.clo_id),
+        teaching_strategies: safeArray(mapping.teaching_strategies).map((id: any) => safeNumber(id)),
+        assessment_methods: safeArray(mapping.assessment_methods).map((id: any) => safeNumber(id)),
+      }));
+    } catch { /* تجاهل */ }
+
+    let topicsData: any[] = [];
+    try {
+      const topicsRes = await api.get(`/v1/courses/${course.id}/topics`);
+      const rawTopics = safeArray(topicsRes.data?.topics || topicsRes.data?.data || topicsRes.data);
+      topicsData = rawTopics.map((topic: any) => ({
+        topic_id: safeNumber(topic.topic_id),
+        part: safeString(topic.part, "نظري"),
+        week: safeNumber(topic.week),
+        unit_name: safeString(topic.unit_name),
+        subtopics: safeArray(topic.subtopics).map((s: any) => safeString(s)),
+        outcome_ids: safeArray(topic.outcome_ids || topic.clo_ids).map((id: any) => safeString(id)),
+        hours: safeNumber(topic.hours),
+        is_exam: Boolean(topic.is_exam),
+        exam_type: safeExamType(topic.exam_type),
+      }));
+    } catch { /* تجاهل */ }
+
+    let assignmentsData: any[] = [];
+    try {
+      const res = await api.get(`/v1/courses/${course.id}/assignments`);
+      assignmentsData = safeArray(res.data?.assignments || res.data?.data || res.data).map(normalizeAssignment);
+    } catch { /* تجاهل */ }
+
+    let assessmentsData: any[] = [];
+    try {
+      const res = await api.get(`/v1/courses/${course.id}/assessments`);
+      assessmentsData = safeArray(res.data?.assessments || res.data?.data || res.data).map((a: any) => ({
+        assessment_id: safeNumber(a.assessment_id),
+        name: safeString(a.name),
+        week: safeNumber(a.week),
+        grade: safeNumber(a.grade),
+        weight: safeNumber(a.weight),
+        percentage: safeNumber(a.percentage),
+        clo_ids: safeArray(a.clo_ids).map((id: any) => safeString(id)),
+        assessment_type: safeAssessmentType(a.assessment_type),
+      }));
+    } catch { /* تجاهل */ }
+
+    let referencesData: any[] = [];
+    try {
+      const res = await api.get(`/v1/courses/${course.id}/references`);
+      const referenceGroups = res.data?.references;
+      const rawRefs = Array.isArray(referenceGroups)
+        ? referenceGroups
+        : referenceGroups && typeof referenceGroups === "object"
+          ? Object.values(referenceGroups).flatMap((group) => safeArray(group))
+          : safeArray(res.data?.data || res.data);
+      referencesData = rawRefs.map((r: any) => ({
+        reference_id: safeNumber(r.reference_id),
+        type: safeReferenceType(r.type),
+        category: r.category === "website" || r.category === "journal" || r.category === "other" ? r.category : undefined,
+        author: safeString(r.author),
+        year: safeString(r.year),
+        title: safeString(r.title),
+        edition: safeString(r.edition),
+        publisher: safeString(r.publisher),
+        country: safeString(r.country),
+        url: safeString(r.url),
+        order: safeNumber(r.order),
+      }));
+    } catch { /* تجاهل */ }
+
+    let policiesData: any[] = [];
+    try {
+      const res = await api.get(`/v1/courses/${course.id}/policies`);
+      const merged = [...(res.data?.fixed_policies || []), ...(res.data?.additional_policies || [])];
+      const rawPolicies = merged.length > 0 ? merged : (res.data?.data || res.data);
+      policiesData = safeArray(rawPolicies).map((p: any) => ({
+        policy_id: safeNumber(p.policy_id),
+        policy_number: safeNumber(p.policy_number),
+        title: safeString(p.title),
+        content: safeString(p.content),
+        is_fixed: Boolean(p.is_fixed),
+      }));
+    } catch { /* تجاهل */ }
+
+    return {
+      courseInfo,
+      description: descriptionPayload,
+      courseOutcomes: closData,
+      programOutcomes: plosData,
+      teachingStrategies: strategiesData,
+      assessmentMethods: methodsData,
+      outcomeMappings: mappingsData,
+      topics: topicsData,
+      assignments: assignmentsData,
+      assessments: assessmentsData,
+      references: referencesData,
+      policies: policiesData,
+      generatedAt: new Date().toISOString(),
+    };
+  };
+
+  const handlePrintSpecification = async () => {
+    if (!course?.id || !courseInfo) {
+      toast({ title: "خطأ", description: "لا يمكن الطباعة قبل تحميل بيانات المقرر", variant: "destructive" });
+      return;
+    }
+
+    setPrintPreparing(true);
+    try {
+      const payload = await buildPrintPayload();
+      if (!payload) {
+        toast({ title: "خطأ", description: "تعذر تجهيز بيانات الطباعة", variant: "destructive" });
+        return;
+      }
+      sessionStorage.setItem("course_specification_print_data", JSON.stringify(payload));
+      window.open(`${window.location.origin}${window.location.pathname}#/print/course-specification`, "_blank");
+    } catch (error) {
+      console.error("Failed to prepare print data:", error);
+      toast({ title: "خطأ", description: "فشل تجهيز بيانات الطباعة", variant: "destructive" });
+    } finally {
+      setPrintPreparing(false);
+    }
   };
 
   const getTopicsByPart = (part: string) => {
@@ -439,7 +701,7 @@ export default function CourseQualityDialog({
   };
 
   const getTopicWeekCount = (part: string) => {
-    return getTopicsByPart(part).filter(t => !t.is_exam).length;
+    return getPartWeeks(part);
   };
 
   const getAssignmentsByPart = (part: string) => {
@@ -500,8 +762,7 @@ export default function CourseQualityDialog({
   
       // حالة افتراضية
       return defaultValue;
-    } catch (error) {
-      console.warn('Error in safeString:', error, 'value:', value);
+    } catch {
       return defaultValue;
     }
   };
@@ -515,8 +776,7 @@ export default function CourseQualityDialog({
       
       const num = Number(value);
       return isNaN(num) ? defaultValue : num;
-    } catch (error) {
-      console.warn('Error in safeNumber:', error);
+    } catch {
       return defaultValue;
     }
   };
@@ -538,8 +798,7 @@ export default function CourseQualityDialog({
       }
       
       return undefined;
-    } catch (error) {
-      console.warn('Error in safeExamType:', error);
+    } catch {
       return undefined;
     }
   };
@@ -556,8 +815,7 @@ export default function CourseQualityDialog({
       }
       
       return "essay";
-    } catch (error) {
-      console.warn('Error in safeQuestionType:', error);
+    } catch {
       return "essay";
     }
   };
@@ -582,11 +840,23 @@ export default function CourseQualityDialog({
       }
       
       return "other";
-    } catch (error) {
-      console.warn('Error in safeAssignmentType:', error);
+    } catch {
       return "other";
     }
   };
+
+  const normalizeAssignment = (assignment: any): CourseAssignment => ({
+    assignment_id: safeNumber(assignment.assignment_id),
+    part: safeString(assignment.part),
+    title: safeString(assignment.title),
+    description: safeString(assignment.description),
+    week: safeNumber(assignment.week),
+    grade: safeNumber(assignment.grade),
+    clo_ids: safeArray(assignment.clo_ids).map((id: any) => safeString(id)),
+    assignment_type: safeAssignmentType(assignment.assignment_type),
+    is_mandatory: Boolean(assignment.is_mandatory),
+    notes: safeString(assignment.notes),
+  });
   
   /**
    * معالجة آمنة لـ assessment_type
@@ -611,8 +881,7 @@ export default function CourseQualityDialog({
       }
       
       return "other";
-    } catch (error) {
-      console.warn('Error in safeAssessmentType:', error);
+    } catch {
       return "other";
     }
   };
@@ -629,8 +898,7 @@ export default function CourseQualityDialog({
       if (str === "electronic" || str === "إلكتروني") return "electronic";
       
       return "main";
-    } catch (error) {
-      console.warn('Error in safeReferenceType:', error);
+    } catch {
       return "main";
     }
   };
@@ -648,8 +916,7 @@ export default function CourseQualityDialog({
       if (str === "general" || str === "المهارات العامة") return "General";
       
       return "Knowledge";
-    } catch (error) {
-      console.warn('Error in safeDomain:', error);
+    } catch {
       return "Knowledge";
     }
   };
@@ -660,6 +927,43 @@ export default function CourseQualityDialog({
     const num = parseFloat(value);
     return isNaN(num) ? 0 : num;
   };
+
+  const normalizeCourseOutcome = (outcome: any): CourseLearningOutcome => ({
+    clo_id: safeNumber(outcome.clo_id ?? outcome.id),
+    code: safeString(outcome.code),
+    domain: safeDomain(outcome.domain),
+    description: safeString(outcome.description),
+    weight: safeWeight(outcome.weight),
+    plo_id: safeNumber(outcome.plo_id) || undefined,
+    plo_weight: safeWeight(outcome.plo_weight),
+    order: safeNumber(outcome.order, 0),
+    is_active: Boolean(outcome.is_active),
+  });
+
+  const splitSentences = (text: string): string[] =>
+    text.trim().split(/(?<=[.!؟])\s+/).filter(Boolean);
+
+  const descriptionPrefixes = [
+    "يهدف هذا المقرر إلى",
+    "ويغطي هذا المقرر",
+    "ويركز هذا المقرر على",
+    "ويعتمد هذا المقرر",
+  ];
+
+  const validateDescriptionFormat = (text: string): string | null => {
+    const sentences = splitSentences(text);
+    if (sentences.length !== 4) return "يجب أن يتكون الوصف من أربع جمل فقط.";
+
+    const hasRequiredPrefixes = descriptionPrefixes.every((prefix, index) =>
+      sentences[index].startsWith(prefix)
+    );
+    if (!hasRequiredPrefixes) {
+      return "يجب أن تبدأ الجمل بالترتيب: يهدف هذا المقرر إلى، ويغطي هذا المقرر، ويركز هذا المقرر على، ويعتمد هذا المقرر.";
+    }
+    return null;
+  };
+
+  const countGoalWords = (goal: string): number => countWords(goal);
   /**
    * معالج أخطاء عام
    */
@@ -682,8 +986,27 @@ export default function CourseQualityDialog({
   // ============ EFFECTS - تحميل البيانات ============
   useEffect(() => {
     if (isOpen && course?.id) {
-      // ✅ استدعاء الدالة الجديدة
-      console.log("Loading description for course:", course.id);
+      setCourseInfo(null);
+      setLoadedTabs(new Set(["info"]));
+      setActiveTab("info");
+      setActivePart("نظري");
+      setTopics([]);
+      setQuestions([]);
+      setCourseOutcomes([]);
+      setProgramOutcomes([]);
+      setOutcomeMappings([]);
+      setTeachingStrategies([]);
+      setAssessmentMethods([]);
+      setAssignments([]);
+      setAssessments([]);
+      setReferences([]);
+      setPolicies([]);
+      setIsAddingTopic(false);
+      setIsAddingQuestion(false);
+      setIsQuestionBankOpen(false);
+      setSelectedTopicForQuestion(null);
+      setQuestionBankPart(null);
+      setEditingQuestionId(null);
       loadFullCourseData();
       loadCourseDescription();
     }
@@ -692,7 +1015,6 @@ export default function CourseQualityDialog({
   useEffect(() => {
     if (!isOpen) {
       // تنظيف عند الإغلاق
-      console.log("Closing dialog - cleaning up");
       setDescriptionText("");
       setCourseGoals([]);
       setNewGoal("");
@@ -705,30 +1027,23 @@ export default function CourseQualityDialog({
 
   useEffect(() => {
     if (descriptionText && typeof descriptionText !== 'string') {
-      console.warn("Invalid descriptionText type:", typeof descriptionText);
       setDescriptionText('');
     }
   }, [descriptionText]);
   
   useEffect(() => {
     if (courseGoals && !Array.isArray(courseGoals)) {
-      console.warn("Invalid courseGoals type:", typeof courseGoals);
       setCourseGoals([]);
     }
   }, [courseGoals]);
 
   useEffect(() => {
-    console.log("Description text updated:", descriptionText);
-    console.log("Course goals updated:", courseGoals);
   }, [descriptionText, courseGoals]);
 
   useEffect(() => {
-    console.log("activeTab changed to:", activeTab);
   }, [activeTab]);
   
   useEffect(() => {
-    console.log("descriptionText type:", typeof descriptionText);
-    console.log("descriptionText value:", descriptionText);
   }, [descriptionText]);
 
 
@@ -764,16 +1079,11 @@ export default function CourseQualityDialog({
    */
   const loadCourseDescription = async () => {
     if (!course?.id) {
-      console.log("No course ID");
       return;
     }
     
     try {
-      console.log("Fetching description for course:", course.id);
-      
       const response = await api.get(`/v1/courses/${course.id}/description`);
-      
-      console.log("API Response:", response.data);
       
       // ✅ تأكد 100% أنك تأخذ string و array فقط
       if (response.data?.success && response.data?.description) {
@@ -787,13 +1097,9 @@ export default function CourseQualityDialog({
         // ✅ خذ الأهداف - تأكد أنها array
         const goalsValue = Array.isArray(desc.goals) ? desc.goals : [];
         
-        console.log("Setting description:", descriptionValue);
-        console.log("Setting goals:", goalsValue);
-        
         setDescriptionText(descriptionValue);
         setCourseGoals(goalsValue);
       } else {
-        console.log("No description found");
         setDescriptionText("");
         setCourseGoals([]);
       }
@@ -818,7 +1124,6 @@ export default function CourseQualityDialog({
    */
   const loadProgramOutcomes = async () => {
     if (!courseInfo?.program?.id) {
-      console.warn("No program ID available");
       return;
     }
   
@@ -854,21 +1159,11 @@ export default function CourseQualityDialog({
   
       // ✅ ثم جلب مخرجات المقرر
       const closRes = await api.get(`/v1/courses/${courseInfo.id}/learning-outcomes`);
-      const closData = safeArray(closRes.data?.data || closRes.data).map((clo: any) => ({
-        clo_id: safeNumber(clo.clo_id),
-        code: safeString(clo.code),
-        domain: safeDomain(clo.domain),
-        description: safeString(clo.description),
-        weight: safeNumber(clo.weight, 0), // ✅ تأكد من أنه رقم
-        plo_id: safeNumber(clo.plo_id) || undefined,
-        plo_weight: safeNumber(clo.plo_weight, 0),
-        order: safeNumber(clo.order, 0),
-        is_active: Boolean(clo.is_active)
-      })) as CourseLearningOutcome[];
+      const closData = safeArray(closRes.data?.data || closRes.data)
+        .map(normalizeCourseOutcome);
       
       setCourseOutcomes(closData);
       setLoadedTabs(new Set(loadedTabs).add("outcomes"));
-      console.log("Course outcomes loaded:", closData.length);
     } catch (error) {
       console.error("Failed to load outcomes:", error);
       toast({
@@ -890,8 +1185,8 @@ export default function CourseQualityDialog({
     
     try {
       // جلب الاستراتيجيات
-      const strategiesRes = await api.get(`/v1/teaching-strategies`);
-      const strategiesData = safeArray(strategiesRes.data).map((s: any) => ({
+      const strategiesRes = await api.get(`/v1/teaching-strategies`, { params: { program_id: courseInfo?.program?.id } });
+      const strategiesData = safeArray(strategiesRes.data?.data || strategiesRes.data?.strategies || strategiesRes.data).map((s: any) => ({
         id: safeNumber(s.id),
         name: safeString(s.name),
         category: safeString(s.category),
@@ -900,18 +1195,25 @@ export default function CourseQualityDialog({
       setTeachingStrategies(strategiesData);
   
       // جلب طرق التقييم
-      const methodsRes = await api.get(`/v1/assessment-methods`);
-      const methodsData = safeArray(methodsRes.data).map((m: any) => ({
+      const methodsRes = await api.get(`/v1/assessment-methods`, { params: { program_id: courseInfo?.program?.id } });
+      const methodsData = safeArray(methodsRes.data?.data || methodsRes.data?.methods || methodsRes.data).map((m: any) => ({
         id: safeNumber(m.id),
         name: safeString(m.name),
         category: safeString(m.category),
         is_active: Boolean(m.is_active)
       })) as AssessmentMethod[];
       setAssessmentMethods(methodsData);
+
+      const mappingsRes = await api.get(`/v1/courses/${course.id}/outcome-mappings`);
+      setOutcomeMappings(safeArray(mappingsRes.data?.data || mappingsRes.data).map((mapping: any) => ({
+        clo_id: safeString(mapping.clo_id),
+        teaching_strategies: safeArray(mapping.teaching_strategies).map((id: any) => safeNumber(id)),
+        assessment_methods: safeArray(mapping.assessment_methods).map((id: any) => safeNumber(id)),
+      })));
   
       setLoadedTabs(new Set(loadedTabs).add("strategies"));
     } catch (error) {
-      console.warn("Failed to load strategies:", error);
+      console.error("Failed to load strategies:", error);
       toast({
         title: "خطأ",
         description: "فشل تحميل الاستراتيجيات",
@@ -932,7 +1234,7 @@ export default function CourseQualityDialog({
     try {
       // جلب المواضيع
       const topicsRes = await api.get(`/v1/courses/${course.id}/topics`);
-      const topicsData = safeArray(topicsRes.data);
+      const topicsData = safeArray(topicsRes.data?.topics || topicsRes.data?.data || topicsRes.data);
       
       const processedTopics: CourseTopic[] = topicsData.map((topic: any) => ({
         topic_id: safeNumber(topic.topic_id),
@@ -940,7 +1242,7 @@ export default function CourseQualityDialog({
         week: safeNumber(topic.week),
         unit_name: safeString(topic.unit_name),
         subtopics: safeArray(topic.subtopics).map((s: any) => safeString(s)),
-        outcome_ids: safeArray(topic.outcome_ids).map((id: any) => safeString(id)),
+        outcome_ids: safeArray(topic.outcome_ids || topic.clo_ids).map((id: any) => safeString(id)),
         hours: safeNumber(topic.hours),
         is_exam: Boolean(topic.is_exam),
         exam_type: safeExamType(topic.exam_type)
@@ -958,7 +1260,7 @@ export default function CourseQualityDialog({
       for (const topic of topicsData) {
         try {
           const questionsRes = await api.get(`/v1/topics/${topic.topic_id}/questions`);
-          const questionsData = safeArray(questionsRes.data);
+          const questionsData = safeArray(questionsRes.data?.questions || questionsRes.data?.data || questionsRes.data);
           
           const processedQuestions: TopicQuestion[] = questionsData.map((q: any) => ({
             question_id: safeNumber(q.question_id),
@@ -979,14 +1281,14 @@ export default function CourseQualityDialog({
           
           allQuestions.push(...processedQuestions);
         } catch (error) {
-          console.warn(`Failed to load questions for topic ${topic.topic_id}:`, error);
+          console.error(`Failed to load questions for topic ${topic.topic_id}:`, error);
         }
       }
       setQuestions(allQuestions);
   
       setLoadedTabs(new Set(loadedTabs).add("content"));
     } catch (error) {
-      console.warn("Failed to load content:", error);
+      console.error("Failed to load content:", error);
       toast({
         title: "خطأ",
         description: "فشل تحميل المحتوى",
@@ -1000,32 +1302,25 @@ export default function CourseQualityDialog({
   /**
    * جلب الأنشطة والتقييمات
    */
+  const loadAssignments = async () => {
+    if (!course?.id) return;
+
+    const response = await api.get(`/v1/courses/${course.id}/assignments`);
+    const data = safeArray(response.data?.assignments || response.data?.data || response.data);
+    setAssignments(data.map(normalizeAssignment));
+  };
+
   const loadActivities = async () => {
     if (!course || loadedTabs.has("activities")) return;
     setLoading(true);
     
     try {
       // جلب التكليفات
-      const assignmentsRes = await api.get(`/v1/courses/${course.id}/assignments`);
-      const assignmentsData = safeArray(assignmentsRes.data);
-      
-      const processedAssignments: CourseAssignment[] = assignmentsData.map((a: any) => ({
-        assignment_id: safeNumber(a.assignment_id),
-        part: safeString(a.part),
-        title: safeString(a.title),
-        description: safeString(a.description),
-        week: safeNumber(a.week),
-        grade: safeNumber(a.grade),
-        clo_ids: safeArray(a.clo_ids).map((id: any) => safeString(id)),
-        assignment_type: safeAssignmentType(a.assignment_type),
-        is_mandatory: Boolean(a.is_mandatory)
-      }));
-      
-      setAssignments(processedAssignments);
+      await loadAssignments();
   
       // جلب التقييمات
       const assessmentsRes = await api.get(`/v1/courses/${course.id}/assessments`);
-      const assessmentsData = safeArray(assessmentsRes.data);
+      const assessmentsData = safeArray(assessmentsRes.data?.assessments || assessmentsRes.data?.data || assessmentsRes.data);
       
       const processedAssessments: CourseAssessment[] = assessmentsData.map((a: any) => ({
         assessment_id: safeNumber(a.assessment_id),
@@ -1042,7 +1337,7 @@ export default function CourseQualityDialog({
   
       setLoadedTabs(new Set(loadedTabs).add("activities"));
     } catch (error) {
-      console.warn("Failed to load activities:", error);
+      console.error("Failed to load activities:", error);
       toast({
         title: "خطأ",
         description: "فشل تحميل الأنشطة",
@@ -1062,24 +1357,31 @@ export default function CourseQualityDialog({
     
     try {
       const referencesRes = await api.get(`/v1/courses/${course.id}/references`);
-      const referencesData = safeArray(referencesRes.data);
+      const referenceGroups = referencesRes.data?.references;
+      const referencesData = Array.isArray(referenceGroups)
+        ? referenceGroups
+        : referenceGroups && typeof referenceGroups === "object"
+          ? Object.values(referenceGroups).flatMap(group => safeArray(group))
+          : safeArray(referencesRes.data?.data || referencesRes.data);
       
       const processedReferences: CourseReference[] = referencesData.map((r: any) => ({
         reference_id: safeNumber(r.reference_id),
         type: safeReferenceType(r.type),
+        category: r.category === "website" || r.category === "journal" || r.category === "other" ? r.category : undefined,
         author: safeString(r.author),
         year: safeString(r.year),
         title: safeString(r.title),
         edition: safeString(r.edition),
         publisher: safeString(r.publisher),
         country: safeString(r.country),
-        url: safeString(r.url)
+        url: safeString(r.url),
+        order: safeNumber(r.order)
       }));
       
       setReferences(processedReferences);
       setLoadedTabs(new Set(loadedTabs).add("resources"));
     } catch (error) {
-      console.warn("Failed to load resources:", error);
+      console.error("Failed to load resources:", error);
       toast({
         title: "خطأ",
         description: "فشل تحميل المصادر",
@@ -1099,7 +1401,9 @@ export default function CourseQualityDialog({
     
     try {
       const policiesRes = await api.get(`/v1/courses/${course.id}/policies`);
-      const policiesData = safeArray(policiesRes.data);
+      const policiesData = safeArray([...(policiesRes.data?.fixed_policies || []), ...(policiesRes.data?.additional_policies || [])].length > 0
+        ? [...(policiesRes.data?.fixed_policies || []), ...(policiesRes.data?.additional_policies || [])]
+        : (policiesRes.data?.data || policiesRes.data));
       
       const processedPolicies: CoursePolicy[] = policiesData.map((p: any) => ({
         policy_id: safeNumber(p.policy_id),
@@ -1112,7 +1416,7 @@ export default function CourseQualityDialog({
       setPolicies(processedPolicies);
       setLoadedTabs(new Set(loadedTabs).add("policies"));
     } catch (error) {
-      console.warn("Failed to load policies:", error);
+      console.error("Failed to load policies:", error);
       toast({
         title: "خطأ",
         description: "فشل تحميل الضوابط",
@@ -1129,6 +1433,12 @@ export default function CourseQualityDialog({
     if (!course) return;
 
     const wordCount = countWords(descriptionText);
+    const formatError = validateDescriptionFormat(descriptionText);
+
+    if (formatError) {
+      toast({ title: "خطأ في صياغة الوصف", description: formatError, variant: "destructive" });
+      return;
+    }
     
     if (wordCount < 80 || wordCount > 100) {
       toast({
@@ -1170,6 +1480,15 @@ export default function CourseQualityDialog({
       return;
     }
 
+    if (countGoalWords(newGoal) < 4) {
+      toast({
+        title: "خطأ في صياغة الهدف",
+        description: "يجب أن يتكون كل هدف من أربع كلمات على الأقل.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     if (courseGoals.length >= 6) {
       toast({
         title: "خطأ",
@@ -1197,6 +1516,15 @@ export default function CourseQualityDialog({
       toast({
         title: "خطأ في الأهداف",
         description: `عدد الأهداف يجب أن يكون 4-6 (الحالي: ${goals.length})`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (goals.some(goal => countGoalWords(goal) < 4)) {
+      toast({
+        title: "خطأ في الأهداف",
+        description: "يجب أن يتكون كل هدف من أربع كلمات على الأقل.",
         variant: "destructive"
       });
       return;
@@ -1230,7 +1558,6 @@ export default function CourseQualityDialog({
   const handleUpdateGoal = (index: number, value: string) => {
     // ✅ تأكد أن القيمة string
     if (typeof value !== 'string') {
-      console.warn("Invalid goal value type:", typeof value);
       return;
     }
   
@@ -1240,8 +1567,6 @@ export default function CourseQualityDialog({
   };
   
   const handleDeleteGoal = (index: number) => {
-    console.log("Delete button clicked for index:", index);
-    
     if (courseGoals.length <= 4) {
       toast({
         title: "خطأ",
@@ -1252,14 +1577,11 @@ export default function CourseQualityDialog({
     }
   
     // ✅ افتح Dialog التأكيد
-    console.log("Opening delete confirmation for index:", index);
     setDeleteConfirm(index);
   };
   
   const confirmDelete = async (index: number) => {
     if (!course) return;
-  
-    console.log("Confirming delete for index:", index);
   
     setSaving(true);
     try {
@@ -1297,6 +1619,16 @@ export default function CourseQualityDialog({
   };
 
   const handleSaveGoals = async () => {
+    if (courseGoals.length < 4) {
+      toast({ title: "خطأ", description: "يجب إضافة أربعة أهداف على الأقل.", variant: "destructive" });
+      return;
+    }
+
+    if (courseGoals.some(goal => countGoalWords(goal) < 4)) {
+      toast({ title: "خطأ", description: "يجب أن يتكون كل هدف من أربع كلمات على الأقل.", variant: "destructive" });
+      return;
+    }
+
     if (!course) return;
 
     if (courseGoals.length < 4 || courseGoals.length > 6) {
@@ -1433,7 +1765,7 @@ export default function CourseQualityDialog({
           `/v1/courses/${courseInfo.id}/learning-outcomes/${editingOutcomeId}`, 
           dataToSend
         );
-        savedOutcome = res.data.data;
+        savedOutcome = normalizeCourseOutcome(res.data.data);
         
         setCourseOutcomes(courseOutcomes.map(o => 
           o.clo_id === editingOutcomeId ? savedOutcome : o
@@ -1448,7 +1780,7 @@ export default function CourseQualityDialog({
           `/v1/courses/${courseInfo.id}/learning-outcomes`, 
           dataToSend
         );
-        savedOutcome = res.data.data;
+        savedOutcome = normalizeCourseOutcome(res.data.data);
         
         setCourseOutcomes([...courseOutcomes, savedOutcome]);
         
@@ -1501,9 +1833,9 @@ export default function CourseQualityDialog({
   };
 
   // ============ HANDLERS - المواضيع ============
-  const handleAddTopic = () => {
+  const handleAddTopic = (part = activePart) => {
     setTopicFormData({
-      part: activePart,
+      part,
       week: 1,
       unit_name: "",
       subtopics: [""],
@@ -1517,22 +1849,52 @@ export default function CourseQualityDialog({
 
   const handleSaveTopic = async () => {
     if (!course || !topicFormData.unit_name || topicFormData.week === undefined) return;
+
+    const part = safeString(topicFormData.part, activePart);
+    const weekLimit = getPartWeeks(part);
+    const week = Number(topicFormData.week);
+    if (week < 1 || week > weekLimit) {
+      toast({
+        title: "الأسبوع غير صحيح",
+        description: `الجزء ${part} يسمح بالأسابيع من 1 إلى ${weekLimit} فقط.`,
+        variant: "destructive"
+      });
+      return;
+    }
+    if (week === weekLimit) {
+      toast({ title: "الأسبوع محجوز للامتحان النهائي", description: "لا يمكن إضافة موضوع في أسبوع الاختبار النهائي.", variant: "destructive" });
+      return;
+    }
+
+    const calculatedHours = getPartDisplayHours(part);
+    const payload = {
+      ...topicFormData,
+      part,
+      week,
+      hours: calculatedHours,
+      subtopics: topicFormData.is_exam ? [] : (topicFormData.subtopics || []).filter(Boolean),
+      clo_ids: topicFormData.outcome_ids || [],
+    };
   
     setSaving(true);
     try {
       if (editingTopicId) {
-        await api.put(`/v1/courses/${course.id}/topics/${editingTopicId}`, topicFormData);
+        await api.put(`/v1/courses/${course.id}/topics/${editingTopicId}`, payload);
         
         // ✅ تحديث محلي
         setTopics(topics.map(t => 
-          t.topic_id === editingTopicId ? { ...t, ...topicFormData } as CourseTopic : t
+          t.topic_id === editingTopicId ? { ...t, ...payload } as CourseTopic : t
         ));
       } else {
-        const res = await api.post(`/v1/courses/${course.id}/topics`, topicFormData);
+        const res = await api.post(`/v1/courses/${course.id}/topics`, payload);
         
         // ✅ إضافة الموضوع الجديد محلياً
-        if (res.data?.topic_id) {
-          setTopics([...topics, res.data as CourseTopic]);
+        const savedTopic = res.data?.data ?? res.data;
+        if (savedTopic?.topic_id) {
+          setTopics([...topics, {
+            ...savedTopic,
+            outcome_ids: safeArray(savedTopic.outcome_ids || savedTopic.clo_ids).map((id: any) => safeString(id)),
+          } as CourseTopic]);
         }
       }
   
@@ -1541,11 +1903,11 @@ export default function CourseQualityDialog({
         title: "نجح",
         description: editingTopicId ? "تم تحديث الموضوع" : "تم إضافة موضوع جديد"
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error:", error);
       toast({
         title: "خطأ",
-        description: "فشل العملية",
+        description: getValidationMessage(error, "فشل العملية"),
         variant: "destructive"
       });
     } finally {
@@ -1599,64 +1961,117 @@ export default function CourseQualityDialog({
       ],
       is_active: true
     } as any);
+    setEditingQuestionId(null);
     setIsAddingQuestion(true);
+  };
+
+  const handleOpenQuestionBank = async (topic: CourseTopic) => {
+    setSelectedTopicForQuestion(topic.topic_id > 0 ? topic.topic_id : null);
+    setQuestionBankPart(topic.part);
+    setIsQuestionBankOpen(true);
+    if (course) {
+      try {
+        const response = topic.topic_id > 0
+          ? await api.get(`/v1/topics/${topic.topic_id}/questions`)
+          : await api.get(`/v1/courses/${course.id}/question-bank`, { params: { part: topic.part } });
+        const bankQuestions = safeArray(response.data?.questions || response.data?.data || response.data);
+        setQuestions(current => [
+          ...current.filter(question => topic.topic_id > 0
+            ? question.topic_id !== topic.topic_id
+            : !(question.topic_id == null && question.part === topic.part)),
+          ...bankQuestions,
+        ]);
+      } catch (error) {
+        console.error("Failed to load question bank:", error);
+      }
+    }
+  };
+
+  const getValidationMessage = (error: any, fallback: string): string => {
+    const errors = error?.response?.data?.errors;
+    if (errors && typeof errors === "object") {
+      return Object.values(errors).flat().join("\n") || error?.response?.data?.message || fallback;
+    }
+    return error?.response?.data?.message || fallback;
   };
   
   const handleSaveQuestion = async () => {
-    if (!selectedTopicForQuestion || !questionFormData.question_text?.trim()) {
+    const hasQuestionTarget = Boolean(selectedTopicForQuestion) || Boolean(questionBankPart);
+
+    if (!hasQuestionTarget || !questionFormData.question_text?.trim()) {
       toast({
         title: "تحذير",
-        description: "أدخل نص السؤال",
+        description: "اختر الموضوع أو بنك الأسئلة وأدخل نص السؤال",
         variant: "destructive"
       });
       return;
     }
   
     if (questionFormData.question_type === "MCQ") {
-      const hasCorrectAnswer = questionFormData.options?.some(o => o.is_correct);
-      if (!hasCorrectAnswer) {
+      const options = questionFormData.options || [];
+      const hasEmptyOption = options.length !== 4 || options.some(o => !o.text?.trim());
+      const correctCount = options.filter(o => o.is_correct).length;
+      if (hasEmptyOption || correctCount !== 1) {
         toast({
           title: "تحذير",
-          description: "يجب تحديد إجابة صحيحة واحدة",
+          description: "يجب إدخال أربعة خيارات وتحديد إجابة صحيحة واحدة فقط",
           variant: "destructive"
         });
         return;
       }
     }
+
+    if (questionFormData.question_type === "essay" && !questionFormData.correct_answer?.trim()) {
+      toast({ title: "تحذير", description: "أدخل الإجابة النموذجية للسؤال المقالي", variant: "destructive" });
+      return;
+    }
   
     setSaving(true);
     try {
-      const payload = {
-        topic_id: selectedTopicForQuestion,
+      const payload: Record<string, unknown> = {
         subtopic: questionFormData.subtopic || "",
         question_text: questionFormData.question_text,
         question_type: questionFormData.question_type,
         difficulty_level: questionFormData.difficulty_level || 1,
         clo_code: questionFormData.clo_code || "",
-        options: questionFormData.question_type === "MCQ" ? questionFormData.options : null,
-        correct_answer: questionFormData.question_type === "essay" ? questionFormData.correct_answer : null,
         is_active: true
       };
+      if (selectedTopicForQuestion) payload.topic_id = selectedTopicForQuestion;
+      if (!selectedTopicForQuestion && questionBankPart) {
+        payload.part = questionBankPart;
+      }
+      if (questionFormData.question_type === "MCQ") payload.options = questionFormData.options;
+      if (questionFormData.question_type === "essay") payload.correct_answer = questionFormData.correct_answer;
   
-      const res = await api.post(`/v1/topics/${selectedTopicForQuestion}/questions`, payload);
+      const res = editingQuestionId
+        ? selectedTopicForQuestion
+          ? await api.put(`/v1/topics/${selectedTopicForQuestion}/questions/${editingQuestionId}`, payload)
+          : await api.put(`/v1/courses/${course?.id}/question-bank/${editingQuestionId}`, payload)
+        : selectedTopicForQuestion
+          ? await api.post(`/v1/topics/${selectedTopicForQuestion}/questions`, payload)
+          : await api.post(`/v1/courses/${course?.id}/question-bank`, payload);
       
-      // ✅ إضافة محلياً
-      if (res.data?.question_id) {
-        setQuestions([...questions, res.data as TopicQuestion]);
+      const savedQuestion = res.data?.data ?? res.data;
+      if (savedQuestion?.question_id) {
+        setQuestions(currentQuestions => editingQuestionId
+          ? currentQuestions.map(question => question.question_id === editingQuestionId ? savedQuestion : question)
+          : [...currentQuestions, savedQuestion as TopicQuestion]);
       }
   
       setIsAddingQuestion(false);
       setSelectedTopicForQuestion(null);
+      setQuestionBankPart(null);
+      setEditingQuestionId(null);
       
       toast({
         title: "نجح",
         description: "تم إضافة السؤال"
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error:", error);
       toast({
         title: "خطأ",
-        description: "فشل حفظ السؤال",
+        description: getValidationMessage(error, "فشل حفظ السؤال"),
         variant: "destructive"
       });
     } finally {
@@ -1664,12 +2079,14 @@ export default function CourseQualityDialog({
     }
   };
   
-  const handleDeleteQuestion = async (id: number) => {
-    if (!selectedTopicForQuestion || !confirm("هل أنت متأكد؟")) return;
-  
+  const handleDeleteQuestion = async (id: number, topicId = selectedTopicForQuestion) => {
+    const hasQuestionTarget = Boolean(topicId) || Boolean(questionBankPart);
+    if ((!hasQuestionTarget) || !confirm("هل أنت متأكد؟")) return;
+
     setSaving(true);
     try {
-      await api.delete(`/v1/topics/${selectedTopicForQuestion}/questions/${id}`);
+      if (topicId) await api.delete(`/v1/topics/${topicId}/questions/${id}`);
+      else await api.delete(`/v1/courses/${course?.id}/question-bank/${id}`);
       
       // ✅ تحديث محلي
       setQuestions(questions.filter(q => q.question_id !== id));
@@ -1691,51 +2108,55 @@ export default function CourseQualityDialog({
   };
 
   // ============ HANDLERS - التكليفات ============
-  const handleAddAssignment = () => {
+  const handleAddAssignment = (part = activePart) => {
     setAssignmentFormData({
-      part: activePart,
+      part,
       title: "",
+      description: "",
       week: 1,
       grade: 0,
       clo_ids: [],
       assignment_type: "homework",
-      is_mandatory: true
+      is_mandatory: true,
+      notes: ""
     });
     setEditingAssignmentId(null);
     setIsAddingAssignment(true);
   };
 
-  const handleSaveAssignment = async () => {
-    if (!course || !assignmentFormData.title) return;
+  const handleEditAssignment = (assignment: CourseAssignment) => {
+    setActivePart(assignment.part);
+    setAssignmentFormData({ ...assignment });
+    setEditingAssignmentId(assignment.assignment_id);
+    setIsAddingAssignment(true);
+  };
+
+  const handleSaveAssignment = async (assignmentToSave = assignmentFormData) => {
+    if (!course || !assignmentToSave.title) return;
   
     setSaving(true);
     try {
-      if (editingAssignmentId) {
-        await api.put(`/v1/courses/${course.id}/assignments/${editingAssignmentId}`, assignmentFormData);
-        
-        setAssignments(assignments.map(a => 
-          a.assignment_id === editingAssignmentId 
-            ? { ...a, ...assignmentFormData } as CourseAssignment 
-            : a
-        ));
+      const assignmentId = assignmentToSave.assignment_id ?? editingAssignmentId;
+      if (assignmentId) {
+        await api.put(`/v1/courses/${course.id}/assignments/${assignmentId}`, assignmentToSave);
       } else {
-        const res = await api.post(`/v1/courses/${course.id}/assignments`, assignmentFormData);
-        
-        if (res.data?.assignment_id) {
-          setAssignments([...assignments, res.data as CourseAssignment]);
-        }
+        await api.post(`/v1/courses/${course.id}/assignments`, assignmentToSave);
       }
+
+      await loadAssignments();
   
       setIsAddingAssignment(false);
+      setAssignmentFormData({});
+      setEditingAssignmentId(null);
       toast({
         title: "نجح",
-        description: editingAssignmentId ? "تم التحديث" : "تم الإضافة"
+        description: assignmentId ? "تم التحديث" : "تم الإضافة"
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error:", error);
       toast({
         title: "خطأ",
-        description: "فشل العملية",
+        description: getValidationMessage(error, "فشل العملية"),
         variant: "destructive"
       });
     } finally {
@@ -1769,53 +2190,52 @@ export default function CourseQualityDialog({
   };
 
   // ============ HANDLERS - التقييمات ============
-  const handleAddAssessment = () => {
-    setAssessmentFormData({
-      name: "",
-      week: 0,
-      grade: 0,
-      weight: 0,
-      percentage: 0,
-      clo_ids: [],
-      assessment_type: "activities"
+  const getAssessmentRows = (): CourseAssessment[] => fixedAssessmentRows.map(fixedRow => {
+    const savedRow = assessments.find(assessment => assessment.name === fixedRow.name);
+    return savedRow ? { ...fixedRow, ...savedRow } : fixedRow;
+  });
+
+  const updateAssessmentRow = (row: CourseAssessment, changes: Partial<CourseAssessment>) => {
+    setAssessments(current => {
+      const existing = current.find(assessment => assessment.assessment_id === row.assessment_id || assessment.name === row.name);
+      if (existing) {
+        return current.map(assessment => assessment.assessment_id === existing.assessment_id ? { ...assessment, ...changes } : assessment);
+      }
+      return [...current, { ...row, ...changes }];
     });
-    setEditingAssessmentId(null);
-    setIsAddingAssessment(true);
   };
 
-  const handleSaveAssessment = async () => {
-    if (!course || !assessmentFormData.name) return;
-  
+  const handleSaveAllAssessments = async () => {
+    if (!course) return;
+    const rows = getAssessmentRows();
+    if (rows.some(row => Number(row.grade) < 0.5)) {
+      toast({ title: "تنبيه", description: "أدخل درجة كل بند من بنود التقييم قبل الحفظ.", variant: "destructive" });
+      return;
+    }
+
     setSaving(true);
     try {
-      if (editingAssessmentId) {
-        await api.put(`/v1/courses/${course.id}/assessments/${editingAssessmentId}`, assessmentFormData);
-        
-        setAssessments(assessments.map(a => 
-          a.assessment_id === editingAssessmentId 
-            ? { ...a, ...assessmentFormData } as CourseAssessment 
-            : a
-        ));
-      } else {
-        const res = await api.post(`/v1/courses/${course.id}/assessments`, assessmentFormData);
-        
-        if (res.data?.assessment_id) {
-          setAssessments([...assessments, res.data as CourseAssessment]);
-        }
+      const savedRows: CourseAssessment[] = [];
+      for (const row of rows) {
+        const payload = {
+          name: row.name,
+          week: Number(row.week || 0),
+          grade: Number(row.grade),
+          percentage: Number(row.percentage || 0),
+          clo_ids: row.clo_ids || [],
+          assessment_type: row.assessment_type,
+          order: row.assessment_id < 0 ? Math.abs(row.assessment_id) : row.assessment_id,
+        };
+        const response = row.assessment_id > 0
+          ? await api.put(`/v1/courses/${course.id}/assessments/${row.assessment_id}`, payload)
+          : await api.post(`/v1/courses/${course.id}/assessments`, payload);
+        savedRows.push((response.data?.data ?? response.data) as CourseAssessment);
       }
-  
-      setIsAddingAssessment(false);
-      toast({
-        title: "نجح",
-        description: editingAssessmentId ? "تم التحديث" : "تم الإضافة"
-      });
-    } catch (error) {
+      setAssessments(savedRows);
+      toast({ title: "نجاح", description: "تم حفظ بنود التقييم الستة" });
+    } catch (error: any) {
       console.error("Error:", error);
-      toast({
-        title: "خطأ",
-        description: "فشل العملية",
-        variant: "destructive"
-      });
+      toast({ title: "خطأ", description: getValidationMessage(error, "فشل حفظ التقييم"), variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -1855,43 +2275,67 @@ export default function CourseQualityDialog({
       year: undefined,
       edition: "",
       publisher: "",
-      country: ""
+      country: "",
+      url: "",
+      order: references.length
     });
     setEditingReferenceId(null);
     setIsAddingReference(true);
   };
 
+  const handleEditReference = (reference: CourseReference) => {
+    setReferenceFormData({ ...reference });
+    setEditingReferenceId(reference.reference_id);
+    setIsAddingReference(true);
+  };
+
   const handleSaveReference = async () => {
     if (!course || !referenceFormData.title) return;
+
+    const payload = {
+      type: referenceFormData.type || "main",
+      category: referenceFormData.type === "electronic" ? referenceFormData.category || "website" : undefined,
+      author: referenceFormData.author || undefined,
+      year: referenceFormData.year ? Number(referenceFormData.year) : undefined,
+      title: referenceFormData.title.trim(),
+      edition: referenceFormData.edition || undefined,
+      publisher: referenceFormData.publisher || undefined,
+      country: referenceFormData.country || undefined,
+      url: referenceFormData.type === "electronic" ? referenceFormData.url || undefined : undefined,
+      order: Number(referenceFormData.order || 0),
+    };
   
     setSaving(true);
     try {
       if (editingReferenceId) {
-        await api.put(`/v1/courses/${course.id}/references/${editingReferenceId}`, referenceFormData);
+        await api.put(`/v1/courses/${course.id}/references/${editingReferenceId}`, payload);
         
         setReferences(references.map(r => 
           r.reference_id === editingReferenceId 
-            ? { ...r, ...referenceFormData } as CourseReference 
+            ? { ...r, ...payload } as CourseReference 
             : r
         ));
       } else {
-        const res = await api.post(`/v1/courses/${course.id}/references`, referenceFormData);
+        const res = await api.post(`/v1/courses/${course.id}/references`, payload);
         
-        if (res.data?.reference_id) {
-          setReferences([...references, res.data as CourseReference]);
+        const savedReference = res.data?.data ?? res.data;
+        if (savedReference?.reference_id) {
+          setReferences([...references, savedReference as CourseReference]);
         }
       }
   
       setIsAddingReference(false);
+      setReferenceFormData({});
+      setEditingReferenceId(null);
       toast({
         title: "نجح",
         description: editingReferenceId ? "تم التحديث" : "تم الإضافة"
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error:", error);
       toast({
         title: "خطأ",
-        description: "فشل العملية",
+        description: getValidationMessage(error, "فشل العملية"),
         variant: "destructive"
       });
     } finally {
@@ -1952,8 +2396,9 @@ export default function CourseQualityDialog({
       } else {
         const res = await api.post(`/v1/courses/${course.id}/policies`, policyFormData);
         
-        if (res.data?.policy_id) {
-          setPolicies([...policies, res.data as CoursePolicy]);
+        const savedPolicy = res.data?.data ?? res.data;
+        if (savedPolicy?.policy_id) {
+          setPolicies([...policies, savedPolicy as CoursePolicy]);
         }
       }
   
@@ -2088,6 +2533,7 @@ export default function CourseQualityDialog({
         await loadContent();
         break;
       case "activities":
+        await loadOutcomes();
         await loadActivities();
         break;
       case "resources":
@@ -2158,7 +2604,6 @@ export default function CourseQualityDialog({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-[95vw] w-full h-[95vh] p-0 gap-0 flex flex-col overflow-hidden" dir="rtl">
-        
         {/* ==================== HEADER ==================== */}
         <DialogHeader className="p-4 md:p-6 border-b bg-gradient-to-r from-indigo-50 to-blue-50 shrink-0" dir="rtl">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -2176,52 +2621,12 @@ export default function CourseQualityDialog({
                 </DialogDescription>
               </div>
             </div>
-            
-            {/* Parts Toggle */}
-            {getCourseParts().length > 1 && (
-              <div className="flex bg-white p-1 rounded-lg border shadow-sm w-fit overflow-x-auto">
-                {getCourseParts().map((part) => (
-                  <Button
-                    key={part}
-                    variant={activePart === part ? "default" : "ghost"}
-                    size="sm"
-                    className={cn(
-                      "px-4 md:px-6 rounded-md transition-all whitespace-nowrap",
-                      activePart === part && "bg-indigo-600 text-white shadow-sm"
-                    )}
-                    onClick={() => setActivePart(part)}
-                  >
-                    {part}
-                  </Button>
-                ))}
-              </div>
-            )}
           </div>
 
-          {/* Stats */}
-          <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-            <div className="bg-white p-2 rounded-lg border">
-              <div className="text-slate-500 mb-1">إجمالي المخرجات</div>
-              <div className="font-bold text-lg text-indigo-600">{courseOutcomes.length}</div>
-            </div>
-            <div className="bg-white p-2 rounded-lg border">
-              <div className="text-slate-500 mb-1">مجموع الأوزان</div>
-              <div className={cn("font-bold text-lg", getTotalOutcomeWeight() === courseInfo.weight ? "text-green-600" : "text-amber-600")}>
-                {getTotalOutcomeWeight()}%
-              </div>
-            </div>
-            <div className="bg-white p-2 rounded-lg border">
-              <div className="text-slate-500 mb-1">نسب التقييم</div>
-              <div className={cn("font-bold text-lg", getTotalAssessmentPercentage() === 100 ? "text-green-600" : "text-red-600")}>
-                {getTotalAssessmentPercentage()}%
-              </div>
-            </div>
-          </div>
         </DialogHeader>
 
         {/* ==================== TABS ==================== */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden" dir="rtl">
-          
           {/* Tabs List */}
           <div className="border-b bg-slate-50 px-4 shrink-0 overflow-x-auto">
             <TabsList className="bg-transparent h-auto p-0 gap-1 w-full md:w-auto inline-flex">
@@ -2672,7 +3077,7 @@ export default function CourseQualityDialog({
                   {/* أهداف المقرر */}
                   <Card>
                     <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 border-b">
-                      <div className="flex items-center justify-between">
+                      <div>
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
                             <Target className="w-5 h-5 text-purple-600" />
@@ -2807,7 +3212,6 @@ export default function CourseQualityDialog({
                                       size="icon" 
                                       variant="ghost"
                                       onClick={() => {
-                                        console.log("Delete button clicked, index:", index);
                                         handleDeleteGoal(index);
                                       }}
                                       className="text-red-500"
@@ -2832,8 +3236,8 @@ export default function CourseQualityDialog({
                         <p className="text-sm font-semibold text-purple-900 mb-2">ملخص الأهداف:</p>
                         <div className="space-y-1 text-xs text-purple-800">
                           <p>✓ العدد: {courseGoals.length}/4-6</p>
-                          <p>✓ الأهداف الصحيحة: {courseGoals.filter(g => countWords(g) >= 3 && g.trim()).length}/{courseGoals.length}</p>
-                          {courseGoals.some(g => countWords(g) < 3 || !g.trim()) && (
+                          <p>✓ الأهداف الصحيحة: {courseGoals.filter(g => countWords(g) >= 4 && g.trim()).length}/{courseGoals.length}</p>
+                          {courseGoals.some(g => countWords(g) < 4 || !g.trim()) && (
                             <p className="text-red-600">❌ يوجد أهداف تحتاج تصحيح</p>
                           )}
                         </div>
@@ -2848,7 +3252,7 @@ export default function CourseQualityDialog({
                             saving || 
                             courseGoals.length < 4 || 
                             courseGoals.length > 6 ||
-                            courseGoals.some(g => countWords(g) < 3 || !g.trim())
+                            courseGoals.some(g => countWords(g) < 4 || !g.trim())
                           }
                           className="bg-purple-600 hover:bg-purple-700"
                         >
@@ -3154,7 +3558,7 @@ export default function CourseQualityDialog({
                               const count = getOutcomeCountByDomain(domain);
                               const weight = courseOutcomes
                                 .filter(o => o.domain === domain)
-                                .reduce((sum, o) => sum + o.weight, 0);
+                                .reduce((sum, o) => sum + safeWeight(o.weight), 0);
                               
                               return count > 0 ? (
                                 <div key={domain} className="bg-white p-2 rounded border">
@@ -3389,25 +3793,7 @@ export default function CourseQualityDialog({
                                                 ) : null;
                                               })}
                                             </div>
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              className="h-7 text-xs w-full justify-start"
-                                              onClick={() => {
-                                                setCurrentMappingClo(outcome.code);
-                                                const existingMapping = outcomeMappings.find(m => m.clo_id === outcome.code);
-                                                setMappingData(existingMapping || {
-                                                  clo_id: outcome.code,
-                                                  teaching_strategies: [],
-                                                  assessment_methods: []
-                                                });
-                                                setIsEditingMapping(true);
-                                              }}
-                                            >
-                                              <Plus className="w-3 h-3 ml-1" />
-                                              تعديل
-                                            </Button>
-                                          </div>
+                                            </div>
                                         </TableCell>
                                         <TableCell>
                                           <div className="space-y-2">
@@ -3543,21 +3929,22 @@ export default function CourseQualityDialog({
               {/* ==================== TAB 5: المحتوى والأسئلة ==================== */}
               {activeTab === "content" && (
                 <TabsContent value="content" className="mt-0" dir="rtl">
-                  <Card>
+                  {getCourseParts().map((part) => (
+                  <Card key={part}>
                     <CardHeader className="bg-gradient-to-r from-violet-50 to-purple-50 border-b">
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
                             <Layers className="w-5 h-5 text-violet-600" />
-                            VI. محتوى المقرر - {activePart}
+                            VI. محتوى المقرر - {part}
                           </CardTitle>
                           <CardDescription className="text-xs mt-1">
-                            الأسابيع: {getTopicWeekCount(activePart)} | الساعات: {getTopicHours(activePart)}/32
+                            الأسابيع: {getTopicWeekCount(part)} | الساعات الفعلية الأسبوعية: {getPartDisplayHours(part)}
                           </CardDescription>
                         </div>
                         <Button 
                           size="sm"
-                          onClick={handleAddTopic}
+                          onClick={() => handleAddTopic(part)}
                           className="whitespace-nowrap"
                         >
                           <Plus className="w-4 h-4 mr-2" />
@@ -3576,11 +3963,12 @@ export default function CourseQualityDialog({
                             </div>
                           </AccordionTrigger>
                           <AccordionContent className="px-4 pb-4 text-sm text-slate-700 space-y-2 border-r-2 border-violet-300 pr-4">
-                            <p>✓ عدد الأسابيع: 16 أسبوعاً شاملة الامتحانات</p>
-                            <p>✓ إجمالي الساعات: 32 ساعة</p>
-                            <p>✓ الامتحان النصفي في الأسبوع الثامن</p>
-                            <p>✓ الامتحان النهائي في الأسبوع 16</p>
-                            <p>✓ مخرجات التعلم يجب أن تكون محددة لكل موضوع</p>
+                            <p>✓ النظري: 16 أسبوعاً شاملة الامتحان النصفي والنهائي.</p>
+                            <p>✓ العملي والتمارين والسريري: 15 أسبوعاً شاملة الامتحانات.</p>
+                            <p>✓ الأسبوع الثامن مخصص للامتحان النصفي، ويمكن تعديله مع ظهور هذا التنبيه.</p>
+                            <p>✓ الامتحان النهائي إلزامي في الأسبوع 16 للنظري، والأسبوع 15 لبقية الأجزاء.</p>
+                            <p>✓ الساعات الفعلية محسوبة تلقائياً من جزء المقرر.</p>
+                            <p>✓ مخرجات التعلم تُحدد للوحدة كاملة، وليس لكل موضوع فرعي.</p>
                           </AccordionContent>
                         </AccordionItem>
                       </Accordion>
@@ -3589,27 +3977,28 @@ export default function CourseQualityDialog({
                         <Table>
                           <TableHeader>
                             <TableRow className="bg-violet-50">
-                              <TableHead className="w-16 text-center">الأسبوع</TableHead>
-                              <TableHead className="w-40">الوحدة/الموضوع</TableHead>
+                              <TableHead className="w-16 text-center">م</TableHead>
+                              <TableHead className="w-40">الوحدة</TableHead>
                               <TableHead>المواضيع الفرعية</TableHead>
-                              <TableHead className="w-32">المخرجات</TableHead>
-                              <TableHead className="w-20 text-center">الساعات</TableHead>
+                              <TableHead className="w-16 text-center">الأسبوع</TableHead>
+                              <TableHead className="w-20 text-center">الساعات الفعلية</TableHead>
+                              <TableHead className="w-32">مخرجات التعلم</TableHead>
                               <TableHead className="w-28 text-center">الإجراءات</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {getTopicsByPart(activePart).length === 0 ? (
+                            {!hasConfiguredPart(part) ? (
                               <TableRow>
-                                <TableCell colSpan={6} className="text-center py-8">
-                                  <p className="text-slate-400">لم تتم إضافة مواضيع بعد</p>
+                                <TableCell colSpan={7} className="text-center py-8 font-semibold text-slate-500">
+                                  NONE
                                 </TableCell>
                               </TableRow>
                             ) : (
-                              getTopicsByPart(activePart).map((topic) => (
+                              getContentRows(part).map((topic, rowIndex) => (
                                 <React.Fragment key={topic.topic_id}>
                                   <TableRow className={topic.is_exam ? "bg-amber-50" : ""}>
-                                    <TableCell className="font-bold text-center">{topic.week}</TableCell>
-                                    <TableCell className="font-semibold">{topic.unit_name}</TableCell>
+                                    <TableCell className="font-bold text-center">{rowIndex + 1}</TableCell>
+                                    <TableCell className="font-semibold">{topic.unit_name || "-"}</TableCell>
                                     <TableCell>
                                       {!topic.is_exam ? (
                                         <div className="flex flex-wrap gap-1">
@@ -3625,6 +4014,8 @@ export default function CourseQualityDialog({
                                         </Badge>
                                       )}
                                     </TableCell>
+                                    <TableCell className="font-bold text-center">{topic.week}</TableCell>
+                                    <TableCell className="text-center font-semibold">{getPartDisplayHours(part)}</TableCell>
                                     <TableCell>
                                       <div className="flex flex-wrap gap-1">
                                         {topic.outcome_ids?.map(oid => (
@@ -3632,20 +4023,19 @@ export default function CourseQualityDialog({
                                         ))}
                                       </div>
                                     </TableCell>
-                                    <TableCell className="text-center font-semibold">{topic.hours}</TableCell>
                                     <TableCell>
                                       <div className="flex gap-1 justify-center">
-                                        {!topic.is_exam && (
+                                        {topic.topic_id > 0 || topic.is_exam ? (
                                           <Button 
                                             size="sm" 
                                             variant="outline"
                                             className="text-xs h-8"
-                                            onClick={() => handleAddQuestion(topic.topic_id)}
+                                            onClick={() => topic.is_exam ? handleOpenQuestionBank(topic) : handleOpenQuestionBank(topic)}
                                           >
-                                            <Plus className="w-3 h-3 mr-1" /> أسئلة
+                                            <BookOpen className="w-3 h-3 mr-1" /> بنك الأسئلة
                                           </Button>
-                                        )}
-                                        <Button 
+                                        ) : null}
+                                        {topic.topic_id > 0 && <Button 
                                           size="icon" 
                                           variant="ghost"
                                           className="h-8 w-8"
@@ -3656,87 +4046,72 @@ export default function CourseQualityDialog({
                                           }}
                                         >
                                           <Edit className="w-3.5 h-3.5" />
-                                        </Button>
-                                        <Button 
+                                        </Button>}
+                                        {topic.topic_id > 0 && <Button 
                                           size="icon" 
                                           variant="ghost"
                                           className="h-8 w-8 text-red-500 hover:bg-red-50"
                                           onClick={() => handleDeleteTopic(topic.topic_id)}
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
-                                        </Button>
+                                        </Button>}
                                       </div>
                                     </TableCell>
                                   </TableRow>
   
-                                  {/* Questions for this topic */}
-                                  {!topic.is_exam && questions.filter(q => q.topic_id === topic.topic_id).map(question => (
-                                    <TableRow key={question.question_id} className="bg-blue-50/30 border-l-4 border-blue-300">
-                                      <TableCell colSpan={2}></TableCell>
-                                      <TableCell colSpan={4}>
-                                        <div className="p-3 bg-white rounded-lg border ml-4">
-                                          <div className="flex items-start justify-between gap-2">
-                                            <div className="flex-1">
-                                              <Badge variant="outline" className="mb-2 text-xs">
-                                                {question.question_type === "MCQ" ? "اختيار من متعدد" : "مقالي"}
-                                              </Badge>
-                                              <p className="font-medium text-sm mb-2">{question.question_text}</p>
-                                              {question.subtopic && (
-                                                <p className="text-xs text-slate-500 mb-2">الموضوع الفرعي: {question.subtopic}</p>
-                                              )}
-                                              {question.question_type === "MCQ" && question.options && (
-                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                                  {question.options.map(opt => (
-                                                    <div 
-                                                      key={opt.id} 
-                                                      className={cn(
-                                                        "p-2 rounded border text-xs",
-                                                        opt.is_correct ? "bg-green-50 border-green-200" : "bg-slate-50"
-                                                      )}
-                                                    >
-                                                      {opt.is_correct && <span className="text-green-600 font-bold mr-1">✓</span>}
-                                                      {opt.text}
-                                                    </div>
-                                                  ))}
-                                                </div>
-                                              )}
-                                            </div>
-                                            <Button 
-                                              size="icon" 
-                                              variant="ghost"
-                                              className="text-red-500 shrink-0"
-                                              onClick={() => handleDeleteQuestion(question.question_id)}
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </Button>
-                                          </div>
-                                        </div>
-                                      </TableCell>
-                                    </TableRow>
-                                  ))}
                                 </React.Fragment>
                               ))
                             )}
                             <TableRow className="bg-violet-50 font-bold">
-                              <TableCell colSpan={4} className="text-right">الإجمالي</TableCell>
-                              <TableCell className="text-center">{getTopicHours(activePart)}</TableCell>
+                              <TableCell colSpan={5} className="text-right">الإجمالي</TableCell>
+                              <TableCell className="text-center">{getPartDisplayHours(part) * getPartWeeks(part)}</TableCell>
                               <TableCell></TableCell>
                             </TableRow>
                           </TableBody>
                         </Table>
                       </div>
   
-                      {getTopicHours(activePart) > 32 && (
+                      {getPartDisplayHours(part) * getPartWeeks(part) > 32 && (
                         <div className="mt-4 p-4 bg-red-50 border-2 border-red-200 rounded-lg flex gap-3">
                           <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
                           <p className="text-sm text-red-700">
-                            تحذير: إجمالي الساعات ({getTopicHours(activePart)}) يتجاوز الحد الأقصى (32)
+                            تحذير: إجمالي الساعات ({getPartDisplayHours(part) * getPartWeeks(part)}) يتجاوز الحد الأقصى (32)
                           </p>
                         </div>
                       )}
                     </CardContent>
                   </Card>
+                  ))}
   
+                  <Dialog open={isQuestionBankOpen} onOpenChange={setIsQuestionBankOpen}>
+                    <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" dir="rtl">
+                      <DialogHeader>
+                        <DialogTitle>بنك أسئلة {questionBankPart || "الوحدة"}</DialogTitle>
+                        <DialogDescription>جميع الأسئلة المقالية والاختيارية التابعة لهذه الوحدة.</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-3">
+                        {questions.filter(question => selectedTopicForQuestion
+                          ? question.topic_id === selectedTopicForQuestion
+                          : question.topic_id == null && question.part === questionBankPart
+                        ).map(question => (
+                          <div key={question.question_id} className="border rounded-lg p-3 flex items-start gap-3">
+                            <div className="flex-1">
+                              <Badge variant="outline">{question.question_type === "MCQ" ? "اختيار من متعدد" : "مقالي"}</Badge>
+                              <p className="font-medium mt-2">{question.question_text}</p>
+                              {question.subtopic && <p className="text-xs text-muted-foreground mt-1">الموضوع الفرعي: {question.subtopic}</p>}
+                            </div>
+                            <Button size="icon" variant="ghost" onClick={() => { setQuestionFormData(question); setEditingQuestionId(question.question_id); setIsQuestionBankOpen(false); setIsAddingQuestion(true); }}><Edit className="w-4 h-4" /></Button>
+                            <Button size="icon" variant="ghost" className="text-red-500" onClick={() => handleDeleteQuestion(question.question_id, question.topic_id ?? undefined)}><Trash2 className="w-4 h-4" /></Button>
+                          </div>
+                        ))}
+                        {questions.filter(question => selectedTopicForQuestion ? question.topic_id === selectedTopicForQuestion : question.topic_id == null && question.part === questionBankPart).length === 0 && <p className="text-center text-muted-foreground py-8">لا توجد أسئلة بعد.</p>}
+                      </div>
+                      <DialogFooter>
+                        <Button onClick={() => { setIsQuestionBankOpen(false); handleAddQuestion(selectedTopicForQuestion || 0); }}>إضافة سؤال</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
                   {/* Dialog: Add/Edit Topic */}
                   <Dialog open={isAddingTopic && activeTab === "content"} onOpenChange={setIsAddingTopic}>
                     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
@@ -3846,30 +4221,41 @@ export default function CourseQualityDialog({
                           </div>
                         )}
   
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label>عدد الساعات</Label>
-                            <Input 
-                              type="number"
-                              min="1"
-                              max="4"
-                              value={topicFormData.hours || ""}
-                              onChange={e => setTopicFormData({...topicFormData, hours: Number(e.target.value)})}
-                            />
+                        <div className="space-y-3">
+                          <Label>الساعات الفعلية للجزء</Label>
+                          <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                            <Info className="h-4 w-4 text-blue-700 shrink-0 mt-0.5" />
+                            <span>
+                              الساعات محسوبة تلقائياً من جزء المقرر: <strong>{getPartDisplayHours(safeString(topicFormData.part, activePart))}</strong> ساعة فعلية لكل أسبوع.
+                            </span>
                           </div>
-                          <div className="space-y-2">
-                            <Label>مخرجات التعلم المغطاة</Label>
-                            <Button 
-                              size="sm"
-                              variant="outline"
-                              className="w-full"
-                              onClick={() => {
-                                // Selector for outcomes
-                              }}
-                            >
-                              اختر المخرجات...
-                            </Button>
-                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <Label>مخرجات التعلم التي تغطيها الوحدة</Label>
+                          {courseOutcomes.length === 0 ? (
+                            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">أضف مخرجات تعلم المقرر أولاً.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 border rounded-lg p-3 max-h-48 overflow-y-auto">
+                              {courseOutcomes.sort((a, b) => a.order - b.order).map(outcome => {
+                                const selected = (topicFormData.outcome_ids || []).includes(outcome.code);
+                                return (
+                                  <label key={outcome.clo_id} className="flex items-start gap-2 p-2 rounded hover:bg-slate-50 cursor-pointer">
+                                    <Checkbox
+                                      checked={selected}
+                                      onCheckedChange={checked => setTopicFormData({
+                                        ...topicFormData,
+                                        outcome_ids: checked
+                                          ? [...(topicFormData.outcome_ids || []), outcome.code]
+                                          : (topicFormData.outcome_ids || []).filter(code => code !== outcome.code)
+                                      })}
+                                    />
+                                    <span className="text-sm"><strong>{outcome.code}</strong> - {outcome.description}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
   
                         <div className="flex flex-wrap gap-2">
@@ -3908,9 +4294,28 @@ export default function CourseQualityDialog({
                   <Dialog open={isAddingQuestion && activeTab === "content"} onOpenChange={setIsAddingQuestion}>
                     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
                       <DialogHeader>
-                        <DialogTitle>إضافة سؤال جديد</DialogTitle>
+                        <DialogTitle>بنك أسئلة الوحدة</DialogTitle>
+                        <DialogDescription>
+                          أضف سؤالًا مقاليًا أو اختيارًا من متعدد مرتبطًا بأحد المواضيع الفرعية لهذه الوحدة.
+                        </DialogDescription>
                       </DialogHeader>
                       <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label>الموضوع الفرعي</Label>
+                          <Select
+                            value={questionFormData.subtopic || ""}
+                            onValueChange={subtopic => setQuestionFormData({ ...questionFormData, subtopic })}
+                          >
+                            <SelectTrigger className="bg-white">
+                              <SelectValue placeholder="اختر موضوعًا فرعيًا" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(topics.find(topic => topic.topic_id === selectedTopicForQuestion)?.subtopics || []).filter(Boolean).map(subtopic => (
+                                <SelectItem key={subtopic} value={subtopic}>{subtopic}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                         <div className="space-y-2">
                           <Label>نوع السؤال</Label>
                           <Select 
@@ -3972,6 +4377,17 @@ export default function CourseQualityDialog({
                             ))}
                           </div>
                         )}
+                        {questionFormData.question_type === "essay" && (
+                          <div className="space-y-2">
+                            <Label>الإجابة النموذجية *</Label>
+                            <Textarea
+                              value={questionFormData.correct_answer || ""}
+                              onChange={e => setQuestionFormData({ ...questionFormData, correct_answer: e.target.value })}
+                              placeholder="تُراجع الإجابة من المختصين"
+                              className="min-h-[100px]"
+                            />
+                          </div>
+                        )}
                       </div>
                       <DialogFooter>
                         <Button variant="outline" onClick={() => setIsAddingQuestion(false)}>
@@ -3993,6 +4409,8 @@ export default function CourseQualityDialog({
               {/* ==================== TAB 6: الأنشطة والتقييم ==================== */}
               {activeTab === "activities" && (
                 <TabsContent value="activities" className="mt-0 space-y-6" dir="rtl">
+                  {getConfiguredCourseParts().map((part) => (
+                  <div key={part} className="space-y-6">
                   
                   {/* التكليفات */}
                   <Card>
@@ -4001,18 +4419,79 @@ export default function CourseQualityDialog({
                         <div>
                           <CardTitle className="text-lg flex items-center gap-2">
                             <ClipboardList className="w-5 h-5 text-blue-600" />
-                            VII. الأنشطة والتكليفات - {activePart}
+                            VII. الأنشطة والتكليفات - {part}
                           </CardTitle>
                         </div>
                         <Button 
                           size="sm"
-                          onClick={handleAddAssignment}
+                          onClick={() => {
+                            setActivePart(part);
+                            handleAddAssignment(part);
+                          }}
                         >
                           <Plus className="w-4 h-4 mr-2" />
                           إضافة تكليف
                         </Button>
                       </div>
                     </CardHeader>
+                    {isAddingAssignment && assignmentFormData.part === part && (
+                      <div className="p-4 border-b bg-blue-50/40 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold text-blue-900">
+                            {editingAssignmentId ? "تعديل التكليف" : "إضافة تكليف جديد"}
+                          </h4>
+                          <Badge variant="outline" className="bg-white">{part}</Badge>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <Input placeholder="اسم التكليف/النشاط" value={assignmentFormData.title || ""} onChange={e => setAssignmentFormData({ ...assignmentFormData, title: e.target.value })} />
+                          <Select value={assignmentFormData.assignment_type || "homework"} onValueChange={assignment_type => setAssignmentFormData({ ...assignmentFormData, assignment_type: assignment_type as CourseAssignment["assignment_type"] })}><SelectTrigger><SelectValue placeholder="نوع التكليف" /></SelectTrigger><SelectContent><SelectItem value="homework">واجب</SelectItem><SelectItem value="project">مشروع</SelectItem><SelectItem value="presentation">عرض</SelectItem><SelectItem value="quiz">اختبار قصير</SelectItem><SelectItem value="other">أخرى</SelectItem></SelectContent></Select>
+                          <Input type="number" min="1" max={getPartWeeks(part)} placeholder="الأسبوع" value={assignmentFormData.week || ""} onChange={e => setAssignmentFormData({ ...assignmentFormData, week: Number(e.target.value) })} />
+                          <Input type="number" min="0.5" step="0.5" placeholder="الدرجة" value={assignmentFormData.grade || ""} onChange={e => setAssignmentFormData({ ...assignmentFormData, grade: Number(e.target.value) })} />
+                          <Textarea placeholder="وصف التكليف" value={assignmentFormData.description || ""} onChange={e => setAssignmentFormData({ ...assignmentFormData, description: e.target.value })} className="md:col-span-2 min-h-[70px]" />
+                          <Textarea placeholder="ملاحظات" value={assignmentFormData.notes || ""} onChange={e => setAssignmentFormData({ ...assignmentFormData, notes: e.target.value })} className="min-h-[70px]" />
+                        </div>
+                        <div className="space-y-3">
+                          <Label>مخرجات التعلم المرتبطة بالتكليف</Label>
+                          {courseOutcomes.length === 0 ? (
+                            <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">لا توجد مخرجات تعلم مضافة لهذا المقرر بعد.</p>
+                          ) : (
+                            <div className="grid grid-cols-2 gap-2 rounded-lg border bg-white p-3 md:grid-cols-4">
+                              {courseOutcomes.sort((a, b) => a.order - b.order).map(outcome => {
+                                const isSelected = (assignmentFormData.clo_ids || []).includes(outcome.code);
+                                return (
+                                  <label key={outcome.clo_id} className="flex cursor-pointer items-center gap-2 rounded p-2 text-sm hover:bg-slate-50">
+                                    <Checkbox
+                                      checked={isSelected}
+                                      onCheckedChange={checked => setAssignmentFormData({
+                                        ...assignmentFormData,
+                                        clo_ids: checked
+                                          ? [...(assignmentFormData.clo_ids || []), outcome.code]
+                                          : (assignmentFormData.clo_ids || []).filter(code => code !== outcome.code)
+                                      })}
+                                    />
+                                    <span className="font-medium">{outcome.code}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+                          {(assignmentFormData.clo_ids || []).length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {(assignmentFormData.clo_ids || []).map(code => (
+                                <Badge key={code} variant="secondary" className="gap-1 bg-blue-50 text-blue-700">
+                                  {code}
+                                  <button type="button" aria-label={`إزالة ${code}`} onClick={() => setAssignmentFormData({ ...assignmentFormData, clo_ids: (assignmentFormData.clo_ids || []).filter(cloCode => cloCode !== code) })}>
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <label className="flex items-center gap-2 text-sm"><Checkbox checked={assignmentFormData.is_mandatory ?? true} onCheckedChange={is_mandatory => setAssignmentFormData({ ...assignmentFormData, is_mandatory: Boolean(is_mandatory) })} />تكليف إلزامي</label>
+                        <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => { setIsAddingAssignment(false); setAssignmentFormData({}); setEditingAssignmentId(null); }}>إلغاء</Button><Button onClick={() => handleSaveAssignment()}>{editingAssignmentId ? "حفظ التعديلات" : "حفظ التكليف"}</Button></div>
+                      </div>
+                    )}
                     <CardContent className="p-6">
                       <div className="overflow-x-auto">
                         <Table>
@@ -4020,98 +4499,59 @@ export default function CourseQualityDialog({
                             <TableRow className="bg-slate-50">
                               <TableHead className="w-12 text-center">#</TableHead>
                               <TableHead>التكليف/النشاط</TableHead>
+                              <TableHead>الوصف</TableHead>
                               <TableHead className="w-24 text-center">الأسبوع</TableHead>
                               <TableHead className="w-24 text-center">الدرجة</TableHead>
+                              <TableHead className="w-40">مخرجات التعلم</TableHead>
                               <TableHead className="w-32">النوع</TableHead>
-                              <TableHead className="w-20"></TableHead>
+                              <TableHead className="w-24 text-center">إلزامي</TableHead>
+                              <TableHead>ملاحظات</TableHead>
+                              <TableHead className="w-24 text-center">إجراءات</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {getAssignmentsByPart(activePart).length === 0 ? (
+                            {getAssignmentsByPart(part).length === 0 ? (
                               <TableRow>
-                                <TableCell colSpan={6} className="text-center py-8">
+                                <TableCell colSpan={10} className="text-center py-8">
                                   <p className="text-slate-400">لم تتم إضافة تكاليف بعد</p>
                                 </TableCell>
                               </TableRow>
                             ) : (
-                              getAssignmentsByPart(activePart).map((assignment, index) => (
+                              getAssignmentsByPart(part).map((assignment, index) => (
                                 <TableRow key={assignment.assignment_id} className="hover:bg-slate-50">
                                   <TableCell className="text-center">{index + 1}</TableCell>
+                                  <TableCell className="font-medium text-slate-800">{assignment.title}</TableCell>
+                                  <TableCell className="max-w-64 whitespace-normal text-sm text-slate-600">{assignment.description || "-"}</TableCell>
+                                  <TableCell className="text-center">{assignment.week}</TableCell>
+                                  <TableCell className="text-center font-semibold text-blue-700">{assignment.grade}</TableCell>
+                                  <TableCell><div className="flex flex-wrap gap-1">{assignment.clo_ids?.map(code => <Badge key={code} variant="outline" className="text-xs">{code}</Badge>)}</div></TableCell>
+                                  <TableCell><Badge variant="secondary">{{ homework: "واجب", project: "مشروع", presentation: "عرض", quiz: "اختبار قصير", other: "أخرى" }[assignment.assignment_type]}</Badge></TableCell>
+                                  <TableCell className="text-center"><Badge variant={assignment.is_mandatory ? "default" : "outline"} className={assignment.is_mandatory ? "bg-blue-600" : ""}>{assignment.is_mandatory ? "نعم" : "لا"}</Badge></TableCell>
+                                  <TableCell className="max-w-56 whitespace-normal text-sm text-slate-600">{assignment.notes || "-"}</TableCell>
                                   <TableCell>
-                                    <Input 
-                                      value={assignment.title}
-                                      onChange={e => {
-                                        const updated = assignments.map(a => 
-                                          a.assignment_id === assignment.assignment_id 
-                                            ? {...a, title: e.target.value}
-                                            : a
-                                        );
-                                        setAssignments(updated);
-                                      }}
-                                      onBlur={handleSaveAssignment}
-                                      className="bg-white"
-                                    />
-                                  </TableCell>
-                                  <TableCell>
-                                    <Input 
-                                      type="number"
-                                      value={assignment.week}
-                                      onChange={e => {
-                                        const updated = assignments.map(a => 
-                                          a.assignment_id === assignment.assignment_id 
-                                            ? {...a, week: Number(e.target.value)}
-                                            : a
-                                        );
-                                        setAssignments(updated);
-                                      }}
-                                      onBlur={handleSaveAssignment}
-                                      className="bg-white text-center"
-                                    />
-                                  </TableCell>
-                                  <TableCell>
-                                    <Input 
-                                      type="number"
-                                      value={assignment.grade}
-                                      onChange={e => {
-                                        const updated = assignments.map(a => 
-                                          a.assignment_id === assignment.assignment_id 
-                                            ? {...a, grade: Number(e.target.value)}
-                                            : a
-                                        );
-                                        setAssignments(updated);
-                                      }}
-                                      onBlur={handleSaveAssignment}
-                                      className="bg-white text-center"
-                                    />
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge className="text-xs">{assignment.assignment_type}</Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Button 
-                                      size="icon" 
-                                      variant="ghost"
-                                      className="text-red-500 h-8 w-8"
-                                      onClick={() => handleDeleteAssignment(assignment.assignment_id)}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                    <div className="flex justify-center gap-1">
+                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => handleEditAssignment(assignment)}><Edit className="w-4 h-4" /></Button>
+                                      <Button size="icon" variant="ghost" className="h-8 w-8 text-red-500 hover:bg-red-50" onClick={() => handleDeleteAssignment(assignment.assignment_id)}><Trash2 className="w-4 h-4" /></Button>
+                                    </div>
                                   </TableCell>
                                 </TableRow>
                               ))
                             )}
                             <TableRow className="bg-blue-50 font-bold">
-                              <TableCell colSpan={3} className="text-left">الإجمالي</TableCell>
+                              <TableCell colSpan={4} className="text-left">الإجمالي</TableCell>
                               <TableCell className="text-center text-lg text-blue-600">
-                                {getTotalAssignmentGrade(activePart)}
+                                {getTotalAssignmentGrade(part)}
                               </TableCell>
-                              <TableCell colSpan={2}></TableCell>
+                                <TableCell colSpan={5}></TableCell>
                             </TableRow>
                           </TableBody>
                         </Table>
                       </div>
                     </CardContent>
                   </Card>
+
+                  </div>
+                  ))}
   
                   {/* التقييمات */}
                   <Card>
@@ -4126,18 +4566,6 @@ export default function CourseQualityDialog({
                             يجب أن يساوي الإجمالي 100%
                           </CardDescription>
                         </div>
-                        <div className={cn(
-                          "px-4 py-2 rounded-lg border text-center shrink-0",
-                          getTotalAssessmentPercentage() === 100 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
-                        )}>
-                          <div className="text-xs text-slate-500 mb-1">الإجمالي</div>
-                          <div className={cn(
-                            "font-bold text-lg",
-                            getTotalAssessmentPercentage() === 100 ? "text-green-600" : "text-red-600"
-                          )}>
-                            {getTotalAssessmentPercentage()}%
-                          </div>
-                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="p-6">
@@ -4149,49 +4577,22 @@ export default function CourseQualityDialog({
                               <TableHead>نشاط التقييم</TableHead>
                               <TableHead className="w-24 text-center">الأسبوع</TableHead>
                               <TableHead className="w-24 text-center">الدرجة</TableHead>
-                              <TableHead className="w-24 text-center">النسبة %</TableHead>
-                              <TableHead className="w-20"></TableHead>
+                              <TableHead className="w-32 text-center">نسبة الدرجة إلى درجة التقويم النهائي</TableHead>
+                              <TableHead className="w-40">مخرجات التعلم</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {assessments.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={6} className="text-center py-8">
-                                  <p className="text-slate-400">لم تتم إضافة تقييمات بعد</p>
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              assessments.map((item, index) => (
+                            {getAssessmentRows().map((item, index) => (
                                 <TableRow key={item.assessment_id} className="hover:bg-slate-50">
                                   <TableCell className="text-center">{index + 1}</TableCell>
-                                  <TableCell>
-                                    <Input 
-                                      value={item.name}
-                                      onChange={e => {
-                                        const updated = assessments.map(a => 
-                                          a.assessment_id === item.assessment_id 
-                                            ? {...a, name: e.target.value}
-                                            : a
-                                        );
-                                        setAssessments(updated);
-                                      }}
-                                      onBlur={handleSaveAssessment}
-                                      className="bg-white"
-                                    />
-                                  </TableCell>
+                                  <TableCell className="font-medium text-slate-800">{item.name}</TableCell>
                                   <TableCell>
                                     <Input 
                                       type="number"
                                       value={item.week || 0}
                                       onChange={e => {
-                                        const updated = assessments.map(a => 
-                                          a.assessment_id === item.assessment_id 
-                                            ? {...a, week: Number(e.target.value)}
-                                            : a
-                                        );
-                                        setAssessments(updated);
+                                        updateAssessmentRow(item, { week: Number(e.target.value) });
                                       }}
-                                      onBlur={handleSaveAssessment}
                                       className="bg-white text-center"
                                     />
                                   </TableCell>
@@ -4200,14 +4601,8 @@ export default function CourseQualityDialog({
                                       type="number"
                                       value={item.grade}
                                       onChange={e => {
-                                        const updated = assessments.map(a => 
-                                          a.assessment_id === item.assessment_id 
-                                            ? {...a, grade: Number(e.target.value)}
-                                            : a
-                                        );
-                                        setAssessments(updated);
+                                        updateAssessmentRow(item, { grade: Number(e.target.value) });
                                       }}
-                                      onBlur={handleSaveAssessment}
                                       className="bg-white text-center"
                                     />
                                   </TableCell>
@@ -4216,32 +4611,39 @@ export default function CourseQualityDialog({
                                       type="number"
                                       value={item.percentage}
                                       onChange={e => {
-                                        const updated = assessments.map(a => 
-                                          a.assessment_id === item.assessment_id 
-                                            ? {...a, percentage: Number(e.target.value)}
-                                            : a
-                                        );
-                                        setAssessments(updated);
+                                        updateAssessmentRow(item, { percentage: Number(e.target.value) });
                                       }}
-                                      onBlur={handleSaveAssessment}
                                       className="bg-white text-center"
                                     />
                                   </TableCell>
                                   <TableCell>
-                                    <Button 
-                                      size="icon" 
-                                      variant="ghost"
-                                      className="text-red-500 h-8 w-8"
-                                      onClick={() => handleDeleteAssessment(item.assessment_id)}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                    {courseOutcomes.length === 0 ? (
+                                      <span className="text-xs text-amber-700">لا توجد مخرجات للمقرر</span>
+                                    ) : (
+                                      <div className="flex min-w-52 flex-wrap gap-2">
+                                        {courseOutcomes.sort((a, b) => a.order - b.order).map(outcome => (
+                                          <label key={outcome.clo_id} className="flex cursor-pointer items-center gap-1 text-xs">
+                                            <Checkbox
+                                              checked={(item.clo_ids || []).includes(outcome.code)}
+                                              onCheckedChange={checked => updateAssessmentRow(item, {
+                                                clo_ids: checked
+                                                  ? [...(item.clo_ids || []), outcome.code]
+                                                  : (item.clo_ids || []).filter(code => code !== outcome.code)
+                                              })}
+                                            />
+                                            {outcome.code}
+                                          </label>
+                                        ))}
+                                      </div>
+                                    )}
                                   </TableCell>
                                 </TableRow>
-                              ))
-                            )}
+                              ))}
                             <TableRow className="bg-green-50 font-bold">
-                              <TableCell colSpan={4} className="text-left">الإجمالي</TableCell>
+                              <TableCell colSpan={3} className="text-left">الإجمالي</TableCell>
+                              <TableCell className="text-center text-lg text-green-700">
+                                {getTotalAssessmentGrade()}
+                              </TableCell>
                               <TableCell className={cn(
                                 "text-center text-lg",
                                 getTotalAssessmentPercentage() === 100 ? "text-green-600" : "text-red-600"
@@ -4252,6 +4654,12 @@ export default function CourseQualityDialog({
                             </TableRow>
                           </TableBody>
                         </Table>
+                      </div>
+                      <div className="flex justify-end mt-4">
+                        <Button onClick={handleSaveAllAssessments} disabled={saving}>
+                          {saving ? <Loader2 className="w-4 h-4 ml-2 animate-spin" /> : <Save className="w-4 h-4 ml-2" />}
+                          حفظ بنود التقييم
+                        </Button>
                       </div>
   
                       {getTotalAssessmentPercentage() !== 100 && (
@@ -4288,6 +4696,22 @@ export default function CourseQualityDialog({
                         </Button>
                       </div>
                     </CardHeader>
+                    {isAddingReference && (
+                      <div className="p-4 border-b bg-teal-50/40 space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <Select value={referenceFormData.type || "main"} onValueChange={type => setReferenceFormData({ ...referenceFormData, type: type as CourseReference["type"] })}><SelectTrigger><SelectValue placeholder="نوع المرجع" /></SelectTrigger><SelectContent><SelectItem value="main">مرجع رئيسي</SelectItem><SelectItem value="support">مرجع مساعد</SelectItem><SelectItem value="electronic">إلكتروني</SelectItem></SelectContent></Select>
+                          <Input placeholder="العنوان" value={referenceFormData.title || ""} onChange={e => setReferenceFormData({ ...referenceFormData, title: e.target.value })} />
+                          <Input placeholder="المؤلف" value={referenceFormData.author || ""} onChange={e => setReferenceFormData({ ...referenceFormData, author: e.target.value })} />
+                          <Input type="number" placeholder="سنة النشر" value={referenceFormData.year || ""} onChange={e => setReferenceFormData({ ...referenceFormData, year: e.target.value })} />
+                          <Input placeholder="الإصدار" value={referenceFormData.edition || ""} onChange={e => setReferenceFormData({ ...referenceFormData, edition: e.target.value })} />
+                          <Input placeholder="دار النشر" value={referenceFormData.publisher || ""} onChange={e => setReferenceFormData({ ...referenceFormData, publisher: e.target.value })} />
+                          <Input placeholder="البلد" value={referenceFormData.country || ""} onChange={e => setReferenceFormData({ ...referenceFormData, country: e.target.value })} />
+                          <Input type="number" min="0" placeholder="الترتيب" value={referenceFormData.order ?? ""} onChange={e => setReferenceFormData({ ...referenceFormData, order: Number(e.target.value) })} />
+                        </div>
+                        {referenceFormData.type === "electronic" && <div className="grid grid-cols-1 md:grid-cols-2 gap-3"><Select value={referenceFormData.category || "website"} onValueChange={category => setReferenceFormData({ ...referenceFormData, category: category as any })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="website">موقع إلكتروني</SelectItem><SelectItem value="journal">مجلة علمية</SelectItem><SelectItem value="other">مصدر ويب آخر</SelectItem></SelectContent></Select><Input placeholder="الرابط" value={referenceFormData.url || ""} onChange={e => setReferenceFormData({ ...referenceFormData, url: e.target.value })} /></div>}
+                        <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => { setIsAddingReference(false); setReferenceFormData({}); setEditingReferenceId(null); }}>إلغاء</Button><Button onClick={handleSaveReference}>{editingReferenceId ? "حفظ التعديلات" : "حفظ المرجع"}</Button></div>
+                      </div>
+                    )}
                     <CardContent className="p-6 space-y-6">
                       
                       <Accordion type="single" collapsible className="bg-teal-50/50 rounded-lg border border-teal-200">
@@ -4323,141 +4747,18 @@ export default function CourseQualityDialog({
                           ) : (
                             references.filter(r => r.type === type).map((ref) => (
                               <div key={ref.reference_id} className="p-4 bg-slate-50 rounded-lg border space-y-3 hover:border-teal-300 transition-colors">
-                                {type !== "electronic" ? (
-                                  <>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                      <Input 
-                                        value={ref.author || ""}
-                                        onChange={e => {
-                                          const updated = references.map(r => 
-                                            r.reference_id === ref.reference_id 
-                                              ? {...r, author: e.target.value}
-                                              : r
-                                          );
-                                          setReferences(updated);
-                                        }}
-                                        placeholder="اسم المؤلف"
-                                        className="bg-white"
-                                      />
-                                      <Input 
-                                        value={ref.year || ""}
-                                        onChange={e => {
-                                          const updated = references.map(r => 
-                                            r.reference_id === ref.reference_id 
-                                              ? {...r, year: e.target.value}
-                                              : r
-                                          );
-                                          setReferences(updated);
-                                        }}
-                                        placeholder="السنة"
-                                        className="bg-white"
-                                      />
-                                    </div>
-                                    <Input 
-                                      value={ref.title}
-                                      onChange={e => {
-                                        const updated = references.map(r => 
-                                          r.reference_id === ref.reference_id 
-                                            ? {...r, title: e.target.value}
-                                            : r
-                                        );
-                                        setReferences(updated);
-                                      }}
-                                      placeholder="العنوان"
-                                      className="bg-white"
-                                    />
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                      <Input 
-                                        value={ref.edition || ""}
-                                        onChange={e => {
-                                          const updated = references.map(r => 
-                                            r.reference_id === ref.reference_id 
-                                              ? {...r, edition: e.target.value}
-                                              : r
-                                          );
-                                          setReferences(updated);
-                                        }}
-                                        placeholder="الإصدار"
-                                        className="bg-white"
-                                      />
-                                      <Input 
-                                        value={ref.publisher || ""}
-                                        onChange={e => {
-                                          const updated = references.map(r => 
-                                            r.reference_id === ref.reference_id 
-                                              ? {...r, publisher: e.target.value}
-                                              : r
-                                          );
-                                          setReferences(updated);
-                                        }}
-                                        placeholder="الناشر"
-                                        className="bg-white"
-                                      />
-                                      <div className="flex gap-2">
-                                        <Input 
-                                          value={ref.country || ""}
-                                          onChange={e => {
-                                            const updated = references.map(r => 
-                                              r.reference_id === ref.reference_id 
-                                                ? {...r, country: e.target.value}
-                                                : r
-                                            );
-                                            setReferences(updated);
-                                          }}
-                                          placeholder="البلد"
-                                          className="bg-white flex-1"
-                                        />
-                                        <Button 
-                                          size="icon" 
-                                          variant="ghost"
-                                          className="text-red-500 h-10"
-                                          onClick={() => handleDeleteReference(ref.reference_id)}
-                                        >
-                                          <Trash2 className="w-4 h-4" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div className="space-y-2 flex gap-2">
-                                    <Input 
-                                      value={ref.title}
-                                      onChange={e => {
-                                        const updated = references.map(r => 
-                                          r.reference_id === ref.reference_id 
-                                            ? {...r, title: e.target.value}
-                                            : r
-                                        );
-                                        setReferences(updated);
-                                      }}
-                                      placeholder="اسم الموقع/المصدر"
-                                      className="bg-white flex-1"
-                                    />
-                                    <Button 
-                                      size="icon" 
-                                      variant="ghost"
-                                      className="text-red-500 h-10"
-                                      onClick={() => handleDeleteReference(ref.reference_id)}
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="space-y-2">
+                                    <p className="font-semibold text-slate-800">{ref.title}</p>
+                                    {type !== "electronic" && <p className="text-sm text-slate-600">{[ref.author, ref.year, ref.edition, ref.publisher, ref.country].filter(Boolean).join(" - ")}</p>}
+                                    {type === "electronic" && <p className="text-sm text-slate-600">{ref.category === "website" ? "موقع إلكتروني" : ref.category === "journal" ? "مجلة علمية" : "مصدر ويب آخر"}</p>}
+                                    {ref.url && <a href={ref.url} target="_blank" rel="noreferrer" className="block text-sm text-teal-700 underline break-all">{ref.url}</a>}
                                   </div>
-                                )}
-                                {type === "electronic" && (
-                                  <Input 
-                                    value={ref.url || ""}
-                                    onChange={e => {
-                                      const updated = references.map(r => 
-                                        r.reference_id === ref.reference_id 
-                                          ? {...r, url: e.target.value}
-                                          : r
-                                      );
-                                      setReferences(updated);
-                                    }}
-                                    placeholder="https://example.com"
-                                    className="bg-white"
-                                  />
-                                )}
+                                  <div className="flex shrink-0 gap-1">
+                                    <Button size="icon" variant="ghost" className="text-teal-700 hover:bg-teal-50" onClick={() => handleEditReference(ref)}><Edit className="w-4 h-4" /></Button>
+                                    <Button size="icon" variant="ghost" className="text-red-500 hover:bg-red-50" onClick={() => handleDeleteReference(ref.reference_id)}><Trash2 className="w-4 h-4" /></Button>
+                                  </div>
+                                </div>
                               </div>
                             ))
                           )}
@@ -4492,6 +4793,13 @@ export default function CourseQualityDialog({
                         </Button>
                       </div>
                     </CardHeader>
+                    {isAddingPolicy && (
+                      <div className="p-4 border-b bg-rose-50/40 space-y-3">
+                        <Input placeholder="عنوان الضابط" value={policyFormData.title || ""} onChange={e => setPolicyFormData({ ...policyFormData, title: e.target.value })} />
+                        <Textarea placeholder="نص الضابط أو السياسة" value={policyFormData.content || ""} onChange={e => setPolicyFormData({ ...policyFormData, content: e.target.value })} />
+                        <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setIsAddingPolicy(false)}>إلغاء</Button><Button onClick={handleSavePolicy}>حفظ الضابط</Button></div>
+                      </div>
+                    )}
                     <CardContent className="p-6 space-y-4">
                       
                       {/* Fixed Policies */}
@@ -4570,22 +4878,14 @@ export default function CourseQualityDialog({
 
         {/* ==================== FOOTER ==================== */}
         <div className="p-4 border-t bg-slate-50 shrink-0 flex flex-col sm:flex-row justify-between gap-3" dir="rtl">
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <Info className="w-4 h-4" />
-            <span>الجزء النشط: <strong>{activePart}</strong> • التاب: <strong>{activeTab}</strong></span>
-          </div>
           <div className="flex gap-2 justify-end flex-wrap">
             <Button variant="outline" onClick={onClose}>
               <X className="w-4 h-4 mr-2" />
               إغلاق
             </Button>
-            <Button variant="outline">
-              <Download className="w-4 h-4 mr-2" />
-              تصدير PDF
-            </Button>
-            <Button className="bg-indigo-600 hover:bg-indigo-700">
-              <Save className="w-4 h-4 mr-2" />
-              حفظ جميع التغييرات
+            <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={handlePrintSpecification} disabled={printPreparing}>
+              {printPreparing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              طباعة توصيف المقرر
             </Button>
           </div>
         </div>

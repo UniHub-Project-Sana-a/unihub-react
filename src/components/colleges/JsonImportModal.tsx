@@ -21,11 +21,20 @@ interface Props {
   collegeId?: string;
 }
 
+type SyncErrorEntry = {
+  room_code: string;
+  error_type: string;
+  message: string;
+  dev_note?: string;
+};
+
 type SyncSummary = {
   imported_classrooms: number;
   skipped_test_data: number;
   skipped_unapproved_buildings: number;
   skipped_scope: number;
+  skipped_invalid_college_mapping?: number;
+  errors?: SyncErrorEntry[];
   message: string;
 };
 
@@ -118,6 +127,7 @@ export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId 
             code: bId,
             name_ar: bName,
             college_id: r.collegeId || r.college_id || collegeId,
+            collegeName: r.collegeName || r.college_name,
           });
         }
       });
@@ -131,6 +141,7 @@ export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId 
           college_id: r.collegeId || r.college_id || collegeId,
           building_id: r.buildingId || r.building_id,
         })),
+        scope_college_id: collegeId || undefined,
       };
 
       setUploadProgress(50);
@@ -152,14 +163,25 @@ export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId 
         skipped_test_data: 0,
         skipped_unapproved_buildings: 0,
         skipped_scope: 0,
+        skipped_invalid_college_mapping: 0,
+        errors: [],
         message: "تم المزامنة بنجاح",
       };
 
       setSyncResult(summary);
-      toast({
-        title: "نجاح المزامنة",
-        description: summary.message,
-      });
+
+      if (summary.errors && summary.errors.length > 0) {
+        toast({
+          title: "اكتملت المزامنة مع وجود أخطاء",
+          description: `تم استيراد بعض القاعات، ولكن تم رفض ${summary.errors.length} قاعة بسبب أخطاء تقنية في البيانات.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "نجاح المزامنة",
+          description: summary.message,
+        });
+      }
 
       onSuccess();
     } catch (error: any) {
@@ -176,7 +198,7 @@ export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId 
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-xl text-right" dir="rtl">
+      <DialogContent className="max-w-2xl text-right" dir="rtl">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold flex items-center gap-2">
             <FileJson className="w-6 h-6 text-primary" />
@@ -269,10 +291,20 @@ export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId 
           {/* تقرير نتائج المزامنة البصري */}
           {syncResult && (
             <div className="space-y-4">
-              <div className="bg-green-500/10 border border-green-500/20 text-green-700 dark:text-green-400 p-4 rounded-xl flex items-start gap-3">
-                <CheckCircle2 className="w-6 h-6 text-green-600 shrink-0 mt-0.5" />
+              <div className={`p-4 rounded-xl flex items-start gap-3 ${
+                syncResult.errors && syncResult.errors.length > 0
+                  ? "bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400"
+                  : "bg-green-500/10 border border-green-500/20 text-green-700 dark:text-green-400"
+              }`}>
+                {syncResult.errors && syncResult.errors.length > 0 ? (
+                  <AlertTriangle className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+                ) : (
+                  <CheckCircle2 className="w-6 h-6 text-green-600 shrink-0 mt-0.5" />
+                )}
                 <div>
-                  <h4 className="font-bold text-sm">تمت المزامنة بنجاح</h4>
+                  <h4 className="font-bold text-sm">
+                    {syncResult.errors && syncResult.errors.length > 0 ? "اكتملت المزامنة مع وجود أخطاء" : "تمت المزامنة بنجاح"}
+                  </h4>
                   <p className="text-xs mt-1 leading-relaxed">{syncResult.message}</p>
                 </div>
               </div>
@@ -307,6 +339,32 @@ export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId 
                   </div>
                 )}
               </div>
+
+              {/* قائمة قابلة للتمرير بأخطاء ربط الكلية القادمة من الملف */}
+              {syncResult.errors && syncResult.errors.length > 0 && (
+                <div className="bg-destructive/10 border border-destructive/20 rounded-xl overflow-hidden">
+                  <div className="flex items-center gap-2 p-3 border-b border-destructive/20 text-destructive font-bold text-sm">
+                    <ShieldAlert className="w-4 h-4" />
+                    قاعات مرفوضة بسبب أخطاء تقنية ({syncResult.errors.length})
+                  </div>
+                  <div className="max-h-56 overflow-y-auto divide-y divide-destructive/10">
+                    {syncResult.errors.map((err, idx) => (
+                      <div key={idx} className="p-3 text-xs space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-foreground">{err.room_code}</span>
+                          <Badge variant="destructive" className="text-[10px]">{err.error_type}</Badge>
+                        </div>
+                        <p className="text-destructive leading-relaxed">{err.message}</p>
+                        {err.dev_note && (
+                          <p className="text-muted-foreground text-[11px] font-mono ltr:text-left" dir="ltr">
+                            {err.dev_note}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

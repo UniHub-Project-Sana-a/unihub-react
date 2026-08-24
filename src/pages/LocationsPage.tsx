@@ -24,7 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Building2, MapPin, Plus, FileJson, Search, Filter, RefreshCw, Layers, ArrowLeftRight, CheckCircle2, Trash2 } from "lucide-react";
+import { Building2, MapPin, Plus, FileJson, Search, Filter, RefreshCw, Layers, ArrowLeftRight, CheckCircle2, Trash2, Monitor, Projector, Tv } from "lucide-react";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import JsonImportModal from "@/components/colleges/JsonImportModal";
@@ -33,7 +33,7 @@ import { usePermission } from "@/hooks/usePermission";
 interface Building {
   building_id: number;
   building_name: string;
-  code: string | null;
+  building_code: string | null;
   floors_count: number;
   college_id: number | null;
   classrooms_count?: number;
@@ -48,7 +48,13 @@ interface Classroom {
   floor: number | null;
   capacity: number;
   classroom_type: number;
-  building?: { building_name: string; code: string | null };
+  windows_count?: number | null;
+  has_computer?: boolean;
+  display_type?: "none" | "screen" | "projector" | "smart_board";
+  notes?: string | null;
+  location_address?: string | null;
+  remote_id?: string | null;
+  building?: { building_name: string; building_code: string | null };
   college?: { college_name: string };
 }
 
@@ -117,7 +123,7 @@ export default function LocationsPage() {
     try {
       const payload: any = {
         building_name: buildingFormData.name,
-        code: buildingFormData.code || buildingFormData.name,
+        building_code: buildingFormData.code || buildingFormData.name,
         floors_count: Number(buildingFormData.floorsCount || 1),
       };
       if (buildingFormData.collegeId !== "none") {
@@ -278,12 +284,17 @@ export default function LocationsPage() {
                             {bld.building_name}
                           </CardTitle>
                           <CardDescription className="text-xs mt-1">
-                            كود المبنى: <span className="font-semibold text-foreground">{bld.code || bld.building_id}</span>
+                            كود المبنى: <span className="font-semibold text-foreground">{bld.building_code || bld.building_id}</span>
                           </CardDescription>
                         </div>
-                        <Badge variant="secondary" className="text-xs">
-                          {bld.floors_count} أدوار
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1">
+                          <Badge variant="secondary" className="text-xs">
+                            {bld.floors_count} أدوار
+                          </Badge>
+                          {bld.college_id == null && (
+                            <Badge variant="outline" className="text-[10px]">عام / مشترك</Badge>
+                          )}
+                        </div>
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-3 text-xs">
@@ -426,6 +437,7 @@ export default function LocationsPage() {
                       <TableHead>الكلية المخصصة</TableHead>
                       <TableHead>النوع</TableHead>
                       <TableHead>السعة / الدور</TableHead>
+                      <TableHead>الأصول والموقع</TableHead>
                       <TableHead className="text-left">إعادة التخصيص</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -460,12 +472,28 @@ export default function LocationsPage() {
                                 {col.college_name}
                               </Badge>
                             ) : (
-                              <Badge variant="secondary">مشتركة / غير مخصصة</Badge>
+                              <Badge variant="secondary">عام / مشترك</Badge>
                             )}
                           </TableCell>
                           <TableCell>{typeText}</TableCell>
                           <TableCell>
                             {room.capacity} طالب (دور {room.floor ?? 0})
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              {room.has_computer && <Monitor className="w-4 h-4 text-primary" aria-label="يوجد حاسوب" />}
+                              {room.display_type === "projector" && <Projector className="w-4 h-4 text-primary" />}
+                              {room.display_type === "screen" && <Tv className="w-4 h-4 text-primary" />}
+                              {!room.has_computer && (!room.display_type || room.display_type === "none") && (
+                                <span className="text-xs">-</span>
+                              )}
+                            </div>
+                            {room.location_address && (
+                              <div className="text-[11px] text-muted-foreground flex items-center gap-1 mt-1">
+                                <MapPin className="w-3 h-3" />
+                                {room.location_address}
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="text-left">
                             <div className="flex items-center justify-end gap-1">
@@ -501,7 +529,7 @@ export default function LocationsPage() {
 
                     {filteredClassrooms.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           لا توجد قاعات تطابق الفلاتر المحددة.
                         </TableCell>
                       </TableRow>

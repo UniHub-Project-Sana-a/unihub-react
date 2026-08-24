@@ -190,19 +190,56 @@ const handleOpenEndSession = (session: LectureSession) => {
 };
   
   // دالة تنفيذ الإنهاء (مع GPS)
-  const confirmEndSession = () => {
+  const confirmEndSession = async () => {
       if (isEarlyExit && !earlyExitReason.trim()) {
           toast({ title: "تنبيه", description: "يرجى ذكر سبب إنهاء المحاضرة قبل وقتها.", variant: "destructive" });
           return;
       }
   
       setIsEnding(true);
-  
-      // 1. طلب الموقع
+
+      // 1. التحقق من حالة صلاحية الموقع قبل طلبه
       if (!navigator.geolocation) {
           toast({ title: "خطأ", description: "المتصفح لا يدعم تحديد الموقع.", variant: "destructive" });
           setIsEnding(false);
           return;
+      }
+
+      try {
+          if (navigator.permissions && navigator.permissions.query) {
+              const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+
+              if (status.state === 'denied') {
+                  toast({
+                      title: "تم رفض الوصول للموقع",
+                      description: "المتصفح منع طلب الموقع. افتح إعدادات الموقع في المتصفح ثم أعد المحاولة.",
+                      variant: "destructive"
+                  });
+                  setIsEnding(false);
+                  return;
+              }
+
+              if (status.state === 'prompt') {
+                  toast({
+                      title: "السماح للوصول للموقع",
+                      description: "يرجى الموافقة على الوصول إلى الموقع لتأكيد إتمام المحاضرة.",
+                      variant: "default"
+                  });
+              }
+          } else {
+              toast({
+                  title: "السماح للوصول للموقع",
+                  description: "يرجى الموافقة على الوصول إلى الموقع لتأكيد إتمام المحاضرة.",
+                  variant: "default"
+              });
+          }
+      } catch (permissionError) {
+          console.warn("Permission query failed, falling back to geolocation request", permissionError);
+          toast({
+              title: "السماح للوصول للموقع",
+              description: "يرجى الموافقة على الوصول إلى الموقع لتأكيد إتمام المحاضرة.",
+              variant: "default"
+          });
       }
   
       navigator.geolocation.getCurrentPosition(
@@ -226,7 +263,17 @@ const handleOpenEndSession = (session: LectureSession) => {
           },
           (error) => {
               console.error(error);
-              toast({ title: "فشل تحديد الموقع", description: "يرجى السماح للموقع بالعمل.", variant: "destructive" });
+
+              if (error.code === error.PERMISSION_DENIED) {
+                  toast({
+                      title: "تم رفض الوصول للموقع",
+                      description: "تم رفض الوصول إلى الموقع من المتصفح. افتح إعدادات الموقع في المتصفح ثم أعد المحاولة.",
+                      variant: "destructive"
+                  });
+              } else {
+                  toast({ title: "فشل تحديد الموقع", description: "يرجى السماح للموقع بالعمل.", variant: "destructive" });
+              }
+
               setIsEnding(false);
           },
           { enableHighAccuracy: true,

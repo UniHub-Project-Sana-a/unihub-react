@@ -163,7 +163,6 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
-  // تحقق من الامتداد
   const isCsv = file.name.toLowerCase().endsWith(".csv");
   if (!isCsv) {
     toast({ title: "تنبيه", description: "الرجاء اختيار ملف CSV", variant: "destructive" });
@@ -175,22 +174,58 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setIsImportingCsv(true);
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("college_id", collegeId); // لو الـ API يحتاج تمرير الكلية
+    formData.append("college_id", collegeId);
 
-    // نوصي بمسار مثل: POST /v1/lecturers/import-csv
-    await api.post("/v1/lecturers/import-csv", formData, {
+    const response = await api.post("/v1/lecturers/import-csv", formData, {
       headers: { "Content-Type": "multipart/form-data" },
     });
 
-    toast({ title: "نجاح", description: "تم استيراد أعضاء هيئة التدريس من CSV" });
+    // استخراج البيانات بما فيها مصفوفة الأخطاء
+    const { imported, updated, skipped, errors } = response.data;
+
+    // بناء رسالة الوصف
+    let description = `تم استيراد ${imported} وتحديث ${updated}.`;
+    if (skipped > 0) {
+      description += ` تم تخطي ${skipped} سطر.`;
+    }
+
+    // إذا وجدنا أخطاء، ندمجها في الرسالة
+    if (errors && errors.length > 0) {
+      const errorText = errors.slice(0, 3).join("\n"); // عرض أول 3 أخطاء
+      const more = errors.length > 3 ? `\n... و ${errors.length - 3} أخطاء أخرى` : "";
+      
+      toast({
+        title: skipped > 0 ? "اكتمل الاستيراد مع وجود تنبيهات" : "تمت العملية",
+        description: (
+          <div className="whitespace-pre-line text-sm">
+            <p>{description}</p>
+            <div className="mt-2 p-2 bg-destructive/10 text-destructive rounded-md border border-destructive/20 text-xs">
+              <strong>أسباب التخطي:</strong>
+              <p className="mt-1">{errorText + more}</p>
+            </div>
+          </div>
+        ) as any, // استخدام JSX لعرض الأخطاء بشكل جميل
+        duration: 7000,
+      });
+    } else {
+      toast({
+        title: "نجاح الاستيراد",
+        description: description,
+      });
+    }
+
+    await fetchUsers();
     await fetchStaff();
   } catch (error: any) {
-    const err = error?.response?.data?.errors || error?.response?.data?.message || "فشل استيراد الملف";
-    const msg = typeof err === "string" ? err : Object.values(err)?.[0]?.[0] || "فشل استيراد الملف";
-    toast({ title: "خطأ", description: String(msg), variant: "destructive" });
+    // هذا الجزء للأخطاء الفادحة (500) أو أخطاء الشبكة
+    const msg = error?.response?.data?.message || "فشل اتصال السيرفر";
+    toast({
+      title: "خطأ فادح",
+      description: msg,
+      variant: "destructive",
+    });
   } finally {
     setIsImportingCsv(false);
-    // لتسمح برفع نفس الملف مرة أخرى
     e.target.value = "";
   }
 };
@@ -254,61 +289,46 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
   const fetchStaff = async () => {
     try {
-      // يفترض وجود LecturersController@index يدعم college_id ويعيد user/title/department محملة أو مفاتيحها
       const res = await api.get("/v1/lecturers", { params: { college_id: collegeId } });
       const raw: any[] = res.data?.data ?? res.data;
-
-      // لو الـ API لا يعيد user و title بالداخل، سنحتاج تطبيع عبر users/titles التي حمّلناها
-      const usersMap = new Map(users.map((u) => [u.id, u]));
-      const titlesMap = new Map(titles.map((t) => [t.id, t]));
-
+  
       const mapped: AcademicStaff[] = raw.map((lec) => {
-        const userId = String(lec.user_id);
-        const depId = lec.department_id ? String(lec.department_id) : null;
-        const titleId = lec.title_id ? String(lec.title_id) : "";
-        const u = usersMap.get(userId);
-        const t = titlesMap.get(titleId);
-
+        // هنا نستخدم البيانات المدمجة مباشرة من الـ API (lec.user و lec.academic_title)
+        const u = lec.user;
+        const t = lec.academic_title;
+        const d = lec.department;
+  
         return {
           id: String(lec.lecturer_id),
-          userId,
-          fullName: u?.name || lec.full_name || "",
-          staffNumber: u?.academicNumber || "",
-          academicAffairsNumber: "", // ليس في DB
-          academicRank: t?.name || lec.academic_rank || "",
-          academicTitleId: titleId || undefined,
+          userId: String(lec.user_id),
+          // استخدم البيانات القادمة من العلاقة (Relation) مباشرة
+          fullName: u?.full_name || "", 
+          staffNumber: u?.academic_number || "",
+          academicAffairsNumber: "", 
+          academicRank: t?.title_name || "",
+          academicTitleId: lec.title_id ? String(lec.title_id) : undefined,
           employmentType: lec.status ? "متفرغ" : "غير متفرغ",
-          lectureRate: t?.hourlyPrice ?? 0,
-          address: "", // ليس في DB
+          lectureRate: t?.hourly_price ?? 0,
+          address: "", 
           phone: u?.phone || "",
           email: u?.email || "",
           notes: "",
           collegeId: String(lec.college_id),
-          departmentId: depId,
+          departmentId: lec.department_id ? String(lec.department_id) : null,
           hireDate: lec.hire_date || "",
-          canTeachExternally: lec.can_teach_externally || false,
+          canTeachExternally: lec.can_teach_externally === 1 || lec.can_teach_externally === true,
         };
       });
-
+  
       setCollegeStaff(mapped);
-      // بيانات واجهات الاستحقاقات (اختيارية)
-      setEntitlementReviews(
-        mapped.map((s) => ({
-          staffId: s.id,
-          hoursWorked: 0,
-          hourlyRate: s.lectureRate,
-          total: 0,
-        }))
-      );
-      setEntitlementApprovals(
-        mapped.map((s) => ({
-          staffId: s.id,
-          status: "قيد المراجعة",
-          approvedBy: "-",
-          date: "",
-        }))
-      );
-      setEntitlementPayouts([]);
+      
+      // تحديث واجهات الاستحقاقات
+      setEntitlementReviews(mapped.map(s => ({
+        staffId: s.id,
+        hoursWorked: 0,
+        hourlyRate: s.lectureRate,
+        total: 0,
+      })));
     } catch {
       toast({ title: "خطأ", description: "فشل تحميل أعضاء هيئة التدريس", variant: "destructive" });
     }

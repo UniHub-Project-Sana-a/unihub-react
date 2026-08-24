@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Plus, Edit, Trash2, Loader2, Target, Layers, LayoutGrid, 
-  Clock, AlertCircle, X, ChevronRight, BookOpen, GraduationCap, Calendar, Box, Edit2 , Save
+  Clock, AlertCircle, X, ChevronRight, BookOpen, GraduationCap, Calendar, Box, Edit2, Save, Lightbulb
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePermission } from "@/hooks/usePermission";
@@ -127,6 +127,26 @@ type ProgramOutcome = {
   program_id: number;
 };
 
+type ProgramOption = {
+  id: number;
+  program_id?: number | null;
+  name: string;
+  description?: string | null;
+  category: string;
+  order: number;
+  is_active: boolean;
+};
+
+type ProgramOptionAudit = {
+  id: number;
+  option_type: "teaching_strategy" | "assessment_method";
+  option_id?: number;
+  action: "created" | "updated" | "deleted";
+  details?: { before?: Record<string, unknown> | null; after?: Record<string, unknown> | null };
+  changed_by?: number | null;
+  changed_at: string;
+};
+
 const departmentSchema = z.object({ 
   department_name: z.string().min(2, "الاسم مطلوب"), 
   department_code: z.string().min(1, "الكود مطلوب") 
@@ -141,6 +161,20 @@ type DepartmentFormData = z.infer<typeof departmentSchema>;
 export default function DepartmentsModule({ collegeId }: { collegeId: string }) {
   const { can } = usePermission();
   const { toast } = useToast();
+
+  const handleNumberInputFocus = (event: React.FocusEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.type === "number" && target.value === "0") {
+      target.select();
+    }
+  };
+
+  const handleNumberInputWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.type === "number") {
+      target.blur();
+    }
+  };
 
   const [departments, setDepartments] = useState<ApiDepartment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -212,6 +246,11 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   const [termCourses, setTermCourses] = useState<ApiCourse[]>([]);
   const [blockCourses, setBlockCourses] = useState<ApiCourse[]>([]);
   const [categoryCourses, setCategoryCourses] = useState<ApiCourse[]>([]);
+  const [courseWeightSummary, setCourseWeightSummary] = useState({
+    programWeight: 0,
+    usedCourseWeight: 0,
+    remainingWeight: 0,
+  });
   const [isCourseFormOpen, setIsCourseFormOpen] = useState(false);
   const [editingCourse, setEditingCourse] = useState<ApiCourse | null>(null);
   const [activeCourseCategory, setActiveCourseCategory] = useState<string | null>(null);
@@ -263,6 +302,16 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     order: 0,
     is_active: true
   });
+
+  const [isProgramOptionsDialogOpen, setIsProgramOptionsDialogOpen] = useState(false);
+  const [activeProgramForOptions, setActiveProgramForOptions] = useState<Program | null>(null);
+  const [programOptionTab, setProgramOptionTab] = useState<"teaching" | "assessment">("teaching");
+  const [teachingProgramOptions, setTeachingProgramOptions] = useState<ProgramOption[]>([]);
+  const [assessmentProgramOptions, setAssessmentProgramOptions] = useState<ProgramOption[]>([]);
+  const [programOptionAudits, setProgramOptionAudits] = useState<ProgramOptionAudit[]>([]);
+  const [isProgramOptionFormOpen, setIsProgramOptionFormOpen] = useState(false);
+  const [editingProgramOption, setEditingProgramOption] = useState<ProgramOption | null>(null);
+  const [programOptionFormData, setProgramOptionFormData] = useState({ name: "", description: "", category: "other", order: 0, is_active: true });
 
   const [qualityDialogCourse, setQualityDialogCourse] = useState<any>(null);
 
@@ -682,6 +731,76 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     await fetchProgramOutcomes(program.id);
   };
 
+  const fetchProgramOptions = async (programId: number) => {
+    const [strategiesRes, methodsRes, auditsRes] = await Promise.all([
+      api.get("/v1/teaching-strategies", { params: { program_id: programId } }),
+      api.get("/v1/assessment-methods", { params: { program_id: programId } }),
+      api.get("/v1/program-option-audits", { params: { program_id: programId } }),
+    ]);
+    const normalize = (value: any): ProgramOption[] => (value?.data ?? value ?? []).map((item: any) => ({
+      id: Number(item.id),
+      program_id: item.program_id ? Number(item.program_id) : null,
+      name: String(item.name ?? ""),
+      description: item.description ?? "",
+      category: String(item.category ?? "other"),
+      order: Number(item.order ?? 0),
+      is_active: Boolean(item.is_active ?? true),
+    }));
+    setTeachingProgramOptions(normalize(strategiesRes.data?.data ?? strategiesRes.data?.strategies));
+    setAssessmentProgramOptions(normalize(methodsRes.data?.data ?? methodsRes.data?.methods));
+    setProgramOptionAudits(auditsRes.data?.data ?? []);
+  };
+
+  const handleOpenProgramOptions = async (program: Program) => {
+    setActiveProgramForOptions(program);
+    setIsProgramOptionsDialogOpen(true);
+    try {
+      await fetchProgramOptions(program.id);
+    } catch {
+      toast({ title: "خطأ", description: "فشل تحميل استراتيجيات التدريس وطرق التقييم", variant: "destructive" });
+    }
+  };
+
+  const openProgramOptionForm = (option: ProgramOption | null = null) => {
+    setEditingProgramOption(option);
+    setProgramOptionFormData(option
+      ? { name: option.name, description: option.description ?? "", category: option.category, order: option.order, is_active: option.is_active }
+      : { name: "", description: "", category: "other", order: 0, is_active: true });
+    setIsProgramOptionFormOpen(true);
+  };
+
+  const handleSaveProgramOption = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!activeProgramForOptions || !programOptionFormData.name.trim()) {
+      toast({ title: "تنبيه", description: "اسم العنصر مطلوب", variant: "destructive" });
+      return;
+    }
+    const isTeaching = programOptionTab === "teaching";
+    const endpoint = isTeaching ? "/v1/teaching-strategies" : "/v1/assessment-methods";
+    const payload = { ...programOptionFormData, name: programOptionFormData.name.trim(), program_id: activeProgramForOptions.id };
+    try {
+      if (editingProgramOption) await api.put(`${endpoint}/${editingProgramOption.id}`, payload);
+      else await api.post(endpoint, payload);
+      await fetchProgramOptions(activeProgramForOptions.id);
+      setIsProgramOptionFormOpen(false);
+      toast({ title: "نجاح", description: "تم حفظ البيانات وتسجيل التغيير" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل حفظ البيانات", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteProgramOption = async (option: ProgramOption) => {
+    if (!activeProgramForOptions || !confirm(`هل أنت متأكد من حذف ${option.name}؟`)) return;
+    const endpoint = programOptionTab === "teaching" ? "/v1/teaching-strategies" : "/v1/assessment-methods";
+    try {
+      await api.delete(`${endpoint}/${option.id}`);
+      await fetchProgramOptions(activeProgramForOptions.id);
+      toast({ title: "نجاح", description: "تم الحذف وتسجيل التغيير" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل الحذف", variant: "destructive" });
+    }
+  };
+
   const handleSaveProgramOutcome = async () => {
     if (!programOutcomeFormData.code || !programOutcomeFormData.description) {
       toast({ 
@@ -720,12 +839,13 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       .reduce((sum, o) => sum + (Number(o.weight) || 0), 0);
     
     const newWeight = Number(programOutcomeFormData.weight) || 0;
+    const remainingWeight = Math.max(0, 100 - currentWeight);
     const totalWeight = currentWeight + newWeight;
   
-    if (totalWeight > 100) {
+    if (newWeight > remainingWeight) {
       toast({ 
         title: "خطأ في الوزن", 
-        description: `الوزن الإجمالي سيصبح ${totalWeight.toFixed(2)}%. يجب ألا يتجاوز 100%`, 
+        description: `الوزن المتاح لهذا المخرج هو ${remainingWeight.toFixed(2)}% فقط`, 
         variant: "destructive" 
       });
       return;
@@ -858,7 +978,10 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
   const handleAddLevel = () => { 
     setEditingLevel(null); 
-    setLevelFormData({ levelNumber: 1 }); 
+    const nextLevelNumber = programLevels.length > 0
+      ? Math.max(...programLevels.map(level => level.level_number || 0)) + 1
+      : 1;
+    setLevelFormData({ levelNumber: nextLevelNumber }); 
     setLevelError("");
     setIsLevelFormOpen(true); 
   };
@@ -929,7 +1052,10 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
   const handleAddTerm = () => { 
     setEditingTerm(null); 
-    setTermFormData({ semesterName: "", termNumber: 1 }); 
+    const nextTermNumber = levelTerms.length > 0
+      ? Math.max(...levelTerms.map(term => term.term_number || 0)) + 1
+      : 1;
+    setTermFormData({ semesterName: "", termNumber: nextTermNumber }); 
     setIsTermFormOpen(true); 
   };
 
@@ -983,7 +1109,11 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
   const handleAddBlock = () => {
     setEditingBlock(null);
-    setBlockFormData({ blockName: "", blockNumber: 1, weeks: 6, weight: 0, credit_hours: 0, type: "compulsory", description: "" });
+    const blocksInScope = selectedLevel ? levelBlocks : programBlocks;
+    const nextBlockNumber = blocksInScope.length > 0
+      ? Math.max(...blocksInScope.map(block => block.block_number || 0)) + 1
+      : 1;
+    setBlockFormData({ blockName: "", blockNumber: nextBlockNumber, weeks: 6, weight: 0, credit_hours: 0, type: "compulsory", description: "" });
     setIsBlockFormOpen(true);
   };
 
@@ -1146,6 +1276,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
   const handleAddCourse = () => { 
     setEditingCourse(null); 
+    fetchCourseWeightSummary(selectedProgram?.id);
     setCourseFormData({ 
       courseCode: "", 
       courseName: "", 
@@ -1173,6 +1304,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
   const handleEditCourse = (course: ApiCourse) => {
     setEditingCourse(course);
+    fetchCourseWeightSummary(selectedProgram?.id, course.id);
     
     setCourseFormData({
       courseCode: course.course_code,
@@ -1193,6 +1325,31 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     fetchAvailableCoursesForPrereq();
     
     setIsCourseFormOpen(true);
+  };
+
+  const fetchCourseWeightSummary = async (programId?: number, excludedCourseId?: number) => {
+    if (!programId) return;
+
+    try {
+      const [outcomesResponse, coursesResponse] = await Promise.all([
+        api.get(`/v1/program-learning-outcomes/${programId}`),
+        api.get("/v1/courses", { params: { program_id: programId } })
+      ]);
+      const outcomes = outcomesResponse.data?.data || outcomesResponse.data || [];
+      const courses = coursesResponse.data?.data || coursesResponse.data || [];
+      const programWeight = outcomes.reduce((sum: number, outcome: any) => sum + (Number(outcome.weight) || 0), 0);
+      const usedCourseWeight = courses
+        .filter((course: any) => (course.course_id ?? course.id) !== excludedCourseId)
+        .reduce((sum: number, course: any) => sum + (Number(course.weight) || 0), 0);
+
+      setCourseWeightSummary({
+        programWeight,
+        usedCourseWeight,
+        remainingWeight: Math.max(0, programWeight - usedCourseWeight),
+      });
+    } catch {
+      setCourseWeightSummary({ programWeight: 0, usedCourseWeight: 0, remainingWeight: 0 });
+    }
   };
 
   const handleSubmitCourse = async (e: any) => { 
@@ -1238,6 +1395,37 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
         title: "خطأ", 
         description: "يرجى اختيار البلوك",
         variant: "destructive" 
+      });
+      return;
+    }
+
+    // ✅ وزن المقرر يستهلك من مجموع أوزان مخرجات البرنامج المضافة فقط
+    try {
+      const [outcomesResponse, coursesResponse] = await Promise.all([
+        api.get(`/v1/program-learning-outcomes/${selectedProgram.id}`),
+        api.get("/v1/courses", { params: { program_id: selectedProgram.id } })
+      ]);
+      const programWeight = (outcomesResponse.data?.data || outcomesResponse.data || [])
+        .reduce((sum: number, outcome: any) => sum + (Number(outcome.weight) || 0), 0);
+      const courses = coursesResponse.data?.data || coursesResponse.data || [];
+      const currentCourseWeight = courses
+        .filter((course: any) => course.course_id !== editingCourse?.id && course.id !== editingCourse?.id)
+        .reduce((sum: number, course: any) => sum + (Number(course.weight) || 0), 0);
+      const remainingCourseWeight = Math.max(0, programWeight - currentCourseWeight);
+
+      if (Number(courseFormData.weight) > remainingCourseWeight) {
+        toast({
+          title: "الوزن يتجاوز المتاح",
+          description: `أوزان مخرجات البرنامج: ${programWeight.toFixed(2)}%. المتاح لهذا المقرر: ${remainingCourseWeight.toFixed(2)}%`,
+          variant: "destructive"
+        });
+        return;
+      }
+    } catch {
+      toast({
+        title: "تعذر التحقق من الوزن",
+        description: "لم يتم حفظ المقرر قبل التحقق من أوزان البرنامج والمقررات.",
+        variant: "destructive"
       });
       return;
     }
@@ -1427,7 +1615,12 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   // ==========================================
 
   return (
-    <div className="space-y-6 animate-in slide-in-from-right-4 duration-500" dir="rtl">
+    <div
+      className="space-y-6 animate-in slide-in-from-right-4 duration-500"
+      dir="rtl"
+      onFocusCapture={handleNumberInputFocus}
+      onWheelCapture={handleNumberInputWheel}
+    >
       
       <div className="flex items-center justify-between mb-4">
         <div>
@@ -1722,17 +1915,30 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                     </div>
                     
                     <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100">
-                      <Button 
-                        size="sm" 
-                        variant="secondary" 
-                        className="h-8 gap-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100" 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          handleOpenProgramOutcomes(prog); 
-                        }}
-                      >
-                        <Target className="w-3.5 h-3.5" /> مخرجات التعلم
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="secondary" 
+                          className="h-8 gap-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100" 
+                          onClick={(e) => { 
+                            e.stopPropagation();
+                            handleOpenProgramOutcomes(prog);
+                          }}
+                        >
+                          <Target className="w-3.5 h-3.5" /> مخرجات التعلم
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenProgramOptions(prog);
+                          }}
+                        >
+                          <Lightbulb className="w-3.5 h-3.5" /> التدريس والتقييم
+                        </Button>
+                      </div>
                       <div className="flex gap-1">
                         {can('study_plan.update') && (
                           <Button 
@@ -1762,6 +1968,62 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
             </CardContent>
           </Card>
 
+          <Dialog open={isProgramOptionsDialogOpen} onOpenChange={setIsProgramOptionsDialogOpen}>
+            <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" dir="rtl">
+              <DialogHeader>
+                <DialogTitle>استراتيجيات التدريس وطرق التقييم</DialogTitle>
+                <DialogDescription>{activeProgramForOptions?.name} - بيانات مستقلة لهذا البرنامج</DialogDescription>
+              </DialogHeader>
+              <div className="flex gap-2 border-b pb-3">
+                <Button variant={programOptionTab === "teaching" ? "default" : "outline"} onClick={() => setProgramOptionTab("teaching")}>استراتيجيات التدريس</Button>
+                <Button variant={programOptionTab === "assessment" ? "default" : "outline"} onClick={() => setProgramOptionTab("assessment")}>طرق التقييم</Button>
+                <Button className="mr-auto" onClick={() => openProgramOptionForm()}><Plus className="w-4 h-4 ml-1" /> إضافة</Button>
+              </div>
+              {(() => {
+                const options = programOptionTab === "teaching" ? teachingProgramOptions : assessmentProgramOptions;
+                const auditFor = (option: ProgramOption) => programOptionAudits.find(a => a.option_type === (programOptionTab === "teaching" ? "teaching_strategy" : "assessment_method") && a.option_id === option.id);
+                return (
+                  <Table>
+                    <TableHeader><TableRow><TableHead>الاسم</TableHead><TableHead>الفئة</TableHead><TableHead>الحالة</TableHead><TableHead>آخر تحديث</TableHead><TableHead>إجراءات</TableHead></TableRow></TableHeader>
+                    <TableBody>
+                      {options.length === 0 ? <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">لا توجد بيانات لهذا البرنامج</TableCell></TableRow> : options.map(option => {
+                        const audit = auditFor(option);
+                        return <TableRow key={option.id}>
+                          <TableCell className="font-medium">{option.name}<div className="text-xs text-muted-foreground">{option.description}</div></TableCell>
+                          <TableCell>{option.category}</TableCell>
+                          <TableCell>{option.is_active ? "نشط" : "غير نشط"}</TableCell>
+                          <TableCell className="text-xs">{audit ? `${audit.action === "created" ? "أضيف" : audit.action === "updated" ? "عُدّل" : "حُذف"} - ${new Date(audit.changed_at).toLocaleString("ar-EG")}` : "لا يوجد سجل"}</TableCell>
+                          <TableCell><div className="flex gap-1"><Button size="icon" variant="ghost" onClick={() => openProgramOptionForm(option)}><Edit className="w-4 h-4" /></Button><Button size="icon" variant="ghost" className="text-red-500" onClick={() => handleDeleteProgramOption(option)}><Trash2 className="w-4 h-4" /></Button></div></TableCell>
+                        </TableRow>;
+                      })}
+                    </TableBody>
+                  </Table>
+                );
+              })()}
+              <Dialog open={isProgramOptionFormOpen} onOpenChange={setIsProgramOptionFormOpen}>
+                <DialogContent dir="rtl">
+                  <DialogHeader><DialogTitle>{editingProgramOption ? "تعديل" : "إضافة"} {programOptionTab === "teaching" ? "استراتيجية تدريس" : "طريقة تقييم"}</DialogTitle></DialogHeader>
+                  <form onSubmit={handleSaveProgramOption} className="space-y-4">
+                    <div className="space-y-2"><Label>الاسم</Label><Input value={programOptionFormData.name} onChange={e => setProgramOptionFormData({ ...programOptionFormData, name: e.target.value })} required /></div>
+                    <div className="space-y-2"><Label>الوصف</Label><Textarea value={programOptionFormData.description} onChange={e => setProgramOptionFormData({ ...programOptionFormData, description: e.target.value })} /></div>
+                    <div className="space-y-2"><Label>الفئة</Label>
+                      <Select value={programOptionFormData.category} onValueChange={category => setProgramOptionFormData({ ...programOptionFormData, category })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {(programOptionTab === "teaching"
+                            ? [["lecture", "محاضرة"], ["practical", "عملي"], ["discussion", "مناقشة"], ["collaboration", "تعاوني"], ["project_based", "تعلم قائم على المشروع"], ["problem_solving", "حل المشكلات"], ["simulation", "محاكاة"], ["other", "أخرى"]]
+                            : [["exam", "اختبار"], ["assignment", "تكليف"], ["project", "مشروع"], ["presentation", "عرض"], ["participation", "مشاركة"], ["portfolio", "ملف إنجاز"], ["other", "أخرى"]]
+                          ).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setIsProgramOptionFormOpen(false)}>إلغاء</Button><Button type="submit">حفظ</Button></div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </DialogContent>
+          </Dialog>
+
           {/* مخرجات البرنامج */}
           <Dialog open={isProgramOutcomesDialogOpen} onOpenChange={setIsProgramOutcomesDialogOpen}>
             <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col p-0">
@@ -1790,6 +2052,9 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                       )}>
                         {programOutcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0)}%
                       </div>
+                      <div className="text-xs text-slate-500 mt-1">
+                        المتبقي: {Math.max(0, 100 - programOutcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0)).toFixed(2)}%
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1804,6 +2069,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                     </span>
                   </p>
                   <Button 
+                    disabled={programOutcomes.reduce((sum, o) => sum + (Number(o.weight) || 0), 0) >= 100}
                     onClick={() => { 
                       setProgramOutcomeFormMode("add"); 
                       setProgramOutcomeFormData({
@@ -1811,7 +2077,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                         domain: "Knowledge",
                         description: "",
                         weight: 0,
-                        order: programOutcomes.length + 1,
+                        order: getNextOrderNumber(),
                         is_active: true
                       }); 
                       setIsProgramOutcomeFormOpen(true); 
@@ -2354,6 +2620,13 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                                 placeholder="0"
                                 className="bg-emerald-50/50 border-emerald-200"
                               />
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                مجموع أوزان البرنامج: <b>{courseWeightSummary.programWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المستخدم للمقررات: <b>{courseWeightSummary.usedCourseWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المتبقي: <b className="text-emerald-700">{courseWeightSummary.remainingWeight.toFixed(2)}%</b>
+                              </p>
                             </div>
 
                             <div className="space-y-2">
@@ -3226,6 +3499,13 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                                 placeholder="0"
                                 className="bg-emerald-50/50 border-emerald-200"
                               />
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                مجموع أوزان البرنامج: <b>{courseWeightSummary.programWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المستخدم للمقررات: <b>{courseWeightSummary.usedCourseWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المتبقي: <b className="text-emerald-700">{courseWeightSummary.remainingWeight.toFixed(2)}%</b>
+                              </p>
                             </div>
               
                             <div className="space-y-2">
@@ -4068,6 +4348,13 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                               placeholder="0"
                               className="bg-emerald-50/50 border-emerald-200"
                             />
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                مجموع أوزان البرنامج: <b>{courseWeightSummary.programWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المستخدم للمقررات: <b>{courseWeightSummary.usedCourseWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المتبقي: <b className="text-emerald-700">{courseWeightSummary.remainingWeight.toFixed(2)}%</b>
+                              </p>
                           </div>
           
                           <div className="space-y-2">
@@ -5446,6 +5733,13 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                                 placeholder="0"
                                 className="bg-emerald-50/50 border-emerald-200"
                               />
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                مجموع أوزان البرنامج: <b>{courseWeightSummary.programWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المستخدم للمقررات: <b>{courseWeightSummary.usedCourseWeight.toFixed(2)}%</b>
+                                <span className="mx-1">|</span>
+                                المتبقي: <b className="text-emerald-700">{courseWeightSummary.remainingWeight.toFixed(2)}%</b>
+                              </p>
                             </div>
             
                             <div className="space-y-2">

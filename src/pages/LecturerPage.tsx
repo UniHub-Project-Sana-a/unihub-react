@@ -34,6 +34,7 @@ export interface LectureSession {
   id: string; // session_id
   timetableId: string; // timetable_id
   courseId?: number;
+  lectureType?: number;
   title: string;
   groupName: string;
   groupId: string;
@@ -53,6 +54,7 @@ export interface LectureSession {
   lecture_hours?: string | number; // مدة المحاضرة بالساعات
   timetable?: {
       allowance_minutes: number; // السماحية من الجدول
+      lecture_type?: number;
   };
   
   // ✅ الحقل الجديد المسبب للخطأ
@@ -154,6 +156,7 @@ export default function LecturerPage() {
           title: session.timetable?.course?.course_name || 'مادة غير محددة',
           groupName: session.timetable?.group?.group_name || 'مجموعة غير محددة',
           courseId: session.timetable?.course_id,
+          lectureType: Number(session.timetable?.lecture_type ?? session.lecture_type ?? 0),
           groupId: String(session.timetable?.group?.group_id),
           makeupRequest: session.makeupRequest,
           date: session.session_date.slice(0, 10),
@@ -172,7 +175,8 @@ export default function LecturerPage() {
           actual_start_time: session.actual_start_time, 
           lecture_hours: session.timetable?.lecture_hours,
           timetable: {
-              allowance_minutes: session.timetable?.allowance_minutes ?? 15 // قيمة افتراضية إذا لم توجد
+              allowance_minutes: session.timetable?.allowance_minutes ?? 15, // قيمة افتراضية إذا لم توجد
+              lecture_type: Number(session.timetable?.lecture_type ?? 0)
           },
           
           classroom: {
@@ -340,6 +344,8 @@ export default function LecturerPage() {
           onClose={() => setShowQRModal(false)}
           onSubmit={handleQRModalSubmit}
           lectureId={selectedSession?.timetableId ?? null}
+          courseId={selectedSession?.courseId ?? null}
+          lectureType={selectedSession?.lectureType ?? null}
           classroomInfo={selectedSession?.classroom ?? null}
         />
       </div>

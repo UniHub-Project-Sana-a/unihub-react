@@ -17,9 +17,10 @@ import { usePermission } from "@/hooks/usePermission";
 
 // --- Types ---
 type ApiDepartment = { department_id: number; department_name: string; };
-type ApiProgram = { program_id: number; program_name: string; };
+type ApiProgram = { program_id: number; program_name: string; academic_system?: "semester" | "credit"; block_based?: boolean; };
 type ApiLevel = { level_id: number; level_number: number; };
 type ApiSemester = { semester_id: number; term_number: number; };
+type ApiBlock = { id: number; block_name: string; block_number: number; level_id?: number | null; };
 type ApiCourse = { course_id: number; course_code: string; course_name: string; };
 type StudentVM = { id: string; name: string; gender: string; studentDbId: number; userId: number;};
 type GroupVM = { id: number; name: string; studentsCount: number; maxSize: number; };
@@ -44,19 +45,31 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   const [programs, setPrograms] = useState<ApiProgram[]>([]);
   const [levels, setLevels] = useState<ApiLevel[]>([]);
   const [semesters, setSemesters] = useState<ApiSemester[]>([]);
+  const [blocks, setBlocks] = useState<ApiBlock[]>([]);
   const [courses, setCourses] = useState<ApiCourse[]>([]);
   
   const [selectedDepartmentId, setSelectedDepartmentId] = useState("");
   const [selectedProgramId, setSelectedProgramId] = useState("");
   const [selectedLevelId, setSelectedLevelId] = useState("");
   const [selectedSemesterId, setSelectedSemesterId] = useState("");
+  const [selectedBlockId, setSelectedBlockId] = useState("");
   const [selectedCourseId, setSelectedCourseId] = useState("");
+
+  const activeProgram = programs.find((p) => String(p.program_id) === selectedProgramId) || null;
+  const isSemesterProgram = activeProgram?.academic_system === "semester";
+  const isBlockBasedProgram = !!activeProgram?.block_based;
 
   // --- States for Groups ---
   const [groups, setGroups] = useState<GroupVM[]>([]);
   const [newGroupName, setNewGroupName] = useState("");
+  const [groupCapacity, setGroupCapacity] = useState<number | "">("");
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupVM | null>(null);
+  const [isEditGroupOpen, setIsEditGroupOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<GroupVM | null>(null);
+  const [editGroupName, setEditGroupName] = useState("");
+  const [editGroupCapacity, setEditGroupCapacity] = useState<number | "">("");
+  const [isUpdatingGroup, setIsUpdatingGroup] = useState(false);
 
   // --- States for Group Details & Students ---
   const [groupMembers, setGroupMembers] = useState<StudentVM[]>([]);
@@ -67,6 +80,11 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   // --- States for Import Tab ---
   const [importStep, setImportStep] = useState(1);
   const [selectedFailingStudents, setSelectedFailingStudents] = useState<string[]>([]);
+  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
+  const [academicAction, setAcademicAction] = useState<"promote" | "demote" | "pass" | "fail" | "move">("move");
+  const [moveTargetLevelId, setMoveTargetLevelId] = useState("");
+  const [moveTargetSemesterId, setMoveTargetSemesterId] = useState("");
+  const [moveTargetBlockId, setMoveTargetBlockId] = useState("");
   
   // --- Mock Data (as per original code) ---
   const mockFailingStudents = [
@@ -91,14 +109,36 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   const fetchPrograms = async (deptId: string) => { try { const res = await api.get("/v1/programs", { params: { department_id: deptId } }); setPrograms(res.data?.data ?? res.data); } catch { /* ... */ }};
   const fetchLevels = async (progId: string) => { try { const res = await api.get("/v1/levels", { params: { program_id: progId } }); setLevels(res.data?.data ?? res.data); } catch { /* ... */ }};
   const fetchSemesters = async (levelId: string) => { try { const res = await api.get("/v1/semesters", { params: { level_id: levelId } }); setSemesters(res.data?.data ?? res.data); } catch { /* ... */ }};
+  const fetchBlocks = async (programId: string) => { try { const res = await api.get("/v1/blocks", { params: { program_id: programId } }); setBlocks(res.data?.data ?? res.data ?? []); } catch { setBlocks([]); } };
   const fetchCourses = async (semesterId: string) => { try { const res = await api.get("/v1/courses", { params: { semester_id: semesterId } }); setCourses(res.data?.data ?? res.data); } catch { /* ... */ }};
 
   const fetchGroups = async () => {
-    if (!selectedSemesterId) { setGroups([]); return; }
+    const params: Record<string, string | number> = {
+      college_id: Number(collegeId),
+      department_id: Number(selectedDepartmentId),
+      program_id: Number(selectedProgramId),
+      with_counts: 1,
+    };
+
+    if (isSemesterProgram && !isBlockBasedProgram) {
+      if (!selectedLevelId || !selectedSemesterId) { setGroups([]); return; }
+      params.level_id = Number(selectedLevelId);
+      params.semester_id = Number(selectedSemesterId);
+    } else if (isSemesterProgram && isBlockBasedProgram) {
+      if (!selectedLevelId || !selectedBlockId) { setGroups([]); return; }
+      params.level_id = Number(selectedLevelId);
+      params.block_id = Number(selectedBlockId);
+    } else if (!isSemesterProgram && isBlockBasedProgram) {
+      if (!selectedBlockId) { setGroups([]); return; }
+      params.block_id = Number(selectedBlockId);
+    } else {
+      if (!selectedProgramId) { setGroups([]); return; }
+    }
+
     try {
-      const res = await api.get("/v1/student-groups", { params: { college_id: collegeId, department_id: selectedDepartmentId, level_id: selectedLevelId, semester_id: selectedSemesterId, with_counts: 1 } });
+      const res = await api.get("/v1/student-groups", { params });
       const raw: any[] = res.data?.data ?? res.data;
-      setGroups(raw.map((g) => ({ id: g.group_id, name: g.group_name, studentsCount: Number(g.students_count ?? 0), maxSize: 30 })));
+      setGroups(raw.map((g) => ({ id: g.group_id, name: g.group_name, studentsCount: Number(g.students_count ?? 0), maxSize: Number(g.max_students ?? 1) })));
     } catch { toast({ title: "خطأ", description: "فشل تحميل المجموعات" }); }
   };
 
@@ -281,73 +321,159 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
 
   // --- Effects ---
   useEffect(() => { fetchDepartments(); }, [collegeId]);
-  useEffect(() => { if (selectedDepartmentId) fetchPrograms(selectedDepartmentId); }, [selectedDepartmentId]);
-  useEffect(() => { if (selectedProgramId) fetchLevels(selectedProgramId); }, [selectedProgramId]);
-  useEffect(() => { if (selectedLevelId) fetchSemesters(selectedLevelId); }, [selectedLevelId]);
-  useEffect(() => {
-  // إن لم يكتمل المسار، نظّف القوائم والاختيارات
-  if (!selectedDepartmentId || !selectedLevelId || !selectedSemesterId) {
-    setGroups([]);
-    setSelectedGroup(null);
-    setGroupMembers([]);
-    return;
-  }
-  // useEffect(() => {
-  //   if (selectedSemesterId) {
-  //     fetchCourses(selectedSemesterId);
-  //   } else {
-  //     setCourses([]);
-  //   }
-  // }, [selectedSemesterId]);
 
-  // عند اكتمال المسار، اجلب المجموعات
-  fetchGroups();
-}, [selectedDepartmentId, selectedLevelId, selectedSemesterId]);
+  useEffect(() => {
+    if (!selectedDepartmentId) {
+      setPrograms([]);
+      setSelectedProgramId("");
+      return;
+    }
+    fetchPrograms(selectedDepartmentId);
+  }, [selectedDepartmentId]);
+
+  useEffect(() => {
+    if (!selectedProgramId) {
+      setLevels([]);
+      setSemesters([]);
+      setBlocks([]);
+      setSelectedLevelId("");
+      setSelectedSemesterId("");
+      setSelectedBlockId("");
+      setGroups([]);
+      setSelectedGroup(null);
+      setGroupMembers([]);
+      return;
+    }
+
+    const program = programs.find((p) => String(p.program_id) === selectedProgramId);
+    if (!program) return;
+
+    if (program.academic_system === "semester") {
+      fetchLevels(selectedProgramId);
+      if (program.block_based) {
+        fetchBlocks(selectedProgramId);
+      } else {
+        setBlocks([]);
+        setSelectedBlockId("");
+      }
+    } else {
+      setLevels([]);
+      setSemesters([]);
+      setSelectedLevelId("");
+      setSelectedSemesterId("");
+      if (program.block_based) {
+        fetchBlocks(selectedProgramId);
+      } else {
+        setBlocks([]);
+        setSelectedBlockId("");
+      }
+    }
+  }, [selectedProgramId, programs]);
+
+  useEffect(() => {
+    if (!selectedLevelId) {
+      setSemesters([]);
+      setSelectedSemesterId("");
+      return;
+    }
+
+    if (isSemesterProgram && !isBlockBasedProgram) {
+      fetchSemesters(selectedLevelId);
+    }
+  }, [selectedLevelId, isSemesterProgram, isBlockBasedProgram]);
+
+  useEffect(() => {
+    if (!selectedDepartmentId || !selectedProgramId) {
+      setGroups([]);
+      setSelectedGroup(null);
+      setGroupMembers([]);
+      return;
+    }
+
+    const validForGroup = isSemesterProgram
+      ? (!isBlockBasedProgram ? !!selectedLevelId && !!selectedSemesterId : !!selectedLevelId && !!selectedBlockId)
+      : isBlockBasedProgram ? !!selectedBlockId : true;
+
+    if (!validForGroup) {
+      setGroups([]);
+      setSelectedGroup(null);
+      setGroupMembers([]);
+      return;
+    }
+
+    fetchGroups();
+  }, [selectedDepartmentId, selectedProgramId, selectedLevelId, selectedSemesterId, selectedBlockId, isSemesterProgram, isBlockBasedProgram]);
 
   // --- Handlers ---
   const handleCreateGroup = async (): Promise<void> => {
-    if (
-      !newGroupName.trim() ||
-      !selectedDepartmentId ||
-      !selectedLevelId ||
-      !selectedSemesterId
-    ) {
+    const capacityValue = Number(groupCapacity);
+
+    if (!newGroupName.trim() || !selectedDepartmentId || !selectedProgramId) {
       toast({
         title: "تنبيه",
-        description: "اختر القسم والمستوى والترم وأدخل اسم المجموعة",
+        description: "اختر القسم والبرنامج وأدخل اسم المجموعة",
         variant: "destructive",
       });
       return;
     }
-  
+
+    if (!Number.isFinite(capacityValue) || capacityValue < 1) {
+      toast({
+        title: "تنبيه",
+        description: "أدخل سعة المجموعة بشكل صحيح قبل الإنشاء",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload: Record<string, string | number> = {
+      college_id: Number(collegeId),
+      department_id: Number(selectedDepartmentId),
+      program_id: Number(selectedProgramId),
+      group_name: newGroupName.trim(),
+      max_students: capacityValue,
+    };
+
+    if (isSemesterProgram) {
+      if (isBlockBasedProgram) {
+        if (!selectedLevelId || !selectedBlockId) {
+          toast({ title: "تنبيه", description: "اختر المستوى والبلوك أولاً", variant: "destructive" });
+          return;
+        }
+        payload.level_id = Number(selectedLevelId);
+        payload.block_id = Number(selectedBlockId);
+      } else {
+        if (!selectedLevelId || !selectedSemesterId) {
+          toast({ title: "تنبيه", description: "اختر المستوى والترم أولاً", variant: "destructive" });
+          return;
+        }
+        payload.level_id = Number(selectedLevelId);
+        payload.semester_id = Number(selectedSemesterId);
+      }
+    } else if (isBlockBasedProgram) {
+      if (!selectedBlockId) {
+        toast({ title: "تنبيه", description: "اختر البلوك أولاً", variant: "destructive" });
+        return;
+      }
+      payload.block_id = Number(selectedBlockId);
+    }
+
     try {
       setIsCreatingGroup(true);
-  
-      // المحاولة الأولى: إنشاء/استرجاع المجموعة لنفس المسار (يحترم unique_group_per_path)
-      await api.post("/v1/student-groups/upsert-and-attach", {
-        college_id: Number(collegeId),
-        department_id: Number(selectedDepartmentId),
-        level_id: Number(selectedLevelId),
-        semester_id: Number(selectedSemesterId),
-        group_name: newGroupName.trim(),
-      });
-  
+
+      await api.post("/v1/student-groups/upsert-and-attach", payload);
+
       toast({ title: "نجاح", description: "تم إنشاء/تجهيز المجموعة" });
       setNewGroupName("");
+      setGroupCapacity("");
       await fetchGroups();
     } catch (err: any) {
-      // fallback: استخدام المسار القياسي لو لم يتوفر upsert-and-attach
       try {
-        await api.post("/v1/student-groups", {
-          college_id: Number(collegeId),
-          department_id: Number(selectedDepartmentId),
-          level_id: Number(selectedLevelId),
-          semester_id: Number(selectedSemesterId),
-          group_name: newGroupName.trim(),
-        });
-  
+        await api.post("/v1/student-groups", payload);
+
         toast({ title: "نجاح", description: "تم إنشاء المجموعة" });
         setNewGroupName("");
+        setGroupCapacity("");
         await fetchGroups();
       } catch (e2: any) {
         toast({
@@ -362,6 +488,53 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   };
 
   const handleSelectGroup = (group: GroupVM) => { setSelectedGroup(group); fetchGroupMembers(group.id); };
+
+  const openEditGroupDialog = (group: GroupVM) => {
+    setEditingGroup(group);
+    setEditGroupName(group.name);
+    setEditGroupCapacity(group.maxSize);
+    setIsEditGroupOpen(true);
+  };
+
+  const handleUpdateGroup = async () => {
+    if (!editingGroup) return;
+
+    const trimmed = editGroupName.trim();
+    const capacityValue = Number(editGroupCapacity);
+
+    if (!trimmed) {
+      toast({ title: "تنبيه", description: "اسم المجموعة مطلوب", variant: "destructive" });
+      return;
+    }
+
+    if (!Number.isFinite(capacityValue) || capacityValue < 1) {
+      toast({ title: "تنبيه", description: "أدخل سعة المجموعة بشكل صحيح", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setIsUpdatingGroup(true);
+      await api.put(`/v1/student-groups/${editingGroup.id}`, {
+        group_name: trimmed,
+        max_students: capacityValue,
+      });
+
+      toast({ title: "نجاح", description: "تم تحديث اسم المجموعة وسعتها" });
+      setIsEditGroupOpen(false);
+      setEditingGroup(null);
+      setEditGroupName("");
+      setEditGroupCapacity("");
+      await fetchGroups();
+      if (selectedGroup?.id === editingGroup.id) {
+        setSelectedGroup({ ...selectedGroup, name: trimmed, maxSize: capacityValue });
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || "فشل تحديث المجموعة";
+      toast({ title: "خطأ", description: msg, variant: "destructive" });
+    } finally {
+      setIsUpdatingGroup(false);
+    }
+  };
 
   const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !selectedGroup) return;
@@ -491,6 +664,95 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     } catch (err: any) { toast({ title: "خطأ", description: err?.response?.data?.message || "فشل حذف الطالب", variant: "destructive" }); }
   };
 
+  const toggleStudentSelection = (studentId: number) => {
+    setSelectedStudentIds((prev) =>
+      prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
+    );
+  };
+
+  const clearAcademicSelection = () => {
+    setSelectedStudentIds([]);
+    setMoveTargetLevelId("");
+    setMoveTargetSemesterId("");
+    setMoveTargetBlockId("");
+  };
+
+  const handleAcademicBulkAction = async (action: "promote" | "demote" | "pass" | "fail" | "move") => {
+    if (!selectedGroup) {
+      toast({ title: "تنبيه", description: "اختر مجموعة أولاً", variant: "destructive" });
+      return;
+    }
+
+    const payload: Record<string, any> = {
+      college_id: Number(collegeId),
+      department_id: Number(selectedDepartmentId),
+      program_id: Number(selectedProgramId),
+    };
+
+    if (action === "move") {
+      if (isSemesterProgram && !isBlockBasedProgram) {
+        if (!moveTargetLevelId || !moveTargetSemesterId) {
+          toast({ title: "تنبيه", description: "اختر المستوى والمرحلة المستهدفة أولاً", variant: "destructive" });
+          return;
+        }
+        payload.level_id = Number(moveTargetLevelId);
+        payload.semester_id = Number(moveTargetSemesterId);
+      } else if (isSemesterProgram && isBlockBasedProgram) {
+        if (!moveTargetLevelId || !moveTargetBlockId) {
+          toast({ title: "تنبيه", description: "اختر المستوى والبلوك المستهدف أولاً", variant: "destructive" });
+          return;
+        }
+        payload.level_id = Number(moveTargetLevelId);
+        payload.block_id = Number(moveTargetBlockId);
+      } else if (!isSemesterProgram && isBlockBasedProgram) {
+        if (!moveTargetBlockId) {
+          toast({ title: "تنبيه", description: "اختر البلوك المستهدف أولاً", variant: "destructive" });
+          return;
+        }
+        payload.block_id = Number(moveTargetBlockId);
+      }
+
+      try {
+        await api.post(`/v1/student-groups/${selectedGroup.id}/move`, payload);
+        toast({ title: "نجاح", description: "تم نقل المجموعة داخل نفس البرنامج بنجاح" });
+        await fetchGroups();
+        await fetchGroupMembers(selectedGroup.id);
+      } catch (err: any) {
+        toast({ title: "خطأ", description: err?.response?.data?.message || "فشل نقل المجموعة", variant: "destructive" });
+      }
+      return;
+    }
+
+    if (selectedStudentIds.length === 0) {
+      toast({ title: "تنبيه", description: "اختر طالباً أو أكثر أولاً", variant: "destructive" });
+      return;
+    }
+
+    if (isSemesterProgram && !isBlockBasedProgram) {
+      payload.level_id = Number(moveTargetLevelId || selectedLevelId || 0);
+      payload.semester_id = Number(moveTargetSemesterId || selectedSemesterId || 0);
+    } else if (isSemesterProgram && isBlockBasedProgram) {
+      payload.level_id = Number(moveTargetLevelId || selectedLevelId || 0);
+      payload.block_id = Number(moveTargetBlockId || selectedBlockId || 0);
+    } else if (!isSemesterProgram && isBlockBasedProgram) {
+      payload.block_id = Number(moveTargetBlockId || selectedBlockId || 0);
+    }
+
+    try {
+      await api.post("/v1/student-groups/students/bulk-move", {
+        ...payload,
+        student_ids: selectedStudentIds,
+        action,
+      });
+      toast({ title: "نجاح", description: action === "pass" ? "تم تحديث الطلاب كناجحين" : action === "fail" ? "تم تحديث الطلاب كراسبين" : action === "promote" ? "تم ترفيع الطلاب بنجاح" : "تم هبوط الطلاب بنجاح" });
+      clearAcademicSelection();
+      await fetchGroupMembers(selectedGroup.id);
+      await fetchGroups();
+    } catch (err: any) {
+      toast({ title: "خطأ", description: err?.response?.data?.message || "فشل تنفيذ العملية", variant: "destructive" });
+    }
+  };
+
   const toggleFailingStudentSelection = (studentId: string) => setSelectedFailingStudents(prev => prev.includes(studentId) ? prev.filter(id => id !== studentId) : [...prev, studentId]);
   
   // Memos for Stepper
@@ -570,12 +832,45 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
           <Card>
             <CardHeader><CardTitle>1. اختر المسار الدراسي للمجموعات</CardTitle></CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {/* Selects for Department, Program, Level, Semester */}
-                <Select value={selectedDepartmentId} onValueChange={setSelectedDepartmentId}><SelectTrigger><SelectValue placeholder="القسم..." /></SelectTrigger><SelectContent>{departments.map(d => <SelectItem key={d.department_id} value={String(d.department_id)}>{d.department_name}</SelectItem>)}</SelectContent></Select>
-                <Select value={selectedProgramId} onValueChange={setSelectedProgramId} disabled={!programs.length}><SelectTrigger><SelectValue placeholder="البرنامج..." /></SelectTrigger><SelectContent>{programs.map(p => <SelectItem key={p.program_id} value={String(p.program_id)}>{p.program_name}</SelectItem>)}</SelectContent></Select>
-                <Select value={selectedLevelId} onValueChange={setSelectedLevelId} disabled={!levels.length}><SelectTrigger><SelectValue placeholder="المستوى..." /></SelectTrigger><SelectContent>{levels.map(l => <SelectItem key={l.level_id} value={String(l.level_id)}>المستوى {l.level_number}</SelectItem>)}</SelectContent></Select>
-                <Select value={selectedSemesterId} onValueChange={setSelectedSemesterId} disabled={!semesters.length}><SelectTrigger><SelectValue placeholder="الترم..." /></SelectTrigger><SelectContent>{semesters.map(s => <SelectItem key={s.semester_id} value={String(s.semester_id)}>الترم {s.term_number}</SelectItem>)}</SelectContent></Select>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Select value={selectedDepartmentId} onValueChange={(val) => {
+                  setSelectedDepartmentId(val);
+                  setSelectedProgramId("");
+                  setSelectedLevelId("");
+                  setSelectedSemesterId("");
+                  setSelectedBlockId("");
+                }}><SelectTrigger><SelectValue placeholder="القسم..." /></SelectTrigger><SelectContent>{departments.map(d => <SelectItem key={d.department_id} value={String(d.department_id)}>{d.department_name}</SelectItem>)}</SelectContent></Select>
+
+                <Select value={selectedProgramId} onValueChange={(val) => {
+                  setSelectedProgramId(val);
+                  setSelectedLevelId("");
+                  setSelectedSemesterId("");
+                  setSelectedBlockId("");
+                }} disabled={!programs.length}><SelectTrigger><SelectValue placeholder="البرنامج..." /></SelectTrigger><SelectContent>{programs.map(p => <SelectItem key={p.program_id} value={String(p.program_id)}>{p.program_name}</SelectItem>)}</SelectContent></Select>
+
+                {!selectedProgramId ? null : isSemesterProgram && !isBlockBasedProgram ? (
+                  <Select value={selectedLevelId} onValueChange={setSelectedLevelId} disabled={!levels.length}><SelectTrigger><SelectValue placeholder="المستوى..." /></SelectTrigger><SelectContent>{levels.map(l => <SelectItem key={l.level_id} value={String(l.level_id)}>المستوى {l.level_number}</SelectItem>)}</SelectContent></Select>
+                ) : null}
+
+                {!selectedProgramId ? null : isSemesterProgram && !isBlockBasedProgram ? (
+                  <Select value={selectedSemesterId} onValueChange={setSelectedSemesterId} disabled={!semesters.length}><SelectTrigger><SelectValue placeholder="الترم..." /></SelectTrigger><SelectContent>{semesters.map(s => <SelectItem key={s.semester_id} value={String(s.semester_id)}>الترم {s.term_number}</SelectItem>)}</SelectContent></Select>
+                ) : null}
+
+                {!selectedProgramId ? null : isSemesterProgram && isBlockBasedProgram ? (
+                  <Select value={selectedLevelId} onValueChange={setSelectedLevelId} disabled={!levels.length}><SelectTrigger><SelectValue placeholder="المستوى..." /></SelectTrigger><SelectContent>{levels.map(l => <SelectItem key={l.level_id} value={String(l.level_id)}>المستوى {l.level_number}</SelectItem>)}</SelectContent></Select>
+                ) : null}
+
+                {!selectedProgramId ? null : isSemesterProgram && isBlockBasedProgram ? (
+                  <Select value={selectedBlockId} onValueChange={setSelectedBlockId} disabled={!blocks.length}><SelectTrigger><SelectValue placeholder="البلوك..." /></SelectTrigger><SelectContent>{blocks.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.block_name}</SelectItem>)}</SelectContent></Select>
+                ) : null}
+
+                {!selectedProgramId ? null : !isSemesterProgram && isBlockBasedProgram ? (
+                  <Select value={selectedBlockId} onValueChange={setSelectedBlockId} disabled={!blocks.length}><SelectTrigger><SelectValue placeholder="البلوك..." /></SelectTrigger><SelectContent>{blocks.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.block_name}</SelectItem>)}</SelectContent></Select>
+                ) : null}
+
+                {!selectedProgramId ? null : !isSemesterProgram && !isBlockBasedProgram ? (
+                  <div className="flex items-center rounded-md border border-dashed px-3 text-sm text-muted-foreground bg-muted/20">برنامج ساعات معتمدة - لا توجد مستويات/فصول</div>
+                ) : null}
               </div>
             </CardContent>
           </Card>
@@ -583,40 +878,112 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
           <Card>
             <CardHeader><CardTitle>2. إدارة المجموعات</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center">
                 {can('groups.create') && (
-                <Input 
-                  placeholder="اسم المجموعة الجديدة..." 
-                  value={newGroupName} 
-                  onChange={(e) => setNewGroupName(e.target.value)} 
-                  disabled={!selectedSemesterId} 
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      handleCreateGroup();
-                    }
-                  }}
-                />
+                  <Input 
+                    placeholder="اسم المجموعة الجديدة..." 
+                    value={newGroupName} 
+                    onChange={(e) => setNewGroupName(e.target.value)} 
+                    disabled={!selectedProgramId || (isSemesterProgram && !isBlockBasedProgram ? !selectedLevelId || !selectedSemesterId : isSemesterProgram && isBlockBasedProgram ? !selectedLevelId || !selectedBlockId : !isSemesterProgram && isBlockBasedProgram ? !selectedBlockId : false)} 
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        handleCreateGroup();
+                      }
+                    }}
+                    className="flex-1"
+                  />
                 )}
                 {can('groups.create') && (
-                <Button onClick={handleCreateGroup} disabled={isCreatingGroup || !selectedSemesterId}>
-                  {isCreatingGroup && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} إنشاء
-                </Button>
+                  <div className="flex items-center gap-2">
+                    <Label className="whitespace-nowrap">سعة المجموعة</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={groupCapacity}
+                      onChange={(e) => setGroupCapacity(e.target.value === "" ? "" : Number(e.target.value))}
+                      className="w-24"
+                      placeholder="السعة"
+                      disabled={!selectedProgramId || (isSemesterProgram && !isBlockBasedProgram ? !selectedLevelId || !selectedSemesterId : isSemesterProgram && isBlockBasedProgram ? !selectedLevelId || !selectedBlockId : !isSemesterProgram && isBlockBasedProgram ? !selectedBlockId : false)}
+                    />
+                  </div>
+                )}
+                {can('groups.create') && (
+                  <Button onClick={handleCreateGroup} disabled={isCreatingGroup || !selectedProgramId || (isSemesterProgram && !isBlockBasedProgram ? !selectedLevelId || !selectedSemesterId : isSemesterProgram && isBlockBasedProgram ? !selectedLevelId || !selectedBlockId : !isSemesterProgram && isBlockBasedProgram ? !selectedBlockId : false)}>
+                    {isCreatingGroup && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} إنشاء
+                  </Button>
                 )}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {groups.map(group => (
                   <Card key={group.id} onClick={() => handleSelectGroup(group)} className={cn("cursor-pointer", selectedGroup?.id === group.id && "border-primary")}>
-                    <CardHeader>
+                    <CardHeader className="flex flex-row items-start justify-between gap-2">
                       <CardTitle>{group.name}</CardTitle>
-                      <Badge variant="outline">{group.studentsCount}/{group.maxSize}</Badge>
+                      {(can('groups.update') || can('groups.create')) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditGroupDialog(group);
+                          }}
+                          aria-label="تعديل المجموعة"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M12 20h9" />
+                            <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+                          </svg>
+                        </Button>
+                      )}
                     </CardHeader>
-                    <CardContent><div className="w-full bg-secondary rounded-full h-2 overflow-hidden"><div className="bg-primary h-full" style={{ width: `${(group.studentsCount / group.maxSize) * 100}%` }}></div></div></CardContent>
+                    <CardContent className="space-y-2">
+                      <Badge variant="outline">{group.studentsCount}/{group.maxSize}</Badge>
+                      <div className="w-full bg-secondary rounded-full h-2 overflow-hidden"><div className="bg-primary h-full" style={{ width: `${(group.studentsCount / group.maxSize) * 100}%` }}></div></div>
+                    </CardContent>
                   </Card>
                 ))}
-                {selectedSemesterId && groups.length === 0 && <p className="text-muted-foreground">لا توجد مجموعات. قم بإنشاء واحدة.</p>}
+                {selectedProgramId && groups.length === 0 && <p className="text-muted-foreground">لا توجد مجموعات في هذا المسار داخل البرنامج. قم بإنشاء واحدة.</p>}
               </div>
             </CardContent>
           </Card>
+
+          <Dialog open={isEditGroupOpen} onOpenChange={setIsEditGroupOpen}>
+            <DialogContent className="sm:max-w-[420px]">
+              <DialogHeader>
+                <DialogTitle>تعديل المجموعة</DialogTitle>
+                <DialogDescription>يمكنك تغيير اسم المجموعة وسعتها فقط.</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-group-name">اسم المجموعة</Label>
+                  <Input
+                    id="edit-group-name"
+                    value={editGroupName}
+                    onChange={(e) => setEditGroupName(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-group-capacity">السعة</Label>
+                  <Input
+                    id="edit-group-capacity"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={editGroupCapacity}
+                    onChange={(e) => setEditGroupCapacity(e.target.value === "" ? "" : Number(e.target.value))}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsEditGroupOpen(false)} disabled={isUpdatingGroup}>إلغاء</Button>
+                <Button onClick={handleUpdateGroup} disabled={isUpdatingGroup}>
+                  {isUpdatingGroup && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                  حفظ التغييرات
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {selectedGroup && (
             <Card>
@@ -644,34 +1011,110 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                   )}
                   <input ref={csvInputRef} type="file" className="hidden" accept=".csv" onChange={handleCsvChange} />
                 </div>
+                <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Label className="text-base font-semibold">الانتقال الأكاديمي</Label>
+                    <Select value={academicAction} onValueChange={(val) => setAcademicAction(val as typeof academicAction)}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="اختر العملية" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="move">نقل المجموعة</SelectItem>
+                        <SelectItem value="promote">ترفييع الطلاب</SelectItem>
+                        <SelectItem value="demote">هبوط الطلاب</SelectItem>
+                        <SelectItem value="pass">نجاح</SelectItem>
+                        <SelectItem value="fail">رسوب</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {(academicAction === "move" || academicAction === "promote" || academicAction === "demote") && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      {isSemesterProgram && !isBlockBasedProgram ? (
+                        <>
+                          <Select value={moveTargetLevelId || selectedLevelId} onValueChange={setMoveTargetLevelId} disabled={!levels.length}>
+                            <SelectTrigger><SelectValue placeholder="المستوى المستهدف" /></SelectTrigger>
+                            <SelectContent>
+                              {levels.map((l) => <SelectItem key={l.level_id} value={String(l.level_id)}>المستوى {l.level_number}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+
+                          <Select value={moveTargetSemesterId || selectedSemesterId} onValueChange={setMoveTargetSemesterId} disabled={!semesters.length}>
+                            <SelectTrigger><SelectValue placeholder="الترم المستهدف" /></SelectTrigger>
+                            <SelectContent>
+                              {semesters.map((s) => <SelectItem key={s.semester_id} value={String(s.semester_id)}>الترم {s.term_number}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </>
+                      ) : null}
+
+                      {isSemesterProgram && isBlockBasedProgram ? (
+                        <>
+                          <Select value={moveTargetLevelId || selectedLevelId} onValueChange={setMoveTargetLevelId} disabled={!levels.length}>
+                            <SelectTrigger><SelectValue placeholder="المستوى المستهدف" /></SelectTrigger>
+                            <SelectContent>
+                              {levels.map((l) => <SelectItem key={l.level_id} value={String(l.level_id)}>المستوى {l.level_number}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+
+                          <Select value={moveTargetBlockId || selectedBlockId} onValueChange={setMoveTargetBlockId} disabled={!blocks.length}>
+                            <SelectTrigger><SelectValue placeholder="البلوك المستهدف" /></SelectTrigger>
+                            <SelectContent>
+                              {blocks.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.block_name}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </>
+                      ) : null}
+
+                      {!isSemesterProgram && isBlockBasedProgram ? (
+                        <Select value={moveTargetBlockId || selectedBlockId} onValueChange={setMoveTargetBlockId} disabled={!blocks.length}>
+                          <SelectTrigger><SelectValue placeholder="البلوك المستهدف" /></SelectTrigger>
+                          <SelectContent>
+                            {blocks.map((b) => <SelectItem key={b.id} value={String(b.id)}>{b.block_name}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      onClick={() => handleAcademicBulkAction(academicAction)}
+                      disabled={!selectedGroup || (academicAction !== "move" && selectedStudentIds.length === 0)}
+                    >
+                      {academicAction === "move" ? "تطبيق نقل المجموعة" : academicAction === "promote" ? "تطبيق الترفيع" : academicAction === "demote" ? "تطبيق الهبوط" : academicAction === "pass" ? "تطبيق النجاح" : "تطبيق الرسوب"}
+                    </Button>
+                    {(selectedStudentIds.length > 0 || academicAction === "move") && (
+                      <Button variant="outline" onClick={clearAcademicSelection}>مسح التحديد</Button>
+                    )}
+                  </div>
+                </div>
+
                 {/* شبكة عرض الطلاب */}
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 {groupMembers.map(student => {
-                    // 1. تحديد ما إذا كان المستخدم يملك صلاحية التعديل
                     const canUpdate = can('students.update');
-                
+                    const isSelected = selectedStudentIds.includes(student.studentDbId);
                     return (
                       <Card 
                         key={student.id} 
-                        // 2. التحكم في التصميم:
-                        // إذا كان لديه صلاحية: يظهر مؤشر اليد + حدود ملونة عند التحويم
-                        // إذا لم يكن لديه: مؤشر عادي ولا يوجد تأثير حدود
                         className={`transition-colors relative group ${
-                          canUpdate 
-                            ? "cursor-pointer hover:border-primary" 
-                            : "cursor-default"
-                        }`}
-                        
-                        // 3. التحكم في النقر: تنفيذ الدالة فقط عند توفر الصلاحية
+                          canUpdate ? "cursor-pointer hover:border-primary" : "cursor-default"
+                        } ${isSelected ? "border-primary ring-2 ring-primary/20" : ""}`}
                         onClick={() => {
                           if (canUpdate) {
                             handleStudentClick(student);
                           }
                         }} 
                       >
-                        <CardContent className="p-3 text-center">
-                          
-                          {/* زر الحذف (يخضع لصلاحية students.delete بشكل منفصل) */}
+                        <div className="absolute left-2 top-2 z-10">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => toggleStudentSelection(student.studentDbId)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                        <CardContent className="p-3 text-center pt-10">
                           {can('students.delete') && (
                             <Button 
                               variant="ghost" 

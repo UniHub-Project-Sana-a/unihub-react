@@ -35,7 +35,10 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
     } 
     else if (role === 'lecturer') {
         homePath = "/lecturer";
-    } 
+    }
+    else if (role === 'student') {
+        homePath = "/student/qa";
+    }
     else if (collegeId) { 
         // للعمداء ورؤساء الأقسام
         homePath = `/colleges/${collegeId}/dashboard`;

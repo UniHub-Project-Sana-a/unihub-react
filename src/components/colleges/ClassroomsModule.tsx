@@ -5,7 +5,10 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Pencil, Trash2, FileJson } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Plus, Pencil, Trash2, FileJson, Monitor, Projector, Tv, MapPin } from "lucide-react";
 import JsonImportModal from "@/components/colleges/JsonImportModal";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -24,27 +27,38 @@ import {
 type ApiBuilding = {
   building_id: number;
   building_name: string;
+  building_code: string | null;
   floors_count: number;
-  college_id: number;
+  college_id: number | null;
 };
 
 type Building = {
   id: string;
   name: string;
+  code: string | null;
   floorCount: number;
-  collegeId: string;
+  collegeId: string | null;
 };
+
+type DisplayType = "none" | "screen" | "projector" | "smart_board";
 
 type ApiClassroom = {
   classroom_id: number;
   classroom_name: string;
   building_id: number;
+  college_id: number | null;
   floor: number | null;
   capacity: number;
   latitude: number | null;
   longitude: number | null;
   allowed_distance: number | null;
   classroom_type: number; // 0: CLASSROOM, 1: LAB, 2: AUDITORIUM, 3: LIBRARY, 4: WORKSHOP
+  windows_count: number | null;
+  has_computer: boolean;
+  display_type: DisplayType;
+  notes: string | null;
+  location_address: string | null;
+  remote_id: string | null;
 };
 
 interface Classroom {
@@ -57,6 +71,13 @@ interface Classroom {
   longitude?: number | null;
   allowedDistance?: number | null;
   buildingId: string;
+  collegeId?: string | null;
+  windowsCount?: number | null;
+  hasComputer?: boolean;
+  displayType?: DisplayType;
+  notes?: string | null;
+  locationAddress?: string | null;
+  remoteId?: string | null;
 }
 
 type ClassroomFormData = {
@@ -67,6 +88,10 @@ type ClassroomFormData = {
   latitude: string | number | "";
   longitude: string | number | "";
   allowedDistance: string | number | "";
+  windowsCount: number;
+  hasComputer: boolean;
+  displayType: DisplayType;
+  notes: string;
 };
 
 interface Props {
@@ -188,7 +213,9 @@ export default function ClassroomsModule({ collegeId }: Props) {
         raw.map((b: any) => ({
           id: String(b.building_id),
           name: b.building_name,
+          code: b.building_code ?? null,
           floorCount: b.floors_count || 1,
+          collegeId: b.college_id != null ? String(b.college_id) : null,
         }))
       );
     } catch {
@@ -238,6 +265,10 @@ export default function ClassroomsModule({ collegeId }: Props) {
     latitude: "",
     longitude: "",
     allowedDistance: "",
+    windowsCount: 0,
+    hasComputer: false,
+    displayType: "none",
+    notes: "",
   });
 
   // Fetch buildings for selected college
@@ -248,8 +279,9 @@ export default function ClassroomsModule({ collegeId }: Props) {
       const mapped: Building[] = raw.map((b) => ({
         id: String(b.building_id),
         name: b.building_name,
+        code: b.building_code ?? null,
         floorCount: b.floors_count,
-        collegeId: String(b.college_id),
+        collegeId: b.college_id != null ? String(b.college_id) : null,
       }));
       setBuildings(mapped);
     } catch {
@@ -272,6 +304,13 @@ export default function ClassroomsModule({ collegeId }: Props) {
         longitude: c.longitude,
         allowedDistance: c.allowed_distance,
         buildingId: String(c.building_id),
+        collegeId: c.college_id != null ? String(c.college_id) : null,
+        windowsCount: c.windows_count ?? 0,
+        hasComputer: !!c.has_computer,
+        displayType: c.display_type ?? "none",
+        notes: c.notes ?? "",
+        locationAddress: c.location_address ?? null,
+        remoteId: c.remote_id ?? null,
       }));
       setClassrooms(mapped);
     } catch {
@@ -300,6 +339,10 @@ export default function ClassroomsModule({ collegeId }: Props) {
       latitude: "",
       longitude: "",
       allowedDistance: "",
+      windowsCount: 0,
+      hasComputer: false,
+      displayType: "none",
+      notes: "",
     });
     await fetchClassrooms(b.id);
   };
@@ -326,8 +369,9 @@ export default function ClassroomsModule({ collegeId }: Props) {
       const mapped: Building = {
         id: String(b.building_id),
         name: b.building_name,
+        code: b.building_code ?? null,
         floorCount: b.floors_count,
-        collegeId: String(b.college_id),
+        collegeId: b.college_id != null ? String(b.college_id) : null,
       };
 
       // حدّث القائمة وحدد المبنى الجديد مباشرة
@@ -361,6 +405,10 @@ const handleAddClassroom = () => {
     latitude: "",
     longitude: "",
     allowedDistance: "",
+    windowsCount: 0,
+    hasComputer: false,
+    displayType: "none",
+    notes: "",
   });
   setIsClassroomFormOpen(true);
 
@@ -438,6 +486,10 @@ const handleAddClassroom = () => {
             ? null
             : Number(classroomFormData.allowedDistance),
         classroom_type: typeStrToInt(classroomFormData.type),
+        windows_count: Number(classroomFormData.windowsCount || 0),
+        has_computer: !!classroomFormData.hasComputer,
+        display_type: classroomFormData.displayType,
+        notes: classroomFormData.notes || null,
       };
 
       if (editingClassroomId) {
@@ -599,6 +651,11 @@ const handleAddClassroom = () => {
                     <div>
                       <span className="font-semibold text-base block">{b.name}</span>
                       <span className="text-xs text-muted-foreground mt-1 block">الأدوار: {b.floorCount}</span>
+                      {b.code && (
+                        <Badge variant="outline" className="mt-1.5 text-[10px]">
+                          كود: {b.code}
+                        </Badge>
+                      )}
                     </div>
                     {(can('locations.delete') || can('locations.create') || can('delete_building')) && (
                       <Button
@@ -712,6 +769,54 @@ const handleAddClassroom = () => {
                     onChange={(e) => setClassroomFormData({ ...classroomFormData, allowedDistance: e.target.value })}
                   />
                 </div>
+                <div>
+                  <Label>عدد النوافذ</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={classroomFormData.windowsCount}
+                    onChange={(e) =>
+                      setClassroomFormData({ ...classroomFormData, windowsCount: parseInt(e.target.value || "0") })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>نوع العرض</Label>
+                  <Select
+                    value={classroomFormData.displayType}
+                    onValueChange={(value: DisplayType) =>
+                      setClassroomFormData({ ...classroomFormData, displayType: value })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">بدون</SelectItem>
+                      <SelectItem value="screen">شاشة</SelectItem>
+                      <SelectItem value="projector">بروجكتور</SelectItem>
+                      <SelectItem value="smart_board">سبورة ذكية</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-2 pt-6">
+                  <Checkbox
+                    id="has-computer"
+                    checked={classroomFormData.hasComputer}
+                    onCheckedChange={(checked) =>
+                      setClassroomFormData({ ...classroomFormData, hasComputer: !!checked })
+                    }
+                  />
+                  <Label htmlFor="has-computer" className="cursor-pointer">يوجد جهاز حاسوب</Label>
+                </div>
+                <div className="md:col-span-2">
+                  <Label>ملاحظات</Label>
+                  <Textarea
+                    value={classroomFormData.notes}
+                    onChange={(e) => setClassroomFormData({ ...classroomFormData, notes: e.target.value })}
+                    placeholder="ملاحظات إضافية حول القاعة"
+                  />
+                </div>
               </div>
               <div className="flex gap-2">
                 <Button type="submit" disabled={!selectedBuilding}>
@@ -736,7 +841,8 @@ const handleAddClassroom = () => {
                 <TableHead>النوع</TableHead>
                 <TableHead>السعة</TableHead>
                 <TableHead>الدور</TableHead>
-                <TableHead>الإحداثيات</TableHead>
+                <TableHead>الأصول</TableHead>
+                <TableHead>الإحداثيات / الموقع</TableHead>
                 <TableHead>المسافة المسموحة</TableHead>
                 <TableHead>الإجراءات</TableHead>
               </TableRow>
@@ -759,7 +865,27 @@ const handleAddClassroom = () => {
                   <TableCell>{classroom.capacity}</TableCell>
                   <TableCell>{classroom.floor ?? 0}</TableCell>
                   <TableCell>
-                    {classroom.latitude && classroom.longitude ? `${classroom.latitude}, ${classroom.longitude}` : "-"}
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      {classroom.hasComputer && <Monitor className="w-4 h-4 text-primary" aria-label="يوجد حاسوب" />}
+                      {classroom.displayType === "projector" && <Projector className="w-4 h-4 text-primary" />}
+                      {classroom.displayType === "screen" && <Tv className="w-4 h-4 text-primary" />}
+                      {(!classroom.hasComputer && (!classroom.displayType || classroom.displayType === "none")) && (
+                        <span className="text-xs">-</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="space-y-0.5">
+                      <div>
+                        {classroom.latitude && classroom.longitude ? `${classroom.latitude}, ${classroom.longitude}` : "-"}
+                      </div>
+                      {classroom.locationAddress && (
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {classroom.locationAddress}
+                        </div>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>{classroom.allowedDistance ?? "-"}</TableCell>
                   <TableCell>
@@ -779,6 +905,10 @@ const handleAddClassroom = () => {
                               latitude: classroom.latitude ?? "",
                               longitude: classroom.longitude ?? "",
                               allowedDistance: classroom.allowedDistance ?? "",
+                              windowsCount: classroom.windowsCount ?? 0,
+                              hasComputer: !!classroom.hasComputer,
+                              displayType: classroom.displayType ?? "none",
+                              notes: classroom.notes ?? "",
                             });
                           }}
                         >

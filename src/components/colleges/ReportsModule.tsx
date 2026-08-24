@@ -411,7 +411,11 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
 
     try {
       const res = await api.get(`/v1/colleges/${collegeId}/financial/cycle`, {
-        params: { month: selectedMonth, year: yearPart }
+        params: {
+          month: selectedMonth,
+          year: yearPart,
+          calendar_type: calendarType
+        }
       });
       setFinancialCycle(res.data.data);
     } catch (error) {
@@ -441,7 +445,8 @@ export default function ReportsModule({ collegeId }: ReportsModuleProps) {
     try {
       const res = await api.post(`/v1/colleges/${collegeId}/financial/generate`, {
         month: selectedMonth,
-        year: yearPart
+        year: yearPart,
+        calendar_type: calendarType
       });
       setFinancialCycle(res.data.data);
       toast({ title: "تم بنجاح", description: "تم حساب الاستحقاقات وتحديث الكشف." });

@@ -34,8 +34,10 @@ type Day = { day_id: number; name?: string; name_ar?: string };
 type Period = { period_id: number; name?: string; start_time?: string; end_time?: string; college_id?: number };
 type College = { college_id: number; name: string };
 type Department = { department_id: number; name: string; college_id: number };
-type Program = { program_id: number; program_name: string; department_id: number };
+type Program = { program_id: number; program_name: string; department_id: number; academic_system?: 'semester' | 'credit'; block_based?: boolean };
 type Level = { level_id: number; level_number: number; level_name?: string; program_id: number };
+type Semester = { semester_id: number; semester_name?: string; term_number?: number; level_id?: number };
+type Block = { id: number; block_name: string; block_number?: number; program_id?: number; level_id?: number };
 
 
 interface TimetableModuleProps {
@@ -209,6 +211,8 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [blocks, setBlocks] = useState<Block[]>([]);
 
   const [lookupsLoading, setLookupsLoading] = useState(false);
   const [lookupsError, setLookupsError] = useState<string | null>(null);
@@ -361,8 +365,10 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     academic_year: string;
     college_id: number | "";
     department_id: number | "";
+    program_id: number | "";
     level_id: number | "";
-    program_id: number | ""; // حقل مساعد
+    semester_id: number | "";
+    block_id: number | "";
     gender_type: number | "";
     lecture_hours: number | "";
     allowance_minutes: number | "";
@@ -372,7 +378,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     course_id: "", lecturer_id: "", group_id: "", classroom_id: "",
     day_id: "", period_id: "", lecture_type: 0, status: 1, start_date: "",
     end_date: "", academic_year: "", college_id: collegeIdNum || "", department_id: "",
-    level_id: "", program_id: "", gender_type: 0, lecture_hours: 2, allowance_minutes: 15,
+    program_id: "", level_id: "", semester_id: "", block_id: "", gender_type: 0, lecture_hours: 2, allowance_minutes: 15,
   });
 
   const [manualFormErrors, setManualFormErrors] = useState<Partial<Record<keyof ManualForm, string>>>({});
@@ -390,99 +396,185 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     return d.getMonth() + 1 >= 8 ? `${d.getFullYear()}-${d.getFullYear() + 1}` : `${d.getFullYear() - 1}-${d.getFullYear()}`;
   };
 
+  const selectedProgram = useMemo(
+    () => programs.find((p) => p.program_id === manualForm.program_id),
+    [programs, manualForm.program_id]
+  );
+
+  const programPathMode = useMemo(() => {
+    if (!selectedProgram) {
+      return { requiresLevel: false, requiresSemester: false, requiresBlock: false };
+    }
+
+    if (selectedProgram.academic_system === "semester" && selectedProgram.block_based) {
+      return { requiresLevel: true, requiresSemester: false, requiresBlock: true };
+    }
+
+    if (selectedProgram.academic_system === "semester") {
+      return { requiresLevel: true, requiresSemester: true, requiresBlock: false };
+    }
+
+    if (selectedProgram.academic_system === "credit" && selectedProgram.block_based) {
+      return { requiresLevel: false, requiresSemester: false, requiresBlock: true };
+    }
+
+    return { requiresLevel: false, requiresSemester: false, requiresBlock: false };
+  }, [selectedProgram]);
+
   // --- تحميل بيانات النموذج بشكل تسلسلي ---
 
   // عند تغيير القسم في النموذج
   useEffect(() => {
     if (!manualForm.department_id) {
-      setPrograms([]); setManualForm(f => ({ ...f, program_id: "", level_id: "", course_id: "", group_id: "" }));
+      setPrograms([]);
+      setManualForm((f) => ({ ...f, program_id: "", level_id: "", semester_id: "", block_id: "", course_id: "", group_id: "" }));
       return;
     }
-    apiJson(`/v1/programs?department_id=${manualForm.department_id}`).then(res => setPrograms(res?.data || res || []));
+
+    apiJson(`/v1/programs?department_id=${manualForm.department_id}`).then((res) => {
+      const data = res?.data || res || [];
+      setPrograms(data.map((p: any) => ({
+        ...p,
+        academic_system: p.academic_system,
+        block_based: Boolean(p.block_based),
+      })));
+    });
   }, [manualForm.department_id]);
 
-  // عند تغيير البرنامج في النموذج
   useEffect(() => {
     if (!manualForm.program_id) {
-      setLevels([]); setManualForm(f => ({ ...f, level_id: "", course_id: "", group_id: "" }));
+      setLevels([]);
+      setSemesters([]);
+      setBlocks([]);
+      setManualForm((f) => ({ ...f, level_id: "", semester_id: "", block_id: "", course_id: "", group_id: "" }));
       return;
     }
-    apiJson(`/v1/levels?program_id=${manualForm.program_id}`).then(res => setLevels(res?.data || res || []));
-  }, [manualForm.program_id]);
-  
-  // عند تغيير المستوى في النموذج
+
+    apiJson(`/v1/levels?program_id=${manualForm.program_id}`).then((res) => setLevels(res?.data || res || []));
+
+    const selectedProgramData = programs.find((p) => p.program_id === manualForm.program_id);
+    if (selectedProgramData?.block_based) {
+      apiJson(`/v1/blocks?program_id=${manualForm.program_id}`).then((res) => setBlocks((res?.data || res || []).map((b: any) => ({
+        id: b.id,
+        block_name: b.block_name,
+        block_number: b.block_number,
+        program_id: b.program_id,
+        level_id: b.level_id,
+      }))));
+    } else {
+      setBlocks([]);
+    }
+
+    setManualForm((f) => ({ ...f, level_id: "", semester_id: "", block_id: "", course_id: "", group_id: "" }));
+  }, [manualForm.program_id, programs]);
+
   useEffect(() => {
-    // إذا لم يتم اختيار المستوى، نفرغ القوائم
-    if (!manualForm.level_id) {
-      setCourses([]); 
-      setGroups([]); 
-      setManualForm(f => ({ ...f, course_id: "", group_id: "" }));
+    if (!manualForm.program_id || !manualForm.level_id) {
+      setSemesters([]);
+      return;
+    }
+
+    const selectedProgramData = programs.find((p) => p.program_id === manualForm.program_id);
+    if (selectedProgramData?.academic_system === "semester" && !selectedProgramData.block_based) {
+      apiJson(`/v1/semesters?level_id=${manualForm.level_id}`).then((res) => setSemesters(res?.data || res || []));
+      return;
+    }
+
+    setSemesters([]);
+  }, [manualForm.program_id, manualForm.level_id, programs]);
+
+  useEffect(() => {
+    const program = programs.find((p) => p.program_id === manualForm.program_id);
+    const needsLevel = program?.academic_system === "semester";
+    const needsSemester = program?.academic_system === "semester" && !program.block_based;
+    const needsBlock = Boolean(program?.block_based);
+
+    const shouldFetch = Boolean(
+      manualForm.department_id &&
+      manualForm.program_id &&
+      (!needsLevel || Boolean(manualForm.level_id)) &&
+      (!needsSemester || Boolean(manualForm.semester_id)) &&
+      (!needsBlock || Boolean(manualForm.block_id))
+    );
+
+    if (!shouldFetch) {
+      setCourses([]);
+      setGroups([]);
+      setManualForm((f) => ({ ...f, course_id: "", group_id: "" }));
       return;
     }
 
     (async () => {
       try {
-        // 1. تجهيز فلاتر المواد (لضمان جلب مواد القسم والبرنامج المحدد فقط)
         const courseParams = new URLSearchParams();
         courseParams.append('college_id', String(collegeIdNum));
         if (manualForm.department_id) courseParams.append('department_id', String(manualForm.department_id));
         if (manualForm.program_id) courseParams.append('program_id', String(manualForm.program_id));
-        courseParams.append('level_id', String(manualForm.level_id));
+        if (manualForm.level_id) courseParams.append('level_id', String(manualForm.level_id));
+        if (manualForm.semester_id) courseParams.append('semester_id', String(manualForm.semester_id));
+        if (manualForm.block_id) courseParams.append('block_id', String(manualForm.block_id));
 
-        // 2. تجهيز فلاتر المجموعات
         const groupParams = new URLSearchParams();
         groupParams.append('college_id', String(collegeIdNum));
         if (manualForm.department_id) groupParams.append('department_id', String(manualForm.department_id));
-        groupParams.append('level_id', String(manualForm.level_id));
+        if (manualForm.program_id) groupParams.append('program_id', String(manualForm.program_id));
+        if (manualForm.level_id) groupParams.append('level_id', String(manualForm.level_id));
+        if (manualForm.semester_id) groupParams.append('semester_id', String(manualForm.semester_id));
+        if (manualForm.block_id) groupParams.append('block_id', String(manualForm.block_id));
 
-        // 3. جلب البيانات
         const [coursesRes, groupsRes] = await Promise.all([
           apiJson(`/v1/courses?${courseParams.toString()}`),
           apiJson(`/v1/student-groups?${groupParams.toString()}`),
         ]);
 
-        // 4. معالجة بيانات المواد
         const coursesData = coursesRes?.data || coursesRes || [];
         setCourses(coursesData.map((course: any) => ({
-            course_id: course.course_id,
-            name: course.course_name,
-            code: course.course_code,
-            department_id: course.department_id,
-            semester_id: course.semester_id,
+          course_id: course.course_id,
+          name: course.course_name,
+          code: course.course_code,
+          department_id: course.department_id,
+          semester_id: course.semester_id,
         })));
 
-        // 5. معالجة بيانات المجموعات
         const groupsData = groupsRes?.data || groupsRes || [];
         setGroups(groupsData.map((group: any) => ({
-            group_id: group.group_id,
-            name: group.group_name
+          group_id: group.group_id,
+          name: group.group_name,
         })));
-
       } catch (error) {
         console.error("Failed to fetch courses/groups", error);
         toast({ title: "خطأ", description: "فشل تحديث قائمة المواد والمجموعات", variant: "destructive" });
       }
     })();
-    
-    // أضفنا department_id و program_id للمصفوفة لضمان التحديث عند تغيرهم
-  }, [manualForm.level_id, manualForm.department_id, manualForm.program_id]); 
+  }, [manualForm.level_id, manualForm.semester_id, manualForm.block_id, manualForm.department_id, manualForm.program_id, collegeIdNum, programs]);
 
 
   const validateManualForm = (): boolean => {
-  const errors: Partial<Record<keyof ManualForm, string>> = {};
-    
+    const errors: Partial<Record<keyof ManualForm, string>> = {};
+    const selectedProgramData = programs.find((p) => p.program_id === manualForm.program_id);
+
     const requiredFields: (keyof ManualForm)[] = [
-        'college_id', 'department_id', 'level_id', 'course_id', 'lecturer_id',
-        'group_id', 'classroom_id', 'day_id', 'period_id', 'lecture_type',
-        'gender_type', 'lecture_hours', 'academic_year', 'start_date', 'end_date'
+      'college_id', 'department_id', 'program_id', 'course_id', 'lecturer_id',
+      'group_id', 'classroom_id', 'day_id', 'period_id', 'lecture_type',
+      'gender_type', 'lecture_hours', 'academic_year', 'start_date', 'end_date'
     ];
 
-    requiredFields.forEach(field => {
+    requiredFields.forEach((field) => {
       const value = manualForm[field];
       if (value === "" || value === null || value === undefined) {
         errors[field] = "هذا الحقل مطلوب";
       }
     });
+
+    if (selectedProgramData?.academic_system === "semester" && selectedProgramData.block_based) {
+      if (!manualForm.level_id) errors.level_id = "هذا الحقل مطلوب";
+      if (!manualForm.block_id) errors.block_id = "هذا الحقل مطلوب";
+    } else if (selectedProgramData?.academic_system === "semester") {
+      if (!manualForm.level_id) errors.level_id = "هذا الحقل مطلوب";
+      if (!manualForm.semester_id) errors.semester_id = "هذا الحقل مطلوب";
+    } else if (selectedProgramData?.academic_system === "credit" && selectedProgramData.block_based) {
+      if (!manualForm.block_id) errors.block_id = "هذا الحقل مطلوب";
+    }
 
     if (manualForm.start_date && manualForm.end_date && new Date(manualForm.start_date) > new Date(manualForm.end_date)) {
       errors.end_date = "تاريخ النهاية يجب أن يكون بعد تاريخ البداية";
@@ -793,6 +885,8 @@ const openCreateSessionModal = async () => {
       department_id: "",
       program_id: "",
       level_id: "",
+      semester_id: "",
+      block_id: "",
       course_id: "",
       lecturer_id: "",
       group_id: "",
@@ -811,6 +905,8 @@ const openCreateSessionModal = async () => {
     setManualFormErrors({});
     setPrograms([]);
     setLevels([]);
+    setSemesters([]);
+    setBlocks([]);
     setCourses([]);
     setGroups([]);
     setIsExternalLecturer(false);
@@ -834,7 +930,7 @@ const openCreateSessionModal = async () => {
     setImportStatus("idle");
     setMockConflicts([]); // استخدم setMockConflicts هنا
 
-    const { program_id, ...payload } = manualForm;
+    const payload = { ...manualForm };
 
     try {
       console.log("إرسال البيانات إلى /v1/timetable:", payload);
@@ -1223,7 +1319,7 @@ const openCreateSessionModal = async () => {
                     <Label>البرنامج</Label>
                     <Select
                       value={String(manualForm.program_id)}
-                      onValueChange={(v) => setManualForm({ ...manualForm, program_id: v ? Number(v) : "", level_id: "", course_id: "", group_id: "" })}
+                      onValueChange={(v) => setManualForm({ ...manualForm, program_id: v ? Number(v) : "", level_id: "", semester_id: "", block_id: "", course_id: "", group_id: "" })}
                       disabled={!manualForm.department_id || programs.length === 0}
                     >
                       <SelectTrigger>
@@ -1233,25 +1329,69 @@ const openCreateSessionModal = async () => {
                         {programs.map(p => <SelectItem key={p.program_id} value={String(p.program_id)}>{p.program_name}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    {manualFormErrors.program_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.program_id}</p>}
                   </div>
-  
-                  {/* Level */}
-                  <div className="space-y-2">
-                    <Label>المستوى</Label>
-                    <Select
-                      value={String(manualForm.level_id)}
-                      onValueChange={(v) => setManualForm({ ...manualForm, level_id: v ? Number(v) : "", course_id: "", group_id: "" })}
-                      disabled={!manualForm.program_id || levels.length === 0}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={!manualForm.program_id ? "اختر البرنامج أولاً" : "اختر المستوى"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {levels.map(l => <SelectItem key={l.level_id} value={String(l.level_id)}>{l.level_name || `المستوى ${l.level_number}`}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    {manualFormErrors.level_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.level_id}</p>}
-                  </div>
+
+                  {selectedProgram && selectedProgram.academic_system === "semester" && (
+                    <div className="space-y-2">
+                      <Label>المستوى</Label>
+                      <Select
+                        value={String(manualForm.level_id)}
+                        onValueChange={(v) => setManualForm({ ...manualForm, level_id: v ? Number(v) : "", semester_id: "", course_id: "", group_id: "" })}
+                        disabled={!manualForm.program_id || levels.length === 0}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={!manualForm.program_id ? "اختر البرنامج أولاً" : "اختر المستوى"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {levels.map(l => <SelectItem key={l.level_id} value={String(l.level_id)}>{l.level_name || `المستوى ${l.level_number}`}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      {manualFormErrors.level_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.level_id}</p>}
+                    </div>
+                  )}
+
+                  {selectedProgram && selectedProgram.academic_system === "semester" && !selectedProgram.block_based && (
+                    <div className="space-y-2">
+                      <Label>الفصل الدراسي</Label>
+                      <Select
+                        value={String(manualForm.semester_id)}
+                        onValueChange={(v) => setManualForm({ ...manualForm, semester_id: v ? Number(v) : "", course_id: "", group_id: "" })}
+                        disabled={!manualForm.level_id || semesters.length === 0}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={!manualForm.level_id ? "اختر المستوى أولاً" : "اختر الفصل"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {semesters.map((s) => (
+                            <SelectItem key={s.semester_id} value={String(s.semester_id)}>{s.semester_name || `الفصل ${s.term_number ?? ""}`}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {manualFormErrors.semester_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.semester_id}</p>}
+                    </div>
+                  )}
+
+                  {selectedProgram && selectedProgram.block_based && (
+                    <div className="space-y-2">
+                      <Label>{selectedProgram.academic_system === "credit" ? "البلوك" : "البلوك"}</Label>
+                      <Select
+                        value={String(manualForm.block_id)}
+                        onValueChange={(v) => setManualForm({ ...manualForm, block_id: v ? Number(v) : "", course_id: "", group_id: "" })}
+                        disabled={blocks.length === 0}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={blocks.length === 0 ? "لا يوجد بلوكات" : "اختر البلوك"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {blocks.map((b) => (
+                            <SelectItem key={b.id} value={String(b.id)}>{b.block_name || `البلوك ${b.block_number ?? ""}`}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {manualFormErrors.block_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.block_id}</p>}
+                    </div>
+                  )}
                 </div>
 
                 <hr className="border-border/20" />
@@ -1261,8 +1401,14 @@ const openCreateSessionModal = async () => {
                   {/* Course */}
                   <div className="space-y-2">
                     <Label>المقرر</Label>
-                    <Select value={String(manualForm.course_id)} onValueChange={(v) => setManualForm({ ...manualForm, course_id: v ? Number(v) : "" })} disabled={!manualForm.level_id || courses.length === 0}>
-                      <SelectTrigger><SelectValue placeholder="اختر المستوى أولاً" /></SelectTrigger>
+                    <Select
+                      value={String(manualForm.course_id)}
+                      onValueChange={(v) => setManualForm({ ...manualForm, course_id: v ? Number(v) : "" })}
+                      disabled={courses.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={courses.length === 0 ? "اختر المسار أولاً" : "اختر المقرر"} />
+                      </SelectTrigger>
                       <SelectContent>{courses.map(c => <SelectItem key={c.course_id} value={String(c.course_id)}>{c.name}</SelectItem>)}</SelectContent>
                     </Select>
                     {manualFormErrors.course_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.course_id}</p>}
@@ -1270,8 +1416,14 @@ const openCreateSessionModal = async () => {
                   {/* Group */}
                   <div className="space-y-2">
                     <Label>المجموعة الطلابية</Label>
-                    <Select value={String(manualForm.group_id)} onValueChange={(v) => setManualForm({ ...manualForm, group_id: v ? Number(v) : "" })} disabled={!manualForm.level_id || groups.length === 0}>
-                      <SelectTrigger><SelectValue placeholder="اختر المستوى أولاً" /></SelectTrigger>
+                    <Select
+                      value={String(manualForm.group_id)}
+                      onValueChange={(v) => setManualForm({ ...manualForm, group_id: v ? Number(v) : "" })}
+                      disabled={groups.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={groups.length === 0 ? "اختر المسار أولاً" : "اختر المجموعة"} />
+                      </SelectTrigger>
                       <SelectContent>{groups.map(g => <SelectItem key={g.group_id} value={String(g.group_id)}>{g.name}</SelectItem>)}</SelectContent>
                     </Select>
                     {manualFormErrors.group_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.group_id}</p>}
@@ -1486,23 +1638,23 @@ const openCreateSessionModal = async () => {
           {/* ======================================= */}
           <TabsContent value="view" className="space-y-4">
             {/* --- لوحة التحكم بالتاريخ --- */}
-            <Card>
-              <CardHeader>
-                <div className="flex flex-wrap justify-between items-center gap-4">
+            <Card className="border-0 bg-gradient-to-r from-background to-muted/20 shadow-sm">
+              <CardHeader className="px-4 py-4 sm:px-6">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                   <div>
-                    <CardTitle>عرض المحاضرات الأسبوعي</CardTitle>
-                    <CardDescription><br/>
+                    <CardTitle className="text-lg sm:text-xl">عرض المحاضرات الأسبوعي</CardTitle>
+                    <CardDescription className="mt-1 text-xs sm:text-sm">
                       {format(startOfWeek(viewDate, { weekStartsOn: 6 }), 'd MMMM yyyy', { locale: ar })} - {format(endOfWeek(viewDate, { weekStartsOn: 6 }), 'd MMMM yyyy', { locale: ar })}
                     </CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button onClick={() => setViewDate(subDays(viewDate, 7))} variant="outline">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button onClick={() => setViewDate(subDays(viewDate, 7))} variant="outline" className="h-9 text-xs sm:text-sm">
                       الأسبوع السابق
                     </Button>
-                    <Button onClick={() => setViewDate(new Date())} variant="secondary">
+                    <Button onClick={() => setViewDate(new Date())} variant="secondary" className="h-9 text-xs sm:text-sm">
                       الحالي
                     </Button>
-                    <Button onClick={() => setViewDate(addDays(viewDate, 7))} variant="outline">
+                    <Button onClick={() => setViewDate(addDays(viewDate, 7))} variant="outline" className="h-9 text-xs sm:text-sm">
                       الأسبوع التالي
                     </Button>
                     <Button onClick={() => fetchSessionsGrid(viewDate)} variant="ghost" size="icon" className="h-9 w-9">
@@ -1514,168 +1666,155 @@ const openCreateSessionModal = async () => {
             </Card>
             
             {/* --- عرض الجدول --- */}
-            <Card className="backdrop-blur-sm overflow-x-auto relative">
-              <CardContent className="pt-6">
+            <Card className="backdrop-blur-sm border-0 shadow-sm overflow-hidden">
+              <CardContent className="p-2 sm:p-4">
                 {isGridLoading ? (
                   <div className="flex justify-center items-center py-20"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
                 ) : (
-                  <div className="min-w-[1200px]">
-                    {(() => {
-                      const weekStart = startOfWeek(viewDate, { weekStartsOn: 6 });
-                      const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
-            
-                      return (
-                        <>
-                          {/* رأس الجدول */}
-                          <div className="grid grid-cols-8 gap-2">
-                            <div className="font-bold text-center p-2 bg-card rounded-lg flex items-center justify-center">الوقت</div>
-                            {weekDays.map(day => (
-                              <div key={day.toString()} className="font-bold text-center p-2 bg-card rounded-lg">
-                                <div>{format(day, 'eeee', { locale: ar })}</div>
-                                <div className="text-sm font-normal text-muted-foreground">{format(day, 'd/M')}</div>
-                              </div>
-                            ))}
-                          </div>
-                          
-                          {/* جسم الجدول */}
-                          {periods.sort((a, b) => (a.start_time || "").localeCompare(b.start_time || "")).map((period) => {
-                            const timeLabel = `${fmtHHMM(period.start_time)}-${fmtHHMM(period.end_time)}`;
-                            return (
-                              <div key={period.period_id} className="grid grid-cols-8 gap-2 mt-2 items-start">
-                                <div className="text-center p-2 bg-card/50 rounded-lg flex items-center justify-center h-full text-sm">
-                                  <Clock className="w-4 h-4 ml-2" />{timeLabel}
+                  <div className="overflow-x-auto pb-2">
+                    <div className="min-w-[880px] lg:min-w-0">
+                      {(() => {
+                        const weekStart = startOfWeek(viewDate, { weekStartsOn: 6 });
+                        const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(weekStart, i));
+              
+                        return (
+                          <>
+                            {/* رأس الجدول */}
+                            <div className="grid grid-cols-[72px_repeat(7,minmax(120px,1fr))] gap-2 mb-2">
+                              <div className="font-bold text-center p-2 bg-muted/40 rounded-lg flex items-center justify-center text-[11px] sm:text-sm">الوقت</div>
+                              {weekDays.map(day => (
+                                <div key={day.toString()} className="font-bold text-center p-2 bg-muted/40 rounded-lg">
+                                  <div className="text-[11px] sm:text-sm">{format(day, 'eeee', { locale: ar })}</div>
+                                  <div className="text-[10px] sm:text-xs font-normal text-muted-foreground">{format(day, 'd/M')}</div>
                                 </div>
-                                
-                                {weekDays.map(currentDay => {
-                                  const currentDayString = format(currentDay, 'yyyy-MM-dd');
-                                  const sessionsInSlot = sessionsGrid.filter(s => 
-                                    s.date?.slice(0, 10) === currentDayString && 
-                                    s.time === timeLabel
-                                  );
+                              ))}
+                            </div>
+                            
+                            {/* جسم الجدول */}
+                            {periods.sort((a, b) => (a.start_time || "").localeCompare(b.start_time || "")).map((period) => {
+                              const timeLabel = `${fmtHHMM(period.start_time)}-${fmtHHMM(period.end_time)}`;
+                              return (
+                                <div key={period.period_id} className="grid grid-cols-[72px_repeat(7,minmax(120px,1fr))] gap-2 mt-2 items-stretch">
+                                  <div className="text-center p-2 bg-muted/30 rounded-lg flex items-center justify-center h-full text-[10px] sm:text-xs font-medium">
+                                    <Clock className="w-3 h-3 sm:w-4 sm:h-4 ml-1" />{timeLabel}
+                                  </div>
                                   
-                                  // --- ✅ --- تعريف مكون البطاقة (SessionCard) المعدل --- ✅ ---
-                                  const SessionCard = ({ session }: { session: any }) => {
-                                    const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
-                                    // ✅ التحقق هل هي تعويضية
-                                    const isMakeup = session.isMakeup === 1;
-                                    
-                                    let cardClass = "bg-background/80";
-                                    let badgeText = "مجدولة";
-                                    let badgeVariant: "outline" | "secondary" | "destructive" | "default" = "outline";                                        
-            
-                                    if (isPast) {
-                                        if (session.status === 1) { // تم التحضير
-                                            cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
-                                            badgeText = "مكتملة";
-                                            badgeVariant = "secondary";
-                                        } else { // لم يتم التحضير
-                                            cardClass = "bg-red-100/50 dark:bg-red-900/30 border-red-500/50";
-                                            badgeText = "فاتت";
-                                            badgeVariant = "destructive";
-                                        }
-                                    }
-            
-                                    // ✅ منطق تمييز الجلسة التعويضية
-                                    if (isMakeup) {
-                                        // إضافة لون برتقالي/عنبري وحدود متقطعة لتمييزها
-                                        // نستخدم cn لدمج الكلاسات أو نستبدلها
-                                        if (!isPast || (isPast && session.status !== 1)) {
-                                            // إذا كانت في المستقبل أو فاتت وهي تعويضية
-                                            cardClass = "bg-amber-50 dark:bg-amber-900/20 border-amber-500 border-dashed border-2";
-                                        } else {
-                                            // إذا كانت مكتملة وهي تعويضية (نحتفظ بالخلفية الخضراء مع حدود برتقالية)
-                                            cardClass = "bg-green-100/50 dark:bg-green-900/30 border-amber-500 border-2";
-                                        }
-                                    }
-            
-                                    const canEdit = can('timetable.view_lectures');
-                                    return (
-                                      <Card 
-                                          // التحكم في النقر: ينفذ فقط إذا كان لديه صلاحية التعديل
-                                          onClick={() => {
-                                              if (canEdit) {
-                                                  handleSessionClick(session.id);
-                                              }
-                                          }}
-                                          
-                                          // التحكم في الـ CSS:
-                                          // إذا كان يملك التعديل: مؤشر يد (pointer) وتأثير ظل.
-                                          // إذا كان عرض فقط: مؤشر عادي (default).
-                                          className={cn(
-                                              "h-full border shadow-sm transition-shadow group",
-                                              canEdit ? "cursor-pointer hover:shadow-md" : "cursor-default",
-                                              cardClass
-                                          )}
-                                      >
-                                          <CardContent className="p-2 text-right text-xs flex flex-col justify-between h-full">
-                                              <div>
-                                                  <div className="flex justify-between items-start flex-wrap gap-1">
-                                                      {/* جعل تأثير الخط السفلي (underline) مرتبطاً بإمكانية التعديل */}
-                                                      <span className={`font-bold text-primary ${canEdit ? "group-hover:underline" : ""}`}>
-                                                          {session.code || 'N/A'}
-                                                      </span>
-                                                      
-                                                      <div className="flex gap-1 flex-wrap justify-end">
-                                                        {/* ✅ شارة "تعويضية" */}
-                                                        {isMakeup && (
-                                                            <Badge className="bg-amber-500 hover:bg-amber-600 border-0 text-[10px] px-1 h-5">تعويضية</Badge>
-                                                        )}
-                                                        <Badge variant={badgeVariant} className="h-5">{badgeText}</Badge>
-                                                      </div>
-                                                  </div>
-                                                  <p className="mt-1 font-semibold leading-tight">{session.course || 'مقرر غير محدد'}</p>
-                                              </div>
-                                              <div className="mt-2 pt-1 border-t border-dashed">
-                                                  <p className="text-muted-foreground mt-1 flex items-center justify-end gap-1">
-                                                      <span>{session.instructor || 'محاضر غير محدد'}</span>
-                                                      <User className="w-3 h-3" />
-                                                  </p>
-                                                  <p className="text-muted-foreground flex items-center justify-end gap-1">
-                                                      <span>{session.room || 'قاعة غير محددة'}</span>
-                                                      <MapPin className="w-3 h-3" />
-                                                  </p>
-                                              </div>
-                                          </CardContent>
-                                      </Card>
+                                  {weekDays.map(currentDay => {
+                                    const currentDayString = format(currentDay, 'yyyy-MM-dd');
+                                    const sessionsInSlot = sessionsGrid.filter(s => 
+                                      s.date?.slice(0, 10) === currentDayString && 
+                                      s.time === timeLabel
                                     );
-                                  };
-                                  
-                                  return (
-                                    <div key={currentDayString} className="min-h-[120px] p-1 space-y-1">
-                                      {sessionsInSlot.length === 0 ? (
-                                        <div className="h-full border border-dashed border-border/30 rounded-lg bg-transparent flex items-center justify-center text-center p-2">
-                                          <span className="text-xs text-muted-foreground/50">لا توجد جلسات</span>
-                                        </div>
-                                      ) : sessionsInSlot.length === 1 ? (
-                                        <SessionCard session={sessionsInSlot[0]} />
-                                      ) : (
-                                        <Card
-                                          className="h-full border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
-                                          onClick={() => openSlotModal(sessionsInSlot, format(currentDay, 'eeee', { locale: ar }), timeLabel)}
+                                    
+                                    const SessionCard = ({ session }: { session: any }) => {
+                                      const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
+                                      const isMakeup = session.isMakeup === 1;
+                                      
+                                      let cardClass = "bg-background/80 border border-border/60";
+                                      let badgeText = "مجدولة";
+                                      let badgeVariant: "outline" | "secondary" | "destructive" | "default" = "outline";
+
+                                      if (isPast) {
+                                          if (session.status === 1) {
+                                              cardClass = "bg-green-100/60 dark:bg-green-900/30 border-green-500/40";
+                                              badgeText = "مكتملة";
+                                              badgeVariant = "secondary";
+                                          } else {
+                                              cardClass = "bg-red-100/60 dark:bg-red-900/30 border-red-500/40";
+                                              badgeText = "فاتت";
+                                              badgeVariant = "destructive";
+                                          }
+                                      }
+
+                                      if (isMakeup) {
+                                          if (!isPast || (isPast && session.status !== 1)) {
+                                              cardClass = "bg-amber-50 dark:bg-amber-900/20 border-amber-500 border-dashed border-2";
+                                          } else {
+                                              cardClass = "bg-green-100/60 dark:bg-green-900/30 border-amber-500 border-2";
+                                          }
+                                      }
+
+                                      const canEdit = can('timetable.view_lectures');
+                                      return (
+                                        <Card 
+                                          onClick={() => {
+                                            if (canEdit) {
+                                              handleSessionClick(session.id);
+                                            }
+                                          }}
+                                          className={cn(
+                                            "h-full shadow-sm transition-all duration-200",
+                                            canEdit ? "cursor-pointer hover:shadow-md" : "cursor-default",
+                                            cardClass
+                                          )}
                                         >
-                                          <CardContent className="p-2">
-                                            <div className="font-bold text-lg text-primary">{sessionsInSlot.length}</div>
-                                            <p className="text-sm text-primary/80">جلسات</p>
-                                            <p className="text-xs text-muted-foreground mt-2">انقر للعرض</p>
+                                          <CardContent className="p-2 text-right text-[10px] sm:text-xs flex flex-col justify-between h-full min-h-[110px]">
+                                            <div>
+                                              <div className="flex justify-between items-start flex-wrap gap-1">
+                                                <span className={`font-bold text-primary ${canEdit ? "group-hover:underline" : ""}`}>
+                                                  {session.code || 'N/A'}
+                                                </span>
+                                                <div className="flex gap-1 flex-wrap justify-end">
+                                                  {isMakeup && (
+                                                    <Badge className="bg-amber-500 hover:bg-amber-600 border-0 text-[9px] sm:text-[10px] px-1 h-5">تعويضية</Badge>
+                                                  )}
+                                                  <Badge variant={badgeVariant} className="h-5 text-[9px] sm:text-[10px]">{badgeText}</Badge>
+                                                </div>
+                                              </div>
+                                              <p className="mt-1 font-semibold leading-tight break-words text-[11px] sm:text-xs">{session.course || 'مقرر غير محدد'}</p>
+                                            </div>
+                                            <div className="mt-2 pt-1 border-t border-dashed border-border/50 space-y-1">
+                                              <p className="text-muted-foreground flex items-center justify-end gap-1 break-words">
+                                                <span className="line-clamp-2">{session.instructor || 'محاضر غير محدد'}</span>
+                                                <User className="w-3 h-3 shrink-0" />
+                                              </p>
+                                              <p className="text-muted-foreground flex items-center justify-end gap-1 break-words">
+                                                <span className="line-clamp-2">{session.room || 'قاعة غير محددة'}</span>
+                                                <MapPin className="w-3 h-3 shrink-0" />
+                                              </p>
+                                            </div>
                                           </CardContent>
                                         </Card>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })}
-                          
-                          {sessionsGrid.length === 0 && !isGridLoading && (
-                              <div className="text-center py-20 text-muted-foreground">
-                                  <p className="font-bold text-lg">أسبوع هادئ!</p>
-                                  <p>لا توجد جلسات مجدولة لهذا الأسبوع.</p>
-                              </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                                      );
+                                    };
+                                    
+                                    return (
+                                      <div key={currentDayString} className="min-h-[120px] p-1">
+                                        {sessionsInSlot.length === 0 ? (
+                                          <div className="h-full min-h-[110px] border border-dashed border-border/40 rounded-lg bg-transparent flex items-center justify-center text-center p-2">
+                                            <span className="text-[10px] sm:text-xs text-muted-foreground/60">لا توجد جلسات</span>
+                                          </div>
+                                        ) : sessionsInSlot.length === 1 ? (
+                                          <SessionCard session={sessionsInSlot[0]} />
+                                        ) : (
+                                          <Card
+                                            className="h-full min-h-[110px] border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
+                                            onClick={() => openSlotModal(sessionsInSlot, format(currentDay, 'eeee', { locale: ar }), timeLabel)}
+                                          >
+                                            <CardContent className="p-2">
+                                              <div className="font-bold text-base sm:text-lg text-primary">{sessionsInSlot.length}</div>
+                                              <p className="text-xs sm:text-sm text-primary/80">جلسات</p>
+                                              <p className="text-[10px] sm:text-xs text-muted-foreground mt-2">انقر للعرض</p>
+                                            </CardContent>
+                                          </Card>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                            
+                            {sessionsGrid.length === 0 && !isGridLoading && (
+                                <div className="text-center py-20 text-muted-foreground">
+                                    <p className="font-bold text-lg">أسبوع هادئ!</p>
+                                    <p>لا توجد جلسات مجدولة لهذا الأسبوع.</p>
+                                </div>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
                   </div>
                 )}
               </CardContent>
