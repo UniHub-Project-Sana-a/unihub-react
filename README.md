@@ -70,7 +70,6 @@ export default defineConfig([
     },
   },
 ])
-```
 
 
 ```
@@ -92,9 +91,9 @@ unihub-react
 │  ├─ App.css
 │  ├─ App.tsx
 │  ├─ assets
+│  │  ├─ 366544.png
 │  │  ├─ 366544.svg
 │  │  ├─ logo-center.png
-│  │  ├─ logo-color.png
 │  │  ├─ logo-dark.png
 │  │  ├─ logo-full.png
 │  │  ├─ logo-mini.png
@@ -102,6 +101,7 @@ unihub-react
 │  │  ├─ logo.png
 │  │  └─ report-bg.png
 │  ├─ auth
+│  │  ├─ ForceLogout.tsx
 │  │  ├─ RedirectIfAuthed.tsx
 │  │  ├─ RequireAuth.tsx
 │  │  ├─ RequirePermission.tsx
@@ -277,6 +277,8 @@ unihub-react
 │  │  ├─ LecturerPage.tsx
 │  │  ├─ LocationsPage.tsx
 │  │  ├─ NotFound.tsx
+│  │  ├─ print
+│  │  │  └─ CourseSpecificationPrintPage.tsx
 │  │  ├─ RolesPage.tsx
 │  │  ├─ SettingsPage.tsx
 │  │  ├─ TimetablePage.tsx

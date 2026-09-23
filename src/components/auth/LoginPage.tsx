@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter  } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import logoFull from "@/assets/logo-full.png";
+import logoFull from "@/assets/366544.png";
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';

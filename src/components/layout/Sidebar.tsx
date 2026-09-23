@@ -8,8 +8,8 @@ import {
   LayoutDashboard, BookOpen, MapPin, Award, UserCheck, Calendar, 
   Users2, Clock, FileBarChart, History, BadgeCheck
 } from "lucide-react";
-import logoSidebar from "@/assets/logo-sidebar.png";
-import logoMini from "@/assets/logo-mini.png";
+import logoSidebar from "@/assets/366544.png";
+import logoMini from "@/assets/366544.png";
 
 // 1. تعريف الواجهات لتجنب ts-ignore
 interface SubItem {
