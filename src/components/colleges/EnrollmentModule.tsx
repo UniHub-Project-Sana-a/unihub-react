@@ -539,17 +539,63 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !selectedGroup) return;
   
+    const file = e.target.files[0];
+    
+    // ✅ 1. تحقق من نوع الملف
+    const validTypes = [
+        'text/csv',
+        'text/plain',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ];
+    
+    if (!validTypes.includes(file.type) && !file.name.match(/\.(csv|txt|xlsx|xls)$/i)) {
+        toast({
+            title: "نوع ملف غير صحيح",
+            description: "يرجى رفع ملف CSV أو Excel فقط",
+            variant: "destructive"
+        });
+        if (csvInputRef.current) csvInputRef.current.value = "";
+        return;
+    }
+
+    // ✅ 2. تحقق من حجم الملف (مثلاً: 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+        toast({
+            title: "الملف كبير جداً",
+            description: "حجم الملف يجب ألا يتجاوز 10MB",
+            variant: "destructive"
+        });
+        if (csvInputRef.current) csvInputRef.current.value = "";
+        return;
+    }
+
+    console.log('📎 File selected:', {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: new Date(file.lastModified)
+    });
+
     try {
       setIsImporting(true);
   
       const formData = new FormData();
-      formData.append("file", e.target.files[0]);           // يدعم csv/txt و xlsx/xls
+      formData.append("file", file);  // ✅ الملف الفعلي
       formData.append("group_id", String(selectedGroup.id));
-      // ملاحظة: الهاتف غير موجود في الملف وسيُعتبر null. إن كان الباك يدعم خياراً صريحاً:
-      formData.append("allow_null_phone", "1"); // سيتم تجاهله إن لم يدعمه السيرفر
+
+      // ✅ 3. تحقق من محتويات FormData
+      console.log('📤 FormData contents:');
+      for (let pair of formData.entries()) {
+          console.log(pair[0], ':', pair[1]);
+      }
   
-      // لا تضبط Content-Type يدوياً (ليضيف Axios الـ boundary تلقائياً)
-      const res = await api.post("/v1/student-groups/import-csv", formData);
+      // ✅ 4. إرسال الطلب بدون تحديد Content-Type (مهم جداً!)
+      const res = await api.post("/v1/student-groups/import-csv", formData, {
+          headers: {
+              // ⚠️ لا تضع Content-Type هنا - axios سيضعها تلقائياً مع boundary
+          }
+      });
   
       const d = res.data ?? {};
       const createdUsers     = Number(d.created_users ?? 0);
@@ -561,14 +607,14 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
       if ((createdUsers + createdStudents + attached) === 0) {
         toast({
           title: "لم يتم استيراد أي طالب",
-          description: "تحقق من عناوين الأعمدة: academic_number, full_name, email, gender. الهاتف (phone) اختياري وسيُخزّن كـ null إن لم يوجد.",
+          description: "تحقق من عناوين الأعمدة: academic_number, full_name, email, gender",
           variant: "destructive",
         });
       } else {
         const details = [
           `مستخدمون جدد: ${createdUsers}`,
           `طلاب جدد: ${createdStudents}`,
-          `تم ربطهم بالمجموعة: ${attached}`,
+          `تم ربطهم: ${attached}`,
         ].join(" | ");
   
         const warnings =
@@ -584,14 +630,22 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   
       await fetchGroupMembers(selectedGroup.id);
       await fetchGroups();
+      
     } catch (err: any) {
       const server = err?.response?.data;
-      const msg =
-        server?.message ||
-        server?.error ||
-        "فشل استيراد الملف. تأكد من أن الأعمدة صحيحة وأن الملف محفوظ بصيغة CSV أو Excel.";
-      console.error("Import error:", server || err);
-      toast({ title: "خطأ", description: msg, variant: "destructive" });
+      const msg = server?.message || server?.error || "فشل استيراد الملف";
+      
+      console.error("❌ Import error:", {
+          status: err?.response?.status,
+          data: server,
+          message: err.message
+      });
+      
+      toast({ 
+        title: "خطأ", 
+        description: msg,
+        variant: "destructive" 
+      });
     } finally {
       setIsImporting(false);
       if (csvInputRef.current) csvInputRef.current.value = "";
