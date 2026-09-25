@@ -541,63 +541,37 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   
     const file = e.target.files[0];
     
-    // ✅ 1. تحقق من نوع الملف
-    const validTypes = [
-        'text/csv',
-        'text/plain',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    ];
-    
-    if (!validTypes.includes(file.type) && !file.name.match(/\.(csv|txt|xlsx|xls)$/i)) {
-        toast({
-            title: "نوع ملف غير صحيح",
-            description: "يرجى رفع ملف CSV أو Excel فقط",
-            variant: "destructive"
-        });
-        if (csvInputRef.current) csvInputRef.current.value = "";
-        return;
-    }
-
-    // ✅ 2. تحقق من حجم الملف (مثلاً: 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-        toast({
-            title: "الملف كبير جداً",
-            description: "حجم الملف يجب ألا يتجاوز 10MB",
-            variant: "destructive"
-        });
-        if (csvInputRef.current) csvInputRef.current.value = "";
-        return;
-    }
-
-    console.log('📎 File selected:', {
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        lastModified: new Date(file.lastModified)
-    });
+    console.log('📎 File:', file.name, file.type, file.size);
 
     try {
       setIsImporting(true);
   
       const formData = new FormData();
-      formData.append("file", file);  // ✅ الملف الفعلي
+      formData.append("file", file);
       formData.append("group_id", String(selectedGroup.id));
 
-      // ✅ 3. تحقق من محتويات FormData
-      console.log('📤 FormData contents:');
-      for (let pair of formData.entries()) {
-          console.log(pair[0], ':', pair[1]);
-      }
-  
-      // ✅ 4. إرسال الطلب بدون تحديد Content-Type (مهم جداً!)
-      const res = await api.post("/v1/student-groups/import-csv", formData, {
-          headers: {
-              // ⚠️ لا تضع Content-Type هنا - axios سيضعها تلقائياً مع boundary
+      // ✅ استخدم fetch بدلاً من axios
+      const token = localStorage.getItem('token'); // أو من Redux/Context
+
+      const response = await fetch(
+          'https://unihub-api-q57h.onrender.com/api/v1/student-groups/import-csv',
+          {
+              method: 'POST',
+              headers: {
+                  'Authorization': `Bearer ${token}`,
+                  // ⚠️ لا تضع Content-Type
+              },
+              body: formData
           }
-      });
-  
-      const d = res.data ?? {};
+      );
+
+      if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'فشل الرفع');
+      }
+
+      const d = await response.json();
+      
       const createdUsers     = Number(d.created_users ?? 0);
       const createdStudents  = Number(d.created_students ?? 0);
       const attached         = Number(d.attached_to_group ?? 0);
@@ -607,24 +581,13 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
       if ((createdUsers + createdStudents + attached) === 0) {
         toast({
           title: "لم يتم استيراد أي طالب",
-          description: "تحقق من عناوين الأعمدة: academic_number, full_name, email, gender",
+          description: "تحقق من البيانات",
           variant: "destructive",
         });
       } else {
-        const details = [
-          `مستخدمون جدد: ${createdUsers}`,
-          `طلاب جدد: ${createdStudents}`,
-          `تم ربطهم: ${attached}`,
-        ].join(" | ");
-  
-        const warnings =
-          skippedMissing + skippedConflicts > 0
-            ? ` | تخطي: ${skippedMissing} | تعارضات: ${skippedConflicts}`
-            : "";
-  
         toast({
-          title: "نجحت عملية الاستيراد",
-          description: details + warnings,
+          title: "نجاح",
+          description: `تم إضافة ${attached} طالب`,
         });
       }
   
@@ -632,18 +595,10 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
       await fetchGroups();
       
     } catch (err: any) {
-      const server = err?.response?.data;
-      const msg = server?.message || server?.error || "فشل استيراد الملف";
-      
-      console.error("❌ Import error:", {
-          status: err?.response?.status,
-          data: server,
-          message: err.message
-      });
-      
+      console.error("❌ Error:", err);
       toast({ 
         title: "خطأ", 
-        description: msg,
+        description: err.message || "فشل الرفع",
         variant: "destructive" 
       });
     } finally {
