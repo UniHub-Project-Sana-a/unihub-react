@@ -32,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 // ============ INTERFACES ============
 
@@ -246,6 +247,7 @@ export default function CourseQualityDialog({
 }: CourseQualityDialogProps) {
   
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const [activeTab, setActiveTab] = useState("info");
   const [activePart, setActivePart] = useState<string>("نظري");
   const [loading, setLoading] = useState(false);
@@ -1808,7 +1810,7 @@ export default function CourseQualityDialog({
   };
   
   const handleDeleteOutcome = async (id: number) => {
-    if (!courseInfo || !confirm("هل أنت متأكد من الحذف؟")) return;
+    if (!courseInfo || !(await confirm({ title: "تأكيد الحذف", description: "هل أنت متأكد من الحذف؟" }))) return;
   
     setSaving(true);
     try {
@@ -1916,7 +1918,7 @@ export default function CourseQualityDialog({
   };
 
   const handleDeleteTopic = async (id: number) => {
-    if (!course || !confirm("هل أنت متأكد؟")) return;
+    if (!course || !(await confirm({ title: "تأكيد الحذف", description: "هل أنت متأكد؟" }))) return;
   
     setSaving(true);
     try {
@@ -2081,7 +2083,7 @@ export default function CourseQualityDialog({
   
   const handleDeleteQuestion = async (id: number, topicId = selectedTopicForQuestion) => {
     const hasQuestionTarget = Boolean(topicId) || Boolean(questionBankPart);
-    if ((!hasQuestionTarget) || !confirm("هل أنت متأكد؟")) return;
+    if ((!hasQuestionTarget) || !(await confirm({ title: "تأكيد الحذف", description: "هل أنت متأكد؟" }))) return;
 
     setSaving(true);
     try {
@@ -2165,7 +2167,7 @@ export default function CourseQualityDialog({
   };
 
   const handleDeleteAssignment = async (id: number) => {
-    if (!course || !confirm("هل أنت متأكد؟")) return;
+    if (!course || !(await confirm({ title: "تأكيد الحذف", description: "هل أنت متأكد؟" }))) return;
   
     setSaving(true);
     try {
@@ -2242,7 +2244,7 @@ export default function CourseQualityDialog({
   };
 
   const handleDeleteAssessment = async (id: number) => {
-    if (!course || !confirm("هل أنت متأكد؟")) return;
+    if (!course || !(await confirm({ title: "تأكيد الحذف", description: "هل أنت متأكد؟" }))) return;
   
     setSaving(true);
     try {
@@ -2344,7 +2346,7 @@ export default function CourseQualityDialog({
   };
 
   const handleDeleteReference = async (id: number) => {
-    if (!course || !confirm("هل أنت متأكد؟")) return;
+    if (!course || !(await confirm({ title: "تأكيد الحذف", description: "هل أنت متأكد؟" }))) return;
   
     setSaving(true);
     try {
@@ -2420,7 +2422,7 @@ export default function CourseQualityDialog({
   };
 
   const handleDeletePolicy = async (id: number) => {
-    if (!course || !confirm("هل أنت متأكد؟")) return;
+    if (!course || !(await confirm({ title: "تأكيد الحذف", description: "هل أنت متأكد؟" }))) return;
   
     setSaving(true);
     try {
@@ -4899,6 +4901,8 @@ export default function CourseQualityDialog({
           </div>
         )}
       </DialogContent>
+
+      {confirmDialog}
     </Dialog>
   );
 }

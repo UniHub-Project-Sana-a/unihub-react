@@ -22,7 +22,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import CourseQualityDialog from "./CourseQualityDialog";
+import SoftDeleteTrashPage from "./SoftDeleteTrashPage";
 
 // ==========================================
 // Types
@@ -161,6 +163,7 @@ type DepartmentFormData = z.infer<typeof departmentSchema>;
 export default function DepartmentsModule({ collegeId }: { collegeId: string }) {
   const { can } = usePermission();
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   const handleNumberInputFocus = (event: React.FocusEvent<HTMLDivElement>) => {
     const target = event.target;
@@ -178,6 +181,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
 
   const [departments, setDepartments] = useState<ApiDepartment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<ApiDepartment | null>(null);
 
@@ -649,7 +653,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteDepartment = async (id: number) => { 
-    if(!confirm("هل أنت متأكد من حذف القسم؟")) return; 
+    if(!(await confirm({ description: "هل أنت متأكد من حذف القسم؟" }))) return; 
     try { 
       await api.delete(`/v1/departments/${id}`); 
       fetchDepartments(); 
@@ -714,7 +718,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteProgram = async (id: number) => { 
-    if(!confirm("هل أنت متأكد من حذف البرنامج؟")) return; 
+    if(!(await confirm({ description: "هل أنت متأكد من حذف البرنامج؟" }))) return; 
     try {
       await api.delete(`/v1/programs/${id}`); 
       if (selectedProgram?.id === id) setSelectedProgram(null); 
@@ -790,7 +794,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteProgramOption = async (option: ProgramOption) => {
-    if (!activeProgramForOptions || !confirm(`هل أنت متأكد من حذف ${option.name}؟`)) return;
+    if (!activeProgramForOptions || !(await confirm({ title: "حذف خيار البرنامج", description: `هل أنت متأكد من حذف ${option.name}؟` }))) return;
     const endpoint = programOptionTab === "teaching" ? "/v1/teaching-strategies" : "/v1/assessment-methods";
     try {
       await api.delete(`${endpoint}/${option.id}`);
@@ -892,7 +896,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteProgramOutcome = async (ploId: number) => {
-    if (!confirm("هل أنت متأكد من حذف هذا المخرج؟")) return;
+    if (!(await confirm({ description: "هل أنت متأكد من حذف هذا المخرج؟" }))) return;
     
     try {
       await api.delete(`/v1/program-learning-outcomes/${ploId}`);
@@ -1035,7 +1039,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteLevel = async (id: number) => { 
-    if(!confirm("هل أنت متأكد من حذف المستوى؟")) return; 
+    if(!(await confirm({ description: "هل أنت متأكد من حذف المستوى؟" }))) return; 
     try {
       await api.delete(`/v1/levels/${id}`); 
       if (selectedLevel?.id === id) setSelectedLevel(null); 
@@ -1092,7 +1096,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteTerm = async (id: number) => { 
-    if(!confirm("هل أنت متأكد من حذف الفصل؟")) return; 
+    if(!(await confirm({ description: "هل أنت متأكد من حذف الفصل؟" }))) return; 
     try {
       await api.delete(`/v1/semesters/${id}`); 
       if (selectedTerm?.id === id) setSelectedTerm(null); 
@@ -1219,7 +1223,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteBlock = async (id: number) => {
-    if (!confirm("هل أنت متأكد من حذف البلوك؟")) return;
+    if (!(await confirm({ description: "هل أنت متأكد من حذف البلوك؟" }))) return;
     try {
       await api.delete(`/v1/blocks/${id}`);
       if (selectedBlock?.id === id) setSelectedBlock(null);
@@ -1532,7 +1536,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   };
 
   const handleDeleteCourse = async (id: number) => { 
-    if(!confirm("هل أنت متأكد من حذف المقرر؟")) return; 
+    if(!(await confirm({ description: "هل أنت متأكد من حذف المقرر؟" }))) return; 
     try {
       await api.delete(`/v1/courses/${id}`); 
       
@@ -1614,6 +1618,30 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   // Render
   // ==========================================
 
+  const handleTrashBack = () => {
+    setShowTrash(false);
+    setSelectedDepartment(null);
+    setSelectedProgram(null);
+    setSelectedLevel(null);
+    setSelectedTerm(null);
+    setSelectedBlock(null);
+    void fetchDepartments();
+  };
+
+  if (showTrash) {
+    return (
+      <SoftDeleteTrashPage
+        collegeId={collegeId}
+        onBack={handleTrashBack}
+        endpoint="/v1/study-plan/trash"
+        permission="study_plan.delete"
+        title="سلة محذوفات الخطة الدراسية"
+        subtitle="العناصر المحذوفة حذفاً ناعماً ضمن أقسام وبرامج هذه الكلية"
+        backLabel="العودة للخطة الدراسية"
+      />
+    );
+  }
+
   return (
     <div
       className="space-y-6 animate-in slide-in-from-right-4 duration-500"
@@ -1622,16 +1650,25 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       onWheelCapture={handleNumberInputWheel}
     >
       
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      <div className="grid grid-cols-1 items-center gap-3 mb-4 sm:grid-cols-3">
+        <div className="justify-self-start sm:col-span-2">
           <h2 className="text-2xl font-bold text-slate-800">إدارة الخطة الدراسية</h2>
           <p className="text-sm text-muted-foreground">إدارة الأقسام والبرامج والمقررات الدراسية</p>
         </div>
-        {can('study_plan.create') && (
-          <Button onClick={() => openDialog()} className="shadow-md hover:shadow-lg transition-all">
-            <Plus className="w-4 h-4 mr-2" /> إضافة قسم
+        <div className="flex items-center gap-2 justify-self-end">
+          {can('study_plan.create') && (
+            <Button onClick={() => openDialog()} className="shadow-md hover:shadow-lg transition-all">
+              <Plus className="w-4 h-4 mr-2" /> إضافة قسم
+            </Button>
+          )}
+          <Button
+            variant="destructive"
+            onClick={() => setShowTrash(true)}
+            className="whitespace-nowrap"
+          >
+            <Trash2 className="w-4 h-4 mr-2" /> سلة المحذوفات
           </Button>
-        )}
+        </div>
       </div>
 
       {/* الأقسام */}
@@ -6461,6 +6498,8 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
         onClose={() => setQualityDialogCourse(null)}
         course={qualityDialogCourse}
       />
+
+      {confirmDialog}
     </div>
   );
 }

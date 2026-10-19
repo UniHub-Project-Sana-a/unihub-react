@@ -8,11 +8,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Pencil, Trash2, Plus, ArrowLeft, ChevronRight, Loader2, Upload, ImageIcon } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, storageUrl } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"; 
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
 
 // Lazy imports
 const TimetableModule = lazy(() => import("@/components/colleges/TimetableModule"));
@@ -56,6 +58,7 @@ interface CollegeFormData {
 
 export default function CollegesPage() {
   const { can } = usePermission();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const { id: routeId } = useParams(); 
   const navigate = useNavigate(); 
   const location = useLocation();
@@ -87,9 +90,9 @@ export default function CollegesPage() {
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [colleges, setColleges] = useState<College[]>([]);
   const [selectedCollege, setSelectedCollege] = useState<College | null>(null);
+  const [showTrash, setShowTrash] = useState(false);
   const [isCollegeFormOpen, setIsCollegeFormOpen] = useState(false);
   const [editingCollegeId, setEditingCollegeId] = useState<string | null>(null);
-  const STORAGE_BASE_URL = "http://192.168.0.124/unihub-api/storage/";
   
   // تحديث الحالة لتدعم الملفات
   const [collegeFormData, setCollegeFormData] = useState<CollegeFormData>({ 
@@ -125,12 +128,14 @@ export default function CollegesPage() {
       }
   
       const mappedColleges = data.map(c => {
+        // نبني رابط الشعار من مسار التخزين + مضيف الـ API نفسه (بدل الاعتماد على APP_URL
+        // في الباك اند الذي قد يشير إلى مضيف مختلف فيتعذّر عرض الصورة).
+        const resolvedLogo = storageUrl(c.college_logo) ?? c.logoUrl ?? null;
         return {
           id: String(c.college_id),
           name: c.college_name,
           academicCode: c.college_code || "",
-          // استخدم الحقل الجاهز مباشرة من الـ API
-          logoUrl: c.logoUrl ? `${c.logoUrl}?t=${new Date().getTime()}` : null 
+          logoUrl: resolvedLogo ? `${resolvedLogo}?t=${new Date().getTime()}` : null 
         };
       });
 
@@ -229,7 +234,7 @@ export default function CollegesPage() {
   };
 
   const handleDeleteCollege = async (id: string) => {
-    if (!confirm("سيتم حذف الكلية وكل ما يتبعها. هل أنت متأكد؟")) return;
+    if (!(await confirm({ title: "حذف الكلية", description: "سيتم حذف الكلية وكل ما يتبعها. هل أنت متأكد؟" }))) return;
     try {
       await api.delete(`/v1/colleges/${id}`);
       if (selectedCollege?.id === id) setSelectedCollege(null);
@@ -282,6 +287,26 @@ export default function CollegesPage() {
     navigate('/colleges');
   };
 
+  if (showTrash) {
+    return (
+      <AdminLayout>
+        <div className="p-3 sm:p-6">
+          <SoftDeleteTrashPage
+            onBack={() => {
+              setShowTrash(false);
+              void loadColleges();
+            }}
+            endpoint="/v1/colleges/trash"
+            permission="colleges.delete"
+            title="سلة محذوفات الكليات"
+            subtitle="الكليات المحذوفة حذفاً ناعماً"
+            backLabel="العودة للكليات"
+          />
+        </div>
+      </AdminLayout>
+    );
+  }
+
   if (isLoading) {
     return (
       <AdminLayout>
@@ -317,12 +342,18 @@ export default function CollegesPage() {
           <>
             <div className="flex justify-between items-center mb-6">
               <h1 className="text-2xl sm:text-3xl font-bold">الكليات</h1>
-              {can('colleges.create') && (
-                <Button onClick={handleAddCollege}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  إضافة كلية
+              <div className="flex items-center gap-2">
+                {can('colleges.create') && (
+                  <Button onClick={handleAddCollege}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    إضافة كلية
+                  </Button>
+                )}
+                <Button variant="destructive" onClick={() => setShowTrash(true)}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  سلة المحذوفات
                 </Button>
-              )}
+              </div>
             </div>
         
             {isCollegeFormOpen && (
@@ -334,7 +365,7 @@ export default function CollegesPage() {
                   <form onSubmit={handleSubmitCollege} className="space-y-4">
                     <div className="flex gap-4 items-start">
                         {/* قسم رفع الصورة */}
-                        <div className="w-32 h-32 shrink-0 border-2 border-dashed rounded-lg flex items-center justify-center relative overflow-hidden bg-muted/20">
+                        <label className="group w-32 h-32 shrink-0 border-2 border-dashed rounded-lg relative overflow-hidden bg-muted/20 flex items-center justify-center cursor-pointer transition-colors hover:border-primary">
                             {collegeFormData.logoPreview ? (
                                 <img src={collegeFormData.logoPreview} alt="Logo Preview" className="w-full h-full object-contain" />
                             ) : (
@@ -343,13 +374,23 @@ export default function CollegesPage() {
                                     <span>اختر شعار</span>
                                 </div>
                             )}
-                            <Input 
-                                type="file" 
+
+                            {/* طبقة تظهر عند الهفر وتغطي كامل المربع */}
+                            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-black/50 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 pointer-events-none">
+                                <Upload className="w-5 h-5" />
+                                <span className="text-[11px] font-medium">
+                                    {collegeFormData.logoPreview ? "تغيير الشعار" : "رفع الشعار"}
+                                </span>
+                            </div>
+
+                            {/* كامل المربع قابل للضغط لأنه داخل الـ label */}
+                            <input
+                                type="file"
                                 accept="image/*"
-                                className="absolute inset-0 opacity-0 cursor-pointer" 
+                                className="hidden"
                                 onChange={handleFileChange}
                             />
-                        </div>
+                        </label>
 
                         <div className="flex-1 space-y-4">
                             <div>
@@ -618,6 +659,8 @@ export default function CollegesPage() {
             </Tabs>
           </>
         )}
+
+        {confirmDialog}
       </div>
     </AdminLayout>
   );

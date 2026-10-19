@@ -205,7 +205,6 @@ export default function QaCampaignsManager({ collegeId }: { collegeId: number })
     };
 
     const handleDelete = async (id: number) => {
-        if(!confirm("هل أنت متأكد من حذف هذه الحملة؟ سيتم حذف جميع التقييمات المرتبطة بها!")) return;
         try {
             await api.delete(`/v1/qa/campaigns/${id}`);
             setCampaigns(campaigns.filter(c => c.campaign_id !== id));

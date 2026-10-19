@@ -13,6 +13,8 @@ import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
 
 interface AcademicStaff {
   id: string;               // lecturer_id
@@ -109,12 +111,14 @@ interface Props {
 export default function AcademicStaffModule({ collegeId }: Props) {
   const { can } = usePermission();
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   // Lists
   const [departments, setDepartments] = useState<Department[]>([]);
   const [titles, setTitles] = useState<Title[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [collegeStaff, setCollegeStaff] = useState<AcademicStaff[]>([]);
+  const [showTrash, setShowTrash] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImportingCsv, setIsImportingCsv] = useState(false);
@@ -406,7 +410,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
   };
 
   const handleDeleteStaff = async (id: string) => {
-    if (!confirm("هل تريد حذف هذا العضو؟")) return;
+    if (!(await confirm({ title: "حذف عضو هيئة تدريس", description: "هل تريد حذف هذا العضو؟" }))) return;
     try {
       await api.delete(`/v1/lecturers/${id}`);
       toast({ title: "نجاح", description: "تم حذف العضو" });
@@ -486,6 +490,23 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
   // عرض الاسم للقسم/الدرجة
   const departmentsMap = useMemo(() => new Map(departments.map((d) => [d.id, d.name])), [departments]);
 
+  if (showTrash) {
+    return (
+      <SoftDeleteTrashPage
+        collegeId={collegeId}
+        onBack={() => {
+          setShowTrash(false);
+          void fetchStaff();
+        }}
+        endpoint="/v1/lecturers/trash"
+        permission="staff.delete"
+        title="سلة محذوفات هيئة التدريس"
+        subtitle="أعضاء هيئة التدريس المحذوفون حذفاً ناعماً في هذه الكلية"
+        backLabel="العودة لهيئة التدريس"
+      />
+    );
+  }
+
   return (
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
@@ -504,6 +525,10 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
               إضافة عضو
             </Button>
           )}
+          <Button variant="destructive" onClick={() => setShowTrash(true)}>
+            <Trash2 className="w-4 h-4 mr-2" />
+            سلة المحذوفات
+          </Button>
         </div>
       </div>
       <input
@@ -736,6 +761,8 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
           </Table>
         </CardContent>
       </Card>
+
+      {confirmDialog}
     </div>
   );
 }

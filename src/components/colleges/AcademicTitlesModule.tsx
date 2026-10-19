@@ -9,6 +9,8 @@ import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
 
 type ApiTitle = {
   title_id: number;
@@ -33,9 +35,11 @@ interface AcademicTitlesModuleProps {
 export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModuleProps) {
   const { can } = usePermission();
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   const [titles, setTitles] = useState<Title[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -91,7 +95,7 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("هل تريد حذف هذه الدرجة الأكاديمية؟")) return;
+    if (!(await confirm({ title: "حذف درجة أكاديمية", description: "هل تريد حذف هذه الدرجة الأكاديمية؟" }))) return;
     try {
       await api.delete(`/v1/academic-titles/${id}`);
       toast({ title: "نجاح", description: "تم حذف الدرجة الأكاديمية" });
@@ -133,16 +137,39 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
     }
   };
 
+  if (showTrash) {
+    return (
+      <SoftDeleteTrashPage
+        collegeId={collegeId}
+        onBack={() => {
+          setShowTrash(false);
+          void fetchTitles();
+        }}
+        endpoint="/v1/academic-titles/trash"
+        permission="academic_titles.delete"
+        title="سلة محذوفات الرتب الأكاديمية"
+        subtitle="الرتب الأكاديمية المحذوفة حذفاً ناعماً في هذه الكلية"
+        backLabel="العودة للرتب الأكاديمية"
+      />
+    );
+  }
+
   return (
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">الدرجات الأكاديمية</h2>
-        {can('academic_titles.create') && (
-          <Button onClick={openAdd}>
-            <Plus className="w-4 h-4 mr-2" />
-            إضافة درجة
+        <div className="flex items-center gap-2">
+          {can('academic_titles.create') && (
+            <Button onClick={openAdd}>
+              <Plus className="w-4 h-4 mr-2" />
+              إضافة درجة
+            </Button>
+          )}
+          <Button variant="destructive" onClick={() => setShowTrash(true)}>
+            <Trash2 className="w-4 h-4 mr-2" />
+            سلة المحذوفات
           </Button>
-        )}
+        </div>
       </div>
 
       {/* Dialog form */}
@@ -259,6 +286,8 @@ export default function AcademicTitlesModule({ collegeId }: AcademicTitlesModule
           </Table>
         </CardContent>
       </Card>
+
+      {confirmDialog}
     </div>
   );
 }

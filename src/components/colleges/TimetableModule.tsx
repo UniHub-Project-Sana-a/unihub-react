@@ -17,6 +17,7 @@ import { ar } from 'date-fns/locale';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 
 // --- Types ---
 type ImportLog = { id: number; created_at: string; source: string; items: number; status: string; notes?: string; };
@@ -81,6 +82,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   // --- ⬆️ نهاية الإضافة ⬆️ ---
 
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const collegeIdNum = Number(collegeId);
   const [importSource, setImportSource] = useState<"manual" | null>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "conflict">("idle");
@@ -187,7 +189,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
 
   // --- ✅ دالة حذف الجلسة ---
   const handleDeleteSession = async () => {
-      if (!confirm("هل أنت متأكد من حذف هذه الجلسة نهائياً؟")) return;
+      if (!(await confirm({ title: "حذف جلسة", description: "هل أنت متأكد من حذف هذه الجلسة نهائياً؟" }))) return;
       
       try {
           await api.delete(`/v1/lecture-sessions/${editingSession.session_id}`);
@@ -1055,7 +1057,7 @@ const openCreateSessionModal = async () => {
   // دالة تحديث الحالة إلى "مجدولة" (4)
   const markAsScheduled = async (requestId: number) => {
     // تأكيد بسيط
-    if (!confirm("هل قمت بإضافة المحاضرة للجدول يدوياً وتود إغلاق هذا الطلب؟")) return;
+    if (!(await confirm({ title: "إغلاق الطلب", description: "هل قمت بإضافة المحاضرة للجدول يدوياً وتود إغلاق هذا الطلب؟", destructive: false }))) return;
 
     setProcessingMakeupId(requestId);
     try {
@@ -2419,6 +2421,8 @@ const openCreateSessionModal = async () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+      {confirmDialog}
     </div>
   );
 }

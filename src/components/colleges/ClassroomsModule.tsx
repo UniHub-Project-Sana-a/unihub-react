@@ -10,10 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, FileJson, Monitor, Projector, Tv, MapPin } from "lucide-react";
 import JsonImportModal from "@/components/colleges/JsonImportModal";
+import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -186,6 +188,7 @@ function getPreciseLocation(
 export default function ClassroomsModule({ collegeId }: Props) {
   const { can } = usePermission();
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const lastAccuracyRef = useRef<number>(Infinity);
   // Buildings
   const [buildings, setBuildings] = useState<Building[]>([]);
@@ -194,7 +197,9 @@ export default function ClassroomsModule({ collegeId }: Props) {
   // JSON Import Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
-  
+  // سلة المحذوفات (Soft Delete) للمباني والقاعات
+  const [showTrash, setShowTrash] = useState(false);
+
 
   // Building form (جديد)
   const [isBuildingFormOpen, setIsBuildingFormOpen] = useState(false);
@@ -518,7 +523,7 @@ const handleAddClassroom = () => {
 
   const handleDeleteClassroom = async (id: string) => {
     if (!selectedBuilding) return;
-    if (!confirm("هل تريد حذف هذه القاعة؟")) return;
+    if (!(await confirm({ title: "حذف قاعة", description: "هل تريد حذف هذه القاعة؟" }))) return;
 
     try {
       await api.delete(`/v1/classrooms/${id}`);
@@ -529,6 +534,29 @@ const handleAddClassroom = () => {
       toast({ title: "خطأ", description: msg, variant: "destructive" });
     }
   };
+
+  // العودة من سلة المحذوفات مع تحديث البيانات
+  const handleTrashBack = async () => {
+    setShowTrash(false);
+    await fetchBuildings();
+    if (selectedBuilding) {
+      await fetchClassrooms(selectedBuilding.id);
+    }
+  };
+
+  if (showTrash) {
+    return (
+      <SoftDeleteTrashPage
+        collegeId={collegeId}
+        onBack={() => void handleTrashBack()}
+        endpoint="/v1/classrooms/trash"
+        permission="locations.delete"
+        title="سلة محذوفات المباني والقاعات"
+        subtitle="العناصر المحذوفة حذفاً ناعماً من المباني والقاعات في هذه الكلية"
+        backLabel="العودة للمباني والقاعات"
+      />
+    );
+  }
 
   return (
     <div className="space-y-4" dir="rtl">
@@ -547,6 +575,10 @@ const handleAddClassroom = () => {
               إضافة قاعة
             </Button>
           )}
+          <Button variant="destructive" className="gap-2 whitespace-nowrap" onClick={() => setShowTrash(true)}>
+            <Trash2 className="w-4 h-4" />
+            سلة المحذوفات
+          </Button>
         </div>
       </div>
 
@@ -977,6 +1009,8 @@ const handleAddClassroom = () => {
         }}
         collegeId={collegeId}
       />
+
+      {confirmDialog}
     </div>
   );
 }

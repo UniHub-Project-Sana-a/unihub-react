@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -8,16 +8,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { api } from "@/lib/api";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
 
 type ApiPeriod = {
   period_id: number;
-  college_id: number;
   period_name: string;
   start_time: string; // HH:mm:ss
   end_time: string;   // HH:mm:ss
-  session_type: string;
 };
 
 type Period = {
@@ -25,8 +24,6 @@ type Period = {
   name: string;
   start: string; // HH:mm
   end: string;   // HH:mm
-  sessionType: string;
-  collegeId: number;
 };
 
 interface PeriodsModuleProps {
@@ -36,9 +33,11 @@ interface PeriodsModuleProps {
 export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
   const { can } = usePermission();
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
 
   const [periods, setPeriods] = useState<Period[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,7 +47,6 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
     name: "",
     start: "08:00",
     end: "10:00",
-    sessionType: "LECTURE", // LECTURE/LAB/SEMINAR
   });
 
   const fetchPeriods = async () => {
@@ -61,8 +59,6 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
         name: p.period_name,
         start: p.start_time?.slice(0,5) ?? "00:00",
         end: p.end_time?.slice(0,5) ?? "00:00",
-        sessionType: p.session_type,
-        collegeId: p.college_id,
       }));
       setPeriods(mapped.sort((a,b) => a.start.localeCompare(b.start)));
     } catch {
@@ -79,18 +75,18 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
 
   const openAdd = () => {
     setEditingPeriod(null);
-    setFormData({ name: "", start: "08:00", end: "10:00", sessionType: "LECTURE" });
+    setFormData({ name: "", start: "08:00", end: "10:00" });
     setIsDialogOpen(true);
   };
 
   const openEdit = (p: Period) => {
     setEditingPeriod(p);
-    setFormData({ name: p.name, start: p.start, end: p.end, sessionType: p.sessionType });
+    setFormData({ name: p.name, start: p.start, end: p.end });
     setIsDialogOpen(true);
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("هل تريد حذف هذه الفترة؟")) return;
+    if (!(await confirm({ title: "حذف فترة", description: "هل تريد حذف هذه الفترة؟" }))) return;
     try {
       await api.delete(`/v1/periods/${id}`);
       toast({ title: "نجاح", description: "تم حذف الفترة" });
@@ -110,7 +106,6 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
         period_name: formData.name,
         start_time: formData.start,
         end_time: formData.end,
-        session_type: formData.sessionType,
       };
 
       if (editingPeriod) {
@@ -133,16 +128,39 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
     }
   };
 
+  if (showTrash) {
+    return (
+      <SoftDeleteTrashPage
+        collegeId={collegeId}
+        onBack={() => {
+          setShowTrash(false);
+          void fetchPeriods();
+        }}
+        endpoint="/v1/periods/trash"
+        permission="periods.delete"
+        title="سلة محذوفات الفترات الزمنية"
+        subtitle="الفترات الزمنية المحذوفة حذفاً ناعماً في هذه الكلية"
+        backLabel="العودة للفترات"
+      />
+    );
+  }
+
   return (
     <div className="space-y-4" dir="rtl">
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-bold">الفترات الزمنية</h2>
-        {can('periods.create') && (
-          <Button onClick={openAdd}>
-            <Plus className="w-4 h-4 mr-2" />
-            إضافة فترة
+        <div className="flex items-center gap-2">
+          {can('periods.create') && (
+            <Button onClick={openAdd}>
+              <Plus className="w-4 h-4 mr-2" />
+              إضافة فترة
+            </Button>
+          )}
+          <Button variant="destructive" onClick={() => setShowTrash(true)}>
+            <Trash2 className="w-4 h-4 mr-2" />
+            سلة المحذوفات
           </Button>
-        )}
+        </div>
       </div>
 
       {/* Dialog form */}
@@ -160,21 +178,6 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
                   onChange={(e) => setFormData((p) => ({ ...p, name: e.target.value }))}
                   required
                 />
-              </div>
-              <div>
-                <Label>نوع الجلسة *</Label>
-                <Select
-                  value={formData.sessionType}
-                  onValueChange={(v) => setFormData((p) => ({ ...p, sessionType: v }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="اختر النوع" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PM">PM</SelectItem>
-                    <SelectItem value="AM">AM</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
               <div>
                 <Label>وقت البداية *</Label>
@@ -219,16 +222,15 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
                 <TableHead className="text-right">اسم الفترة</TableHead>
                 <TableHead className="text-right">البداية</TableHead>
                 <TableHead className="text-right">النهاية</TableHead>
-                <TableHead className="text-right">النوع</TableHead>
                 {/* الإجراءات عادة تكون أجمل في الوسط */}
                 <TableHead className="text-center">الإجراءات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="text-center h-24">جاري التحميل...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center h-24">جاري التحميل...</TableCell></TableRow>
               ) : periods.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="text-center h-24 text-muted-foreground">لا توجد فترات لهذه الكلية</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center h-24 text-muted-foreground">لا توجد فترات لهذه الكلية</TableCell></TableRow>
               ) : (
                 periods.map((p, idx) => (
                   <TableRow key={p.id}>
@@ -237,9 +239,6 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
                     <TableCell className="text-right font-medium">{p.name}</TableCell>
                     <TableCell className="text-right">{p.start}</TableCell>
                     <TableCell className="text-right">{p.end}</TableCell>
-                    <TableCell className="text-right">
-                        {p.sessionType === "LECTURE" ? "محاضرة" : p.sessionType === "LAB" ? "معمل" : "حلقة"}
-                    </TableCell>
                     {/* توسيط أزرار الإجراءات */}
                     <TableCell className="text-center">
                       <div className="flex justify-center gap-2">
@@ -258,6 +257,8 @@ export default function PeriodsModule({ collegeId }: PeriodsModuleProps) {
           </Table>
         </CardContent>
       </Card>
+
+      {confirmDialog}
     </div>
   );
 }

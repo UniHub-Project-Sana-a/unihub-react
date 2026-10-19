@@ -11,9 +11,11 @@ import { Link2, FilePlus, Loader2, Users, UserPlus, AlertTriangle, CheckCircle2,
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
+import { api, getApiErrorMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { usePermission } from "@/hooks/usePermission";
+import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
 
 // --- Types ---
 type ApiDepartment = { department_id: number; department_name: string; };
@@ -30,9 +32,11 @@ interface EnrollmentModuleProps {
 }
 
 export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
-  const { can } = usePermission();
+  const { can, canAny } = usePermission();
   const { toast } = useToast();
+  const { confirm, confirmDialog } = useConfirmDialog();
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const [showTrash, setShowTrash] = useState(false);
 
     // --- States for Edit Student Dialog ---
   const [isEditStudentOpen, setIsEditStudentOpen] = useState(false);
@@ -237,6 +241,7 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
 
       setEditingStudent({
         user_id: userData.user_id,
+        student_id: student.studentDbId,
         full_name: userData.full_name,
         email: userData.email,
         phone: userData.phone,
@@ -286,10 +291,9 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
       formData.append("allow_null_phone", "1");
 
       // 4. الإرسال لنفس رابط استيراد الـ CSV الذي يعمل
-      const res = await api.post("/v1/student-groups/import-csv", formData);
+      const d = await postStudentsCsv(formData);
 
       // 5. التحقق من النتيجة
-      const d = res.data ?? {};
       const totalSuccess = (Number(d.created_users ?? 0) + Number(d.created_students ?? 0) + Number(d.attached_to_group ?? 0));
 
       if (totalSuccess > 0) {
@@ -312,7 +316,7 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
 
     } catch (err: any) {
       console.error(err);
-      const msg = err?.response?.data?.message || "فشل إضافة الطالب";
+      const msg = getApiErrorMessage(err, "فشل إضافة الطالب");
       toast({ title: "خطأ", description: msg, variant: "destructive" });
     } finally {
       setIsAddingStudent(false);
@@ -536,6 +540,92 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     }
   };
 
+  // --- حذف المجموعة (Soft Delete) ---
+  const handleDeleteGroup = async (group: GroupVM) => {
+    const confirmed = await confirm({
+      title: "حذف المجموعة",
+      description: `هل تريد حذف المجموعة "${group.name}"؟ سيتم حذفها حذفاً ناعماً ويمكن استعادتها من سلة المحذوفات.`,
+    });
+    if (!confirmed) return;
+
+    try {
+      setIsUpdatingGroup(true);
+      await api.delete(`/v1/student-groups/${group.id}`);
+
+      toast({
+        title: "نجاح",
+        description: "تم حذف المجموعة ونقلها إلى سلة المحذوفات",
+      });
+
+      // إلغاء تحديد المجموعة إن كانت المحددة حالياً
+      if (selectedGroup?.id === group.id) {
+        setSelectedGroup(null);
+        setGroupMembers([]);
+      }
+
+      await fetchGroups();
+    } catch (err: any) {
+      toast({
+        title: "خطأ",
+        description: getApiErrorMessage(err, "فشل حذف المجموعة"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingGroup(false);
+    }
+  };
+
+  // --- رابط وتوكّن الـ API موحّدان مع بقية التطبيق ---
+  const apiBase = String(
+    import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ""
+  );
+  const readToken = () =>
+    sessionStorage.getItem("access_token") ||
+    localStorage.getItem("access_token") ||
+    localStorage.getItem("token") ||
+    "";
+
+  /**
+   * رفع ملف CSV إلى مسار استيراد الطلاب.
+   * نستخدم fetch عمدًا مع عدم تحديد Content-Type ليضيف المتصفح الحد (boundary)
+   * تلقائيًا، مع استخدام نفس رابط الـ API والتوكن الموجودين في بقية التطبيق.
+   * يرمي خطأً يحمل `response.data` (قد يكون HTML) تفهمه getApiErrorMessage.
+   */
+  const postStudentsCsv = async (formData: FormData): Promise<any> => {
+    const token = readToken();
+
+    const response = await fetch(`${apiBase}/v1/student-groups/import-csv`, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+
+    const text = await response.text();
+    const contentType = response.headers.get("content-type") || "";
+
+    // نحوّل إلى JSON إن أمكن، وإلا نحتفظ بالنص (مثل صفحة HTML عند خطأ 500)
+    let payload: any = text;
+    if (contentType.includes("json")) {
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        payload = text;
+      }
+    }
+
+    // فشل، أو استجابة ناجحة لكنها ليست JSON (مثل صفحة خطأ HTML)
+    if (!response.ok || typeof payload === "string") {
+      const error: any = new Error(`HTTP ${response.status}`);
+      error.response = { status: response.status, data: payload };
+      throw error;
+    }
+
+    return payload;
+  };
+
   const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.[0] || !selectedGroup) return;
   
@@ -550,27 +640,8 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
       formData.append("file", file);
       formData.append("group_id", String(selectedGroup.id));
 
-      // ✅ استخدم fetch بدلاً من axios
-      const token = localStorage.getItem('token'); // أو من Redux/Context
-
-      const response = await fetch(
-          'https://unihub-api-q57h.onrender.com/api/v1/student-groups/import-csv',
-          {
-              method: 'POST',
-              headers: {
-                  'Authorization': `Bearer ${token}`,
-                  // ⚠️ لا تضع Content-Type
-              },
-              body: formData
-          }
-      );
-
-      if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || 'فشل الرفع');
-      }
-
-      const d = await response.json();
+      // ✅ رفع الملف عبر نفس الرابط والتوكن المستخدمين في بقية التطبيق
+      const d = await postStudentsCsv(formData);
       
       const createdUsers     = Number(d.created_users ?? 0);
       const createdStudents  = Number(d.created_students ?? 0);
@@ -598,7 +669,7 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
       console.error("❌ Error:", err);
       toast({ 
         title: "خطأ", 
-        description: err.message || "فشل الرفع",
+        description: getApiErrorMessage(err, "فشل رفع الملف"),
         variant: "destructive" 
       });
     } finally {
@@ -665,7 +736,7 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   };
 
   const handleRemoveStudentFromGroup = async (studentDbId: number) => {
-    if (!selectedGroup || !confirm("هل أنت متأكد من حذف هذا الطالب من المجموعة؟")) return;
+    if (!selectedGroup || !(await confirm({ title: "حذف طالب من المجموعة", description: "هل أنت متأكد من حذف هذا الطالب من المجموعة؟" }))) return;
     try {
       await api.delete(`/v1/student-groups/${selectedGroup.id}/students`, { data: { student_id: studentDbId } });
       toast({ title: "نجاح", description: "تم حذف الطالب من المجموعة" });
@@ -829,8 +900,60 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     }
   };
 
+  // حذف الطالب (Soft Delete) — يدخل سلة المحذوفات ويمكن استعادته منها
+  const handleDeleteStudent = async (studentDbId: number) => {
+    const confirmed = await confirm({
+      title: "حذف الطالب",
+      description: "هل أنت متأكد من حذف هذا الطالب؟ سيتم حذفه حذفاً ناعماً ويمكن استعادته من سلة المحذوفات.",
+    });
+    if (!confirmed) return;
+
+    try {
+      setIsSavingStudent(true);
+      await api.delete(`/v1/students/${studentDbId}`);
+
+      toast({ title: "نجاح", description: "تم حذف الطالب ونقله إلى سلة المحذوفات" });
+      setIsEditStudentOpen(false);
+
+      if (selectedGroup) await fetchGroupMembers(selectedGroup.id);
+      await fetchGroups();
+    } catch (err: any) {
+      toast({
+        title: "خطأ",
+        description: getApiErrorMessage(err, "فشل حذف الطالب"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsSavingStudent(false);
+    }
+  };
+
+  if (showTrash) {
+    return (
+      <SoftDeleteTrashPage
+        collegeId={collegeId}
+        onBack={() => {
+          setShowTrash(false);
+          void fetchGroups();
+        }}
+        endpoint="/v1/student-groups/trash"
+        permission={["groups.delete", "groups.update", "students.delete"]}
+        title="سلة محذوفات التسجيل"
+        subtitle="المجموعات الدراسية والطلاب المحذوفون حذفاً ناعماً في هذه الكلية"
+        backLabel="العودة لإدارة التسجيل"
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
+      <div className="flex justify-between items-center" dir="rtl">
+        <h2 className="text-xl font-bold">إدارة التسجيل</h2>
+        <Button variant="destructive" onClick={() => setShowTrash(true)}>
+          <Trash2 className="w-4 h-4 mr-2" />
+          سلة المحذوفات
+        </Button>
+      </div>
       <Tabs defaultValue="groups" className="w-full" dir="rtl">
         <TabsList className="grid w-full grid-cols-1 bg-card/50 backdrop-blur-sm">
           <TabsTrigger value="groups" className="data-[state=active]:bg-primary/10">إدارة المجموعات</TabsTrigger>
@@ -928,23 +1051,40 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                   <Card key={group.id} onClick={() => handleSelectGroup(group)} className={cn("cursor-pointer", selectedGroup?.id === group.id && "border-primary")}>
                     <CardHeader className="flex flex-row items-start justify-between gap-2">
                       <CardTitle>{group.name}</CardTitle>
-                      {(can('groups.update') || can('groups.create')) && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 shrink-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditGroupDialog(group);
-                          }}
-                          aria-label="تعديل المجموعة"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M12 20h9" />
-                            <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
-                          </svg>
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-1 shrink-0">
+                        {(can('groups.update') || can('groups.create')) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openEditGroupDialog(group);
+                            }}
+                            aria-label="تعديل المجموعة"
+                          >
+                            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M12 20h9" />
+                              <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+                            </svg>
+                          </Button>
+                        )}
+                        {canAny(["groups.delete", "groups.update", "students.delete"]) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteGroup(group);
+                            }}
+                            aria-label="حذف المجموعة"
+                            title="حذف المجموعة (حذف ناعم)"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       <Badge variant="outline">{group.studentsCount}/{group.maxSize}</Badge>
@@ -1218,11 +1358,23 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                           </Select>
                       </div>
                   </div>
-                  <div className="flex justify-end gap-2 mt-4">
-                    <Button type="button" variant="outline" onClick={() => setIsEditStudentOpen(false)}>إلغاء</Button>
-                    <Button type="submit" disabled={isSavingStudent}>
-                      {isSavingStudent && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ التغييرات
-                    </Button>
+                  <div className="flex items-center justify-between gap-2 mt-4">
+                    <div className="flex gap-2">
+                      <Button type="button" variant="outline" onClick={() => setIsEditStudentOpen(false)}>إلغاء</Button>
+                      <Button type="submit" disabled={isSavingStudent}>
+                        {isSavingStudent && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ التغييرات
+                      </Button>
+                    </div>
+                    {can('students.delete') && editingStudent?.student_id && (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        disabled={isSavingStudent}
+                        onClick={() => void handleDeleteStudent(editingStudent.student_id)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" /> حذف الطالب
+                      </Button>
+                    )}
                   </div>
                 </form>
               ) : null}
@@ -1308,6 +1460,8 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
           </Dialog>
         </TabsContent>
       </Tabs>
+
+      {confirmDialog}
     </div>
   );
 }
