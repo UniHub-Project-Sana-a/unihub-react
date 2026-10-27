@@ -99,12 +99,16 @@ export function UserManagement() {
     return userTypes.find(t => t.user_type_id === Number(typeId)) || null;
   }, [me, userTypes]);
 
+  const isCollegeScopedUser =
+    !!me?.college_id &&
+    !["admin", "presidency"].includes(myUserType?.user_type_code || "");
+
   const currentCollegeName = useMemo(() => {
-    if (myUserType?.user_type_code === 'dean' && (me as any)?.college_id) {
-      return colleges.find(c => c.college_id === (me as any).college_id)?.college_name;
+    if (isCollegeScopedUser && me?.college_id) {
+      return colleges.find(c => c.college_id === me.college_id)?.college_name;
     }
     return null;
-  }, [myUserType, me, colleges]);
+  }, [isCollegeScopedUser, me, colleges]);
 
   const roleNameById = (id?: number) => userTypes.find(x => x.user_type_id === id)?.user_type_name || "غير معروف";
   const roleCodeById = (id?: number) => userTypes.find(x => x.user_type_id === id)?.user_type_code || "";
@@ -133,9 +137,8 @@ export function UserManagement() {
     try {
       const params: any = { per_page: 10000 };
       
-      // إضافة فلتر الكلية للعميد في الطلب (Server-Side)
-      if (myUserType?.user_type_code === 'dean') {
-          // @ts-ignore
+      // Restrict college users to their own college's accounts.
+      if (isCollegeScopedUser && me?.college_id) {
           params.college_id = me?.college_id;
       }
       
@@ -177,7 +180,7 @@ export function UserManagement() {
     if (userTypes.length > 0 && myUserType) {
         fetchUsersData();
     }
-  }, [userTypes.length, myUserType?.user_type_code]);
+  }, [userTypes.length, myUserType?.user_type_code, isCollegeScopedUser, me?.college_id]);
 
 
   // --- Filtering Logic ---

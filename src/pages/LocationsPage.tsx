@@ -25,6 +25,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Building2, MapPin, Plus, FileJson, Search, Filter, RefreshCw, Layers, ArrowLeftRight, CheckCircle2, Trash2, Monitor, Projector, Tv } from "lucide-react";
+import axios from "axios";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import JsonImportModal from "@/components/colleges/JsonImportModal";
@@ -85,6 +86,18 @@ export default function LocationsPage() {
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isBuildingModalOpen, setIsBuildingModalOpen] = useState(false);
   const [buildingFormData, setBuildingFormData] = useState({ name: "", code: "", floorsCount: 1, collegeId: "none" });
+  const [isClassroomModalOpen, setIsClassroomModalOpen] = useState(false);
+  const [isCreatingClassroom, setIsCreatingClassroom] = useState(false);
+  const [classroomFormData, setClassroomFormData] = useState({
+    name: "",
+    buildingId: "",
+    type: "0",
+    floor: 0,
+    capacity: 30,
+    latitude: "",
+    longitude: "",
+    allowedDistance: 50,
+  });
 
   // Reallocate Classroom Dialog
   const [reallocatingRoom, setReallocatingRoom] = useState<Classroom | null>(null);
@@ -110,6 +123,64 @@ export default function LocationsPage() {
       toast({ title: "خطأ", description: "فشل تحميل بيانات المباني والقاعات", variant: "destructive" });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const openClassroomModal = (buildingId?: number) => {
+    setClassroomFormData({
+      name: "",
+      buildingId: String(buildingId ?? (selectedBuildingFilter !== "all" ? selectedBuildingFilter : "")),
+      type: "0",
+      floor: 0,
+      capacity: 30,
+      latitude: "",
+      longitude: "",
+      allowedDistance: 50,
+    });
+    setIsClassroomModalOpen(true);
+  };
+
+  const handleCreateClassroom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const building = buildings.find((item) => String(item.building_id) === classroomFormData.buildingId);
+    if (!building) {
+      toast({ title: "تنبيه", description: "اختر مبنى صالحًا أولاً", variant: "destructive" });
+      return;
+    }
+
+    setIsCreatingClassroom(true);
+    try {
+      await api.post("/v1/classrooms", {
+        classroom_name: classroomFormData.name.trim(),
+        building_id: building.building_id,
+        college_id: building.college_id ?? null,
+        classroom_type: Number(classroomFormData.type),
+        floor: Number(classroomFormData.floor),
+        capacity: Number(classroomFormData.capacity),
+        latitude: Number(classroomFormData.latitude),
+        longitude: Number(classroomFormData.longitude),
+        allowed_distance: Number(classroomFormData.allowedDistance),
+        windows_count: 0,
+        has_computer: false,
+        display_type: "none",
+      });
+
+      toast({
+        title: "نجاح",
+        description: building.college_id == null
+          ? "تمت إضافة القاعة كمرفق عام مشترك للجامعة"
+          : "تمت إضافة القاعة للمبنى والكلية المحددين",
+      });
+      setIsClassroomModalOpen(false);
+      setClassroomFormData((previous) => ({ ...previous, name: "" }));
+      await fetchData();
+    } catch (error: unknown) {
+      const message = axios.isAxiosError<{ errors?: Record<string, string[]>; message?: string }>(error)
+        ? Object.values(error.response?.data?.errors ?? {})[0]?.[0] ?? error.response?.data?.message
+        : undefined;
+      toast({ title: "تعذرت إضافة القاعة", description: String(message || "فشل حفظ القاعة"), variant: "destructive" });
+    } finally {
+      setIsCreatingClassroom(false);
     }
   };
 
@@ -332,6 +403,20 @@ export default function LocationsPage() {
                         >
                           عرض قاعات هذا المبنى
                         </Button>
+                        {can("locations.create") && (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              setSelectedBuildingFilter(String(bld.building_id));
+                              setActiveTab("classrooms");
+                              openClassroomModal(bld.building_id);
+                            }}
+                            title="إضافة قاعة لهذا المبنى"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        )}
 
                         {can('locations.delete') && (
                           <Button
@@ -365,6 +450,17 @@ export default function LocationsPage() {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <CardTitle className="text-lg font-bold">جدول وتخصيص قاعات الحرم الجامعي</CardTitle>
                   <div className="flex items-center gap-2">
+                    {can("locations.create") && (
+                      <Button
+                        size="sm"
+                        onClick={() => openClassroomModal()}
+                        disabled={buildings.length === 0}
+                        className="gap-1"
+                      >
+                        <Plus className="w-4 h-4" />
+                        إضافة قاعة
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={fetchData} className="gap-1">
                       <RefreshCw className="w-3.5 h-3.5" />
                       تحديث
@@ -620,6 +716,143 @@ export default function LocationsPage() {
               <DialogFooter className="flex-row-reverse justify-start gap-2 pt-2 border-t">
                 <Button type="submit">تسجيل المبنى</Button>
                 <Button type="button" variant="outline" onClick={() => setIsBuildingModalOpen(false)}>
+                  إلغاء
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={isClassroomModalOpen}
+          onOpenChange={(open) => {
+            if (!isCreatingClassroom) setIsClassroomModalOpen(open);
+          }}
+        >
+          <DialogContent className="max-w-lg text-right" dir="rtl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Layers className="w-5 h-5 text-primary" />
+                إضافة قاعة إلى مبنى
+              </DialogTitle>
+            </DialogHeader>
+
+            <form onSubmit={handleCreateClassroom} className="space-y-4">
+              <div>
+                <Label>المبنى *</Label>
+                <Select
+                  value={classroomFormData.buildingId}
+                  onValueChange={(value) => setClassroomFormData((previous) => ({ ...previous, buildingId: value }))}
+                  required
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="اختر المبنى" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {buildings.map((building) => (
+                      <SelectItem key={building.building_id} value={String(building.building_id)}>
+                        {building.building_name}{building.college_id == null ? " - عام / مشترك للجامعة" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {buildings.find((building) => String(building.building_id) === classroomFormData.buildingId)?.college_id == null && classroomFormData.buildingId && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    ستُسجّل القاعة كقاعة عامة دون ربطها بكلية.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label>اسم القاعة *</Label>
+                  <Input
+                    className="mt-1"
+                    value={classroomFormData.name}
+                    onChange={(event) => setClassroomFormData((previous) => ({ ...previous, name: event.target.value }))}
+                    required
+                    maxLength={100}
+                  />
+                </div>
+                <div>
+                  <Label>النوع *</Label>
+                  <Select
+                    value={classroomFormData.type}
+                    onValueChange={(value) => setClassroomFormData((previous) => ({ ...previous, type: value }))}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">قاعة دراسية</SelectItem>
+                      <SelectItem value="1">معمل</SelectItem>
+                      <SelectItem value="2">مدرج</SelectItem>
+                      <SelectItem value="3">مكتبة</SelectItem>
+                      <SelectItem value="4">ورشة</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>السعة *</Label>
+                  <Input
+                    className="mt-1"
+                    type="number"
+                    min={1}
+                    value={classroomFormData.capacity}
+                    onChange={(event) => setClassroomFormData((previous) => ({ ...previous, capacity: Number(event.target.value) }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>الدور *</Label>
+                  <Input
+                    className="mt-1"
+                    type="number"
+                    min={0}
+                    value={classroomFormData.floor}
+                    onChange={(event) => setClassroomFormData((previous) => ({ ...previous, floor: Number(event.target.value) }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>خط العرض *</Label>
+                  <Input
+                    className="mt-1"
+                    type="number"
+                    step="0.0000001"
+                    value={classroomFormData.latitude}
+                    onChange={(event) => setClassroomFormData((previous) => ({ ...previous, latitude: event.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>خط الطول *</Label>
+                  <Input
+                    className="mt-1"
+                    type="number"
+                    step="0.0000001"
+                    value={classroomFormData.longitude}
+                    onChange={(event) => setClassroomFormData((previous) => ({ ...previous, longitude: event.target.value }))}
+                    required
+                  />
+                </div>
+                <div>
+                  <Label>المسافة المسموحة (متر) *</Label>
+                  <Input
+                    className="mt-1"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={classroomFormData.allowedDistance}
+                    onChange={(event) => setClassroomFormData((previous) => ({ ...previous, allowedDistance: Number(event.target.value) }))}
+                    required
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="flex-row-reverse justify-start gap-2 border-t pt-3">
+                <Button type="submit" disabled={isCreatingClassroom || !classroomFormData.buildingId}>
+                  {isCreatingClassroom ? "جارٍ الحفظ..." : "حفظ القاعة"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setIsClassroomModalOpen(false)} disabled={isCreatingClassroom}>
                   إلغاء
                 </Button>
               </DialogFooter>

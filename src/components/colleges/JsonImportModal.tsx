@@ -38,6 +38,8 @@ type SyncSummary = {
   message: string;
 };
 
+type ImportedRoom = Record<string, unknown>;
+
 export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId }: Props) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -113,34 +115,146 @@ export default function JsonImportModal({ isOpen, onClose, onSuccess, collegeId 
     setUploadProgress(20);
 
     try {
-      // تجهيز مصفوفات الكليات والمباني والقاعات من ملف JSON
-      const rooms = jsonParsed.rooms || [];
-      
-      // استخراج المباني المستقلة المذكورة في الملف
-      const buildingsMap = new Map();
-      rooms.forEach((r: any) => {
-        const bId = r.buildingId || r.building_id;
-        const bName = r.buildingName || r.building_name || `مبنى ${bId}`;
-        if (bId && !buildingsMap.has(bId)) {
-          buildingsMap.set(bId, {
-            local_id: bId,
-            code: bId,
+      // Prepare college/building mappings without replacing explicit nulls for shared data.
+      const rooms = (jsonParsed.rooms || []) as ImportedRoom[];
+
+      const hasField = (value: ImportedRoom, ...keys: string[]) =>
+        keys.some((key) => Object.prototype.hasOwnProperty.call(value, key));
+      const readField = (value: ImportedRoom, ...keys: string[]): unknown => {
+        const key = keys.find((candidate) => Object.prototype.hasOwnProperty.call(value, candidate));
+        return key ? value[key] : undefined;
+      };
+      const getRoomCollegeScope = (room: ImportedRoom): string | null => {
+        const roomCollegeId = readField(room, "collegeId", "college_id");
+        if (roomCollegeId === null || roomCollegeId === "") return null;
+
+        const collegeName = readField(room, "collegeName", "college_name");
+        if (collegeName !== undefined) {
+          if (typeof collegeName !== "string" || collegeName.trim() === "") return null;
+          if (["عام", "shared", "general", "مشترك"].includes(collegeName.trim().toLowerCase())) return null;
+          return `name:${collegeName}`;
+        }
+
+        if (roomCollegeId !== undefined) {
+          return String(roomCollegeId);
+        }
+        return collegeId == null ? null : String(collegeId);
+      };
+
+      const buildingsMap = new Map<string, {
+        local_id: string;
+        code: string;
+        name_ar: string;
+        roomCollegeScopes: Set<string | null>;
+        hasExplicitBuildingCollege: boolean;
+        explicitBuildingCollegeId: string | null;
+        explicitBuildingCollegeName: string | null;
+        explicitlyShared: boolean;
+      }>();
+      rooms.forEach((r) => {
+        const bId = readField(r, "buildingId", "building_id");
+        if (typeof bId !== "string" && typeof bId !== "number") return;
+        const rawBuildingName = readField(r, "buildingName", "building_name");
+        const bName = typeof rawBuildingName === "string" && rawBuildingName
+          ? rawBuildingName
+          : `مبنى ${bId}`;
+        const buildingCollegeIdProvided = hasField(r, "buildingCollegeId", "building_college_id");
+        const buildingCollegeNameProvided = hasField(r, "buildingCollegeName", "building_college_name");
+        const explicitBuildingCollegeId = readField(r, "buildingCollegeId", "building_college_id");
+        const explicitBuildingCollegeName = readField(r, "buildingCollegeName", "building_college_name");
+        const existing = buildingsMap.get(String(bId));
+
+        if (!existing) {
+          buildingsMap.set(String(bId), {
+            local_id: String(bId),
+            code: String(bId),
             name_ar: bName,
-            college_id: r.collegeId || r.college_id || collegeId,
-            collegeName: r.collegeName || r.college_name,
+            roomCollegeScopes: new Set([getRoomCollegeScope(r)]),
+            hasExplicitBuildingCollege: buildingCollegeIdProvided || buildingCollegeNameProvided,
+            explicitBuildingCollegeId:
+              explicitBuildingCollegeId == null || explicitBuildingCollegeId === ""
+                ? null
+                : String(explicitBuildingCollegeId),
+            explicitBuildingCollegeName:
+              buildingCollegeIdProvided && (explicitBuildingCollegeId == null || explicitBuildingCollegeId === "")
+                ? null
+                : typeof explicitBuildingCollegeName === "string" ? explicitBuildingCollegeName : null,
+            explicitlyShared: r.buildingIsShared === true || r.building_is_shared === true,
           });
+        } else {
+          existing.roomCollegeScopes.add(getRoomCollegeScope(r));
+          existing.explicitlyShared ||= r.buildingIsShared === true || r.building_is_shared === true;
+          if (buildingCollegeIdProvided || buildingCollegeNameProvided) {
+            existing.hasExplicitBuildingCollege = true;
+            existing.explicitBuildingCollegeId =
+              explicitBuildingCollegeId == null || explicitBuildingCollegeId === ""
+                ? null
+                : String(explicitBuildingCollegeId);
+            existing.explicitBuildingCollegeName =
+              buildingCollegeIdProvided && (explicitBuildingCollegeId == null || explicitBuildingCollegeId === "")
+                ? null
+                : typeof explicitBuildingCollegeName === "string" ? explicitBuildingCollegeName : null;
+          }
         }
       });
 
-      const buildingsPayload = Array.from(buildingsMap.values());
+      const buildingsPayload = Array.from(buildingsMap.values()).map((building) => {
+        const roomCollegeIds = new Set(
+          Array.from(building.roomCollegeScopes).filter(
+            (scope): scope is string => scope !== null && !scope.startsWith("name:")
+          )
+        );
+        const roomCollegeNames = Array.from(building.roomCollegeScopes).filter(
+          (scope): scope is string => scope !== null && scope.startsWith("name:")
+        );
+        const allRoomsShared = Array.from(building.roomCollegeScopes).every((scope) => scope === null);
+        const isShared =
+          building.explicitlyShared ||
+          (!building.hasExplicitBuildingCollege && (allRoomsShared || roomCollegeIds.size > 1 || roomCollegeNames.length > 1));
+
+        const resolvedCollegeId = building.explicitlyShared
+          ? null
+          : building.hasExplicitBuildingCollege
+          ? building.explicitBuildingCollegeId ?? null
+          : isShared
+            ? null
+            : roomCollegeIds.values().next().value ?? collegeId ?? null;
+        const resolvedCollegeName = building.explicitlyShared
+          ? undefined
+          : building.hasExplicitBuildingCollege
+          ? building.explicitBuildingCollegeName
+          : !isShared && roomCollegeNames.length === 1
+            ? roomCollegeNames[0].slice("name:".length)
+            : undefined;
+
+        return {
+          local_id: building.local_id,
+          code: building.code,
+          name_ar: building.name_ar,
+          college_id: resolvedCollegeId,
+          ...(resolvedCollegeName ? { collegeName: resolvedCollegeName } : {}),
+        };
+      });
 
       const payload = {
         buildings: buildingsPayload,
-        classrooms: rooms.map((r: any) => ({
-          ...r,
-          college_id: r.collegeId || r.college_id || collegeId,
-          building_id: r.buildingId || r.building_id,
-        })),
+        classrooms: rooms.map((r) => {
+          const room: ImportedRoom = {
+            ...r,
+            building_id: readField(r, "buildingId", "building_id"),
+          };
+          const roomCollegeId = readField(r, "collegeId", "college_id");
+          if (hasField(r, "collegeId", "college_id") && (roomCollegeId == null || roomCollegeId === "")) {
+            room.collegeName = "مشترك";
+            room.college_name = "مشترك";
+          }
+          if (!hasField(r, "collegeId", "college_id") && !hasField(r, "collegeName", "college_name")) {
+            room.college_id = collegeId;
+          } else if (hasField(r, "collegeId", "college_id")) {
+            room.college_id = roomCollegeId;
+          }
+          return room;
+        }),
         scope_college_id: collegeId || undefined,
       };
 

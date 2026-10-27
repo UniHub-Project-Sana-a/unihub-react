@@ -52,6 +52,7 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
         { title: "لوحة التحكم", icon: Home, href: "/", perm: null },
         { title: "الكليات", icon: GraduationCap, href: "/colleges", perm: null },
         { title: "المباني والقاعات", icon: MapPin, href: "/locations", perm: null },
+        { title: "مجموعات الطلاب", icon: Users2, href: "/students/groups", perm: null },
         {
           title: "إدارة المستخدمين",
           icon: Users,

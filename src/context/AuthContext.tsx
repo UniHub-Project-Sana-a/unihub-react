@@ -20,6 +20,7 @@ interface User {
   user_type_code?: string;
   user_type: UserType;
   college_id?: number;
+  permissions?: string[];
   lecturer?: LecturerInfo
 }
 
@@ -119,6 +120,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = () => {
     setAuthToken(undefined);
     setUser(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     localStorage.removeItem('access_token');
     sessionStorage.removeItem('access_token');
   };

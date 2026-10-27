@@ -11,6 +11,7 @@ import logoFull from "@/assets/366544.png";
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
+import { getCollegeLandingPath } from '@/lib/collegeAccess';
 
 export default function LoginPage() {
   // حالات تسجيل الدخول
@@ -201,7 +202,7 @@ export default function LoginPage() {
           } else if (role === 'presidency' || role === 'admin') {
               defaultPath = '/';
           } else if (collegeId) {
-              defaultPath = `/colleges/${collegeId}/dashboard`;
+              defaultPath = getCollegeLandingPath(collegeId, userObj?.permissions ?? []);
           }
 
           // للإداريين فقط: نحترم الرابط السابق إذا وجد (from)

@@ -1,14 +1,17 @@
-import { useLocation, Navigate, Outlet } from "react-router-dom";
+import { useLocation, Navigate, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Loader2, ShieldAlert } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { canAccessCollegePath, getCollegeLandingPath } from "@/lib/collegeAccess";
 
 interface RequireRoleProps {
   allowedRoles: string[];
 }
 
 export default function RequireRole({ allowedRoles }: RequireRoleProps) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   if (isLoading) {
     return (
@@ -20,9 +23,20 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
 
   const role = user?.user_type?.user_type_code || user?.user_type_code;
   const collegeId = user?.college_id;
+  const permissions = user?.permissions ?? [];
+  const currentPath = location.pathname.replace(/\/$/, "");
+  const canAccessCollegePage =
+    !!user &&
+    !!collegeId &&
+    allowedRoles.includes("dean") &&
+    canAccessCollegePath(currentPath, collegeId, permissions);
 
-  // ✅ الحالة 1: المستخدم لديه الصلاحية -> اسمح بالمرور
-  if (user && role && allowedRoles.includes(role)) {
+  // College-scoped permissions are returned for the user's role and college by the API.
+  if (
+    user &&
+    role &&
+    (allowedRoles.includes(role) || canAccessCollegePage)
+  ) {
     return <Outlet />;
   }
 
@@ -40,8 +54,7 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
         homePath = "/student/qa";
     }
     else if (collegeId) { 
-        // للعمداء ورؤساء الأقسام
-        homePath = `/colleges/${collegeId}/dashboard`;
+        homePath = getCollegeLandingPath(collegeId, permissions);
     }
 
     // 🔥🔥🔥 صمام الأمان (The Fix) 🔥🔥🔥
@@ -51,7 +64,6 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
     // في هذه الحالة: لا توجهه مرة أخرى (لمنع اللوب)، بل اعرض رسالة خطأ.
     
     // إزالة الـ trailing slash للمقارنة الدقيقة
-    const currentPath = location.pathname.replace(/\/$/, "");
     const targetPath = homePath.replace(/\/$/, "");
 
     if (currentPath === targetPath || currentPath.startsWith(targetPath)) {
@@ -67,6 +79,15 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
                     المسار الحالي: {currentPath} <br/>
                     الدور الحالي: {role}
                 </p>
+                <Button
+                    className="mt-5"
+                    onClick={() => {
+                      logout();
+                      navigate("/login", { replace: true });
+                    }}
+                >
+                    تسجيل الخروج والعودة إلى تسجيل الدخول
+                </Button>
             </div>
         );
     }

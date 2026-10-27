@@ -28,6 +28,7 @@ import UnauthorizedPage from "./pages/UnauthorizedPage";
 import CertInstructionPage from "@/pages/CertInstructionPage";
 import StudentQaPage from "@/components/student/qa/StudentQaPage";
 import LocationsPage from "@/pages/LocationsPage";
+import StudentsGroupsPage from "@/pages/StudentsGroupsPage";
 
 // استيراد مكونات الحماية
 import { AuthProvider } from "@/context/AuthContext";
@@ -88,6 +89,10 @@ const App = () => (
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/users/roles" element={<RolesPage />} />
                   <Route path="/users/access-control" element={<AccessControlPage />} />
+                </Route>
+
+                <Route element={<RequireRole allowedRoles={['presidency', 'admin']} />}>
+                  <Route path="/students/groups" element={<StudentsGroupsPage />} />
                 </Route>
   
                 {/* 🔒 ب) منطقة الكليات (إدارة الكلية) */}

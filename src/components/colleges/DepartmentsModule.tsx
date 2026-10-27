@@ -149,6 +149,97 @@ type ProgramOptionAudit = {
   changed_at: string;
 };
 
+// ==========================================
+// Course Parts Normalization
+// ==========================================
+// يدعم السيرفر أكثر من شكل لأجزاء المقرر:
+// 1) مصفوفة:  [{ name: "نظري", rate: 1, actual_hours: 2 }]
+// 2) كائن:     { theory: 2, practical: 1 }
+// 3) نص JSON:  "[{\"name\":\"نظري\",...}]"
+const COURSE_PART_LABELS: Record<string, CoursePart["name"]> = {
+  theory: "نظري",
+  practical: "عملي",
+  exercises: "تمارين",
+  clinical: "سريري",
+  نظري: "نظري",
+  عملي: "عملي",
+  تمارين: "تمارين",
+  سريري: "سريري",
+};
+
+const getPartRate = (name: CoursePart["name"]): number => {
+  switch (name) {
+    case "عملي":
+    case "تمارين":
+      return 0.5;
+    case "سريري":
+      return 1 / 3;
+    default:
+      return 1;
+  }
+};
+
+const normalizeCoursePartName = (rawName: unknown): CoursePart["name"] => {
+  const key = String(rawName ?? "").trim();
+  return COURSE_PART_LABELS[key] ?? (key as CoursePart["name"]);
+};
+
+const normalizeCourseParts = (raw: unknown): CoursePart[] => {
+  let value = raw;
+
+  // 1) نص JSON
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      value = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
+  }
+
+  // 2) مصفوفة أجزاء
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const item = entry as Record<string, unknown>;
+      const name = normalizeCoursePartName(item.name ?? item.type);
+      const actualHours = Number(item.actual_hours ?? item.hours ?? 0) || 0;
+      const rate = Number(item.rate);
+      return [{
+        name,
+        actual_hours: actualHours,
+        rate: Number.isFinite(rate) && rate > 0 ? rate : getPartRate(name),
+      }];
+    });
+  }
+
+  // 3) كائن { theory: 2, practical: 1 }
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, hours]) => {
+      const actualHours = Number(hours) || 0;
+      if (actualHours <= 0) return [];
+      const name = normalizeCoursePartName(key);
+      // الشكل القديم لا يحتوي على rate، والساعات فيه تُحسب 1:1
+      return [{ name, actual_hours: actualHours, rate: 1 }];
+    });
+  }
+
+  return [];
+};
+
+const normalizeCourseRef = (course: any): ApiCourse | null => {
+  if (!course || typeof course !== "object") return null;
+  return {
+    ...course,
+    id: course.id ?? course.course_id ?? 0,
+    course_code: course.course_code ?? "",
+    course_name: course.course_name ?? "",
+    credit_hours: Number(course.credit_hours ?? 0),
+    course_parts: normalizeCourseParts(course.course_parts),
+  };
+};
+
 const departmentSchema = z.object({ 
   department_name: z.string().min(2, "الاسم مطلوب"), 
   department_code: z.string().min(1, "الكود مطلوب") 
@@ -431,8 +522,10 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       }
     });
       const raw = res.data?.data ?? res.data;
-      const courses: ApiCourse[] = (raw as any[]).map((c) => ({
-        id: c.id ?? c.course_id,
+      const list = Array.isArray(raw) ? raw : [];
+
+      const courses: ApiCourse[] = list.map((c: any) => ({
+        id: c.id ?? c.course_id ?? 0,
         course_code: c.course_code ?? "",
         course_name: c.course_name ?? "",
         credit_hours: Number(c.credit_hours ?? 0),
@@ -445,32 +538,33 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
         semester_id: c.semester_id ?? null,
         block_id: c.block_id ?? null,
         
-        course_parts: Array.isArray(c.course_parts) 
-          ? c.course_parts 
-          : (c.course_parts ? JSON.parse(c.course_parts) : [
-              { name: "نظري" as const, actual_hours: 2, rate: 1.0 }
-            ]),
+        // ✅ يدعم كل أشكال course_parts (مصفوفة / كائن / نص JSON)
+        course_parts: normalizeCourseParts(c.course_parts),
         
         weight: Number(c.weight) || 0,
         category: c.category || "متطلب تخصص إجباري",
         teaching_language: c.teaching_language || "العربية",
         notes: c.notes ?? null,
         
-        prerequisites: c.prerequisites || [],
-        corequisites: c.corequisites || [],
+        prerequisites: Array.isArray(c.prerequisites)
+          ? c.prerequisites.map(normalizeCourseRef).filter(Boolean) as ApiCourse[]
+          : [],
+        corequisites: Array.isArray(c.corequisites)
+          ? c.corequisites.map(normalizeCourseRef).filter(Boolean) as ApiCourse[]
+          : [],
 
           college: c.college ? {
-            id: c.college.id,
+            id: c.college.id ?? c.college.college_id,
             name: c.college.name || c.college.college_name
           } : undefined,
           
           department: c.department ? {
-            id: c.department.id,
+            id: c.department.id ?? c.department.department_id,
             name: c.department.name || c.department.department_name
           } : undefined,
           
           program: c.program ? {
-            id: c.program.id,
+            id: c.program.id ?? c.program.program_id,
             name: c.program.name || c.program.program_name,
             academic_system: c.program.academic_system
           } : undefined

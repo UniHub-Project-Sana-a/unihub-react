@@ -190,6 +190,8 @@ export default function ClassroomsModule({ collegeId }: Props) {
   const { toast } = useToast();
   const { confirm, confirmDialog } = useConfirmDialog();
   const lastAccuracyRef = useRef<number>(Infinity);
+  const locationRequestIdRef = useRef(0);
+  const coordinatesEditedRef = useRef(false);
   // Buildings
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null);
@@ -295,9 +297,11 @@ export default function ClassroomsModule({ collegeId }: Props) {
   };
 
   // Fetch classrooms for selected building
-  const fetchClassrooms = async (buildingId: string) => {
+  const fetchClassrooms = async (buildingId: string): Promise<Classroom[] | null> => {
     try {
-      const res = await api.get("/v1/classrooms", { params: { building_id: Number(buildingId) } });
+      const res = await api.get("/v1/classrooms", {
+        params: { building_id: Number(buildingId), all: true },
+      });
       const raw: ApiClassroom[] = res.data?.data ?? res.data;
       const mapped: Classroom[] = raw.map((c) => ({
         id: String(c.classroom_id),
@@ -318,8 +322,10 @@ export default function ClassroomsModule({ collegeId }: Props) {
         remoteId: c.remote_id ?? null,
       }));
       setClassrooms(mapped);
+      return mapped;
     } catch {
       toast({ title: "خطأ", description: "فشل تحميل القاعات", variant: "destructive" });
+      return null;
     }
   };
 
@@ -336,6 +342,7 @@ export default function ClassroomsModule({ collegeId }: Props) {
     setSelectedBuilding(b);
     setIsClassroomFormOpen(false);
     setEditingClassroomId(null);
+    locationRequestIdRef.current += 1;
     setClassroomFormData({
       name: "",
       type: "CLASSROOM",
@@ -402,6 +409,8 @@ const handleAddClassroom = () => {
   }
 
   setEditingClassroomId(null);
+  coordinatesEditedRef.current = false;
+  const locationRequestId = ++locationRequestIdRef.current;
   setClassroomFormData({
     name: "",
     type: "CLASSROOM",
@@ -426,6 +435,7 @@ const handleAddClassroom = () => {
   const quickOptions: PositionOptions = { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 };
   navigator.geolocation.getCurrentPosition(
     (pos) => {
+      if (locationRequestId !== locationRequestIdRef.current) return;
       const lat = Number(pos.coords.latitude.toFixed(7));
       const lng = Number(pos.coords.longitude.toFixed(7));
       const acc = Math.round(pos.coords.accuracy ?? 9999);
@@ -433,14 +443,18 @@ const handleAddClassroom = () => {
 
       setClassroomFormData((prev) => ({
         ...prev,
-        latitude: prev.latitude || lat,
-        longitude: prev.longitude || lng,
+        latitude: coordinatesEditedRef.current ? prev.latitude : prev.latitude || lat,
+        longitude: coordinatesEditedRef.current ? prev.longitude : prev.longitude || lng,
       }));
 
       // تحسين الدقة تدريجيًا
       getPreciseLocation(10, 30000)
         .then(({ lat: pLat, lng: pLng, accuracy }) => {
-          if (accuracy < (lastAccuracyRef.current ?? Infinity)) {
+          if (
+            locationRequestId === locationRequestIdRef.current &&
+            !coordinatesEditedRef.current &&
+            accuracy < lastAccuracyRef.current
+          ) {
             lastAccuracyRef.current = accuracy;
             setClassroomFormData((prev) => ({
               ...prev,
@@ -467,6 +481,7 @@ const handleAddClassroom = () => {
 };
   const handleSubmitClassroom = async (e: React.FormEvent) => {
     e.preventDefault();
+    locationRequestIdRef.current += 1;
     if (!selectedBuilding) {
       toast({ title: "تنبيه", description: "يرجى اختيار مبنى أولاً", variant: "destructive" });
       return;
@@ -499,7 +514,37 @@ const handleAddClassroom = () => {
 
       if (editingClassroomId) {
         await api.put(`/v1/classrooms/${editingClassroomId}`, payload);
-        toast({ title: "نجاح", description: "تم تعديل القاعة" });
+        const refreshedClassrooms = await fetchClassrooms(selectedBuilding.id);
+        if (!refreshedClassrooms) return;
+        const savedClassroom = refreshedClassrooms?.find((classroom) => classroom.id === editingClassroomId);
+        const coordinatesMatch = (actual: number | null | undefined, expected: number | null) =>
+          expected === null
+            ? actual == null
+            : actual != null && Number(actual).toFixed(7) === expected.toFixed(7);
+
+        if (
+          !savedClassroom ||
+          savedClassroom.buildingId !== String(payload.building_id) ||
+          savedClassroom.name !== payload.classroom_name ||
+          savedClassroom.floor !== payload.floor ||
+          savedClassroom.capacity !== payload.capacity ||
+          savedClassroom.type !== classroomFormData.type ||
+          savedClassroom.windowsCount !== payload.windows_count ||
+          savedClassroom.hasComputer !== payload.has_computer ||
+          savedClassroom.displayType !== payload.display_type ||
+          (savedClassroom.notes || "") !== (payload.notes || "") ||
+          !coordinatesMatch(savedClassroom.latitude, payload.latitude) ||
+          !coordinatesMatch(savedClassroom.longitude, payload.longitude) ||
+          Number(savedClassroom.allowedDistance ?? 0).toFixed(2) !==
+            Number(payload.allowed_distance ?? 0).toFixed(2)
+        ) {
+          throw new Error("لم يتم تأكيد حفظ التعديلات من الخادم. تحقق من الاتصال أو أعد تحميل الصفحة.");
+        }
+
+        setIsClassroomFormOpen(false);
+        setEditingClassroomId(null);
+        toast({ title: "نجاح", description: "تم حفظ التعديلات والتحقق منها" });
+        return;
       } else {
         await api.post("/v1/classrooms", payload);
         toast({ title: "نجاح", description: "تم إنشاء القاعة" });
@@ -512,6 +557,7 @@ const handleAddClassroom = () => {
       const err =
         error?.response?.data?.errors ||
         error?.response?.data?.message ||
+        error?.message ||
         "فشل حفظ القاعة";
       const msg =
         typeof err === "string"
@@ -630,7 +676,7 @@ const handleAddClassroom = () => {
                       <SelectItem value="new">➕ تسجيل مبنى مادي جديد للحرم الجامعي</SelectItem>
                       {globalCampusBuildings.map((gb) => (
                         <SelectItem key={gb.id} value={gb.id}>
-                          🏢 {gb.name} ({gb.floorCount} أدوار)
+                          🏢 {gb.name} ({gb.floorCount} أدوار){gb.collegeId == null ? " - مشترك للجامعة" : ""}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -682,6 +728,11 @@ const handleAddClassroom = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="font-semibold text-base block">{b.name}</span>
+                      {b.collegeId == null && (
+                        <Badge variant="secondary" className="mt-1 text-[10px]">
+                          مبنى مشترك للجامعة
+                        </Badge>
+                      )}
                       <span className="text-xs text-muted-foreground mt-1 block">الأدوار: {b.floorCount}</span>
                       {b.code && (
                         <Badge variant="outline" className="mt-1.5 text-[10px]">
@@ -780,7 +831,10 @@ const handleAddClassroom = () => {
                     type="number"
                     step="0.0000001"
                     value={classroomFormData.latitude}
-                    onChange={(e) => setClassroomFormData({ ...classroomFormData, latitude: e.target.value })}
+                    onChange={(e) => {
+                      coordinatesEditedRef.current = true;
+                      setClassroomFormData({ ...classroomFormData, latitude: e.target.value });
+                    }}
                   />
                 </div>
                 <div>
@@ -789,7 +843,10 @@ const handleAddClassroom = () => {
                     type="number"
                     step="0.0000001"
                     value={classroomFormData.longitude}
-                    onChange={(e) => setClassroomFormData({ ...classroomFormData, longitude: e.target.value })}
+                    onChange={(e) => {
+                      coordinatesEditedRef.current = true;
+                      setClassroomFormData({ ...classroomFormData, longitude: e.target.value });
+                    }}
                   />
                 </div>
                 <div className="md:col-span-2">
@@ -854,7 +911,10 @@ const handleAddClassroom = () => {
                 <Button type="submit" disabled={!selectedBuilding}>
                   حفظ
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setIsClassroomFormOpen(false)}>
+                <Button type="button" variant="outline" onClick={() => {
+                  locationRequestIdRef.current += 1;
+                  setIsClassroomFormOpen(false);
+                }}>
                   إلغاء
                 </Button>
               </div>
@@ -927,6 +987,8 @@ const handleAddClassroom = () => {
                           size="sm"
                           variant="outline"
                           onClick={() => {
+                            locationRequestIdRef.current += 1;
+                            coordinatesEditedRef.current = true;
                             setIsClassroomFormOpen(true);
                             setEditingClassroomId(classroom.id);
                             setClassroomFormData({
