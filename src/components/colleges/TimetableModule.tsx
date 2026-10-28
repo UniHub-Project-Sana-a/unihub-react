@@ -231,7 +231,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
           apiJson(`/v1/departments?college_id=${collegeIdNum}`),
           apiJson(`/v1/days`),
           apiJson(`/v1/periods?college_id=${collegeIdNum}`),
-          apiJson(`/v1/classrooms?college_id=${collegeIdNum}`),
+          apiJson(`/v1/classrooms?college_id=${collegeIdNum}&all=true`),
           apiJson(`/v1/lecturers?college_id=${collegeIdNum}`),
         ]);
 
