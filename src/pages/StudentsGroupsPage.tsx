@@ -535,8 +535,8 @@ function StudentsGroupsContent() {
                 <SelectTrigger><SelectValue placeholder="اختر الجنس" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">الكل</SelectItem>
-                  <SelectItem value="0">ذكر</SelectItem>
-                  <SelectItem value="1">أنثى</SelectItem>
+                  <SelectItem value="1">ذكر</SelectItem>
+                  <SelectItem value="0">أنثى</SelectItem>
                 </SelectContent>
               </Select>
             </div>
