@@ -633,7 +633,7 @@ export default function CollegesPage() {
               
               <TabsContent value="Enrollment">
                 <Suspense fallback={<ModuleSkeleton title="تسجيل الطلاب" />}>
-                  {activeTab === "Enrollment" && <EnrollmentModule collegeId={selectedCollege.id} />}
+                  {activeTab === "Enrollment" && <EnrollmentModule collegeId={selectedCollege.id} collegeName={selectedCollege.name} />}
                 </Suspense>
               </TabsContent>
               

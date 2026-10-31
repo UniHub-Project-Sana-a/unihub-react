@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Link2, FilePlus, Loader2, Users, UserPlus, AlertTriangle, CheckCircle2, Search, Download, Upload, Grid3x3, Shuffle, Trash2 } from "lucide-react";
+import { Link2, FilePlus, Loader2, Users, UserPlus, AlertTriangle, CheckCircle2, Search, Download, Upload, Grid3x3, Shuffle, Trash2, Printer } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
@@ -16,6 +16,8 @@ import { cn } from "@/lib/utils";
 import { usePermission } from "@/hooks/usePermission";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
+import { GroupRosterReportSheet } from "@/components/reports/GroupRosterReportSheet";
+import { useReactToPrint } from "react-to-print";
 
 // --- Types ---
 type ApiDepartment = { department_id: number; department_name: string; };
@@ -24,18 +26,20 @@ type ApiLevel = { level_id: number; level_number: number; };
 type ApiSemester = { semester_id: number; term_number: number; };
 type ApiBlock = { id: number; block_name: string; block_number: number; level_id?: number | null; };
 type ApiCourse = { course_id: number; course_code: string; course_name: string; };
-type StudentVM = { id: string; name: string; gender: string; studentDbId: number; userId: number;};
+type StudentVM = { id: string; name: string; gender: string; studentDbId: number; userId: number; academicNumber?: string; };
 type GroupVM = { id: number; name: string; studentsCount: number; maxSize: number; };
 
 interface EnrollmentModuleProps {
   collegeId: string;
+  collegeName?: string;
 }
 
-export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
+export default function EnrollmentModule({ collegeId, collegeName }: EnrollmentModuleProps) {
   const { can, canAny } = usePermission();
   const { toast } = useToast();
   const { confirm, confirmDialog } = useConfirmDialog();
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const groupReportRef = useRef<HTMLDivElement>(null);
   const [showTrash, setShowTrash] = useState(false);
 
     // --- States for Edit Student Dialog ---
@@ -63,6 +67,13 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   const isSemesterProgram = activeProgram?.academic_system === "semester";
   const isBlockBasedProgram = !!activeProgram?.block_based;
 
+  // --- بيانات المسار الدراسي المستخدمة في كشف الطباعة ---
+  const selectedDepartmentName = departments.find((d) => String(d.department_id) === selectedDepartmentId)?.department_name;
+  const selectedProgramName = activeProgram?.program_name;
+  const selectedLevelNumber = levels.find((l) => String(l.level_id) === selectedLevelId)?.level_number;
+  const selectedSemesterTerm = semesters.find((s) => String(s.semester_id) === selectedSemesterId)?.term_number;
+  const selectedBlockName = blocks.find((b) => String(b.id) === selectedBlockId)?.block_name;
+
   // --- States for Groups ---
   const [groups, setGroups] = useState<GroupVM[]>([]);
   const [newGroupName, setNewGroupName] = useState("");
@@ -80,6 +91,12 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
   const [isImporting, setIsImporting] = useState(false);
   const [isApiDialogOpen, setIsApiDialogOpen] = useState(false);
   const [apiImportUrl, setApiImportUrl] = useState("");
+
+  // --- طباعة كشف أسماء طلاب المجموعة ---
+  const handlePrintGroupReport = useReactToPrint({
+    contentRef: groupReportRef,
+    documentTitle: `كشف دفعة ${selectedGroup?.name ?? ""}`,
+  });
 
   // --- States for Import Tab ---
   const [importStep, setImportStep] = useState(1);
@@ -1136,7 +1153,18 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
 
           {selectedGroup && (
             <Card>
-              <CardHeader><CardTitle>3. طلاب المجموعة: {selectedGroup.name}</CardTitle></CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <CardTitle>3. طلاب المجموعة: {selectedGroup.name}</CardTitle>
+                <Button
+                  variant="outline"
+                  onClick={() => handlePrintGroupReport()}
+                  disabled={groupMembers.length === 0}
+                  className="gap-2 border-primary/20 hover:bg-primary/5 hover:text-primary"
+                >
+                  <Printer className="w-4 h-4" />
+                  طباعة كشف المجموعة
+                </Button>
+              </CardHeader>
               <CardContent className="space-y-4">
                 <div className="p-4 border rounded-lg flex flex-wrap items-center gap-4 bg-muted/20">
                   <Label className="text-base font-semibold ml-2">أدوات الإضافة:</Label>
@@ -1460,6 +1488,28 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
           </Dialog>
         </TabsContent>
       </Tabs>
+
+      {/* --- نسخة الطباعة: كشف دفعة طلاب المجموعة --- */}
+      {selectedGroup && (
+        <div style={{ display: "none" }}>
+          <GroupRosterReportSheet
+            ref={groupReportRef}
+            groupName={selectedGroup.name}
+            collegeName={collegeName}
+            departmentName={selectedDepartmentName}
+            programName={selectedProgramName}
+            levelLabel={selectedLevelNumber ? `المستوى ${selectedLevelNumber}` : undefined}
+            semesterLabel={selectedSemesterTerm ? `الترم ${selectedSemesterTerm}` : undefined}
+            blockName={selectedBlockName}
+            studentsList={groupMembers.map((student) => ({
+              id: student.studentDbId,
+              name: student.name,
+              academicNumber: student.academicNumber || student.id,
+            }))}
+            collegeId={collegeId}
+          />
+        </div>
+      )}
 
       {confirmDialog}
     </div>

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw  } from "lucide-react";
+import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2  } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -18,6 +18,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePermission } from "@/hooks/usePermission";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import TimetableTrashPage from "@/components/colleges/TimetableTrashPage";
+import TimetableEntriesPanel from "@/components/colleges/TimetableEntriesPanel";
 
 // --- Types ---
 type ImportLog = { id: number; created_at: string; source: string; items: number; status: string; notes?: string; };
@@ -48,6 +50,11 @@ interface TimetableModuleProps {
 export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   // ========================= الإعدادات العامة =========================
   const { can } = usePermission();
+
+  // --- حالة صفحة سلة المحذوفات ---
+  const [showTrash, setShowTrash] = useState(false);
+  // --- مفتاح تحديث قائمة الجداول المعروضة ---
+  const [timetableEntriesRefreshToken, setTimetableEntriesRefreshToken] = useState(0);
   
   // --- ✅ حالات ودوال خاصة بمودال عرض الجلسات المتعددة ---
   const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
@@ -189,11 +196,11 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
 
   // --- ✅ دالة حذف الجلسة ---
   const handleDeleteSession = async () => {
-      if (!(await confirm({ title: "حذف جلسة", description: "هل أنت متأكد من حذف هذه الجلسة نهائياً؟" }))) return;
+      if (!(await confirm({ title: "حذف جلسة", description: "هل أنت متأكد من حذف هذه الجلسة؟ سيتم نقلها إلى سلة المحذوفات ويمكن استعادتها منها." }))) return;
       
       try {
           await api.delete(`/v1/lecture-sessions/${editingSession.session_id}`);
-          toast({ title: "تم الحذف", description: "تم حذف الجلسة بنجاح" });
+          toast({ title: "تم الحذف", description: "تم نقل الجلسة إلى سلة المحذوفات" });
           setIsEditModalOpen(false);
           fetchSessionsGrid(viewDate); // تحديث الشبكة
       } catch (error) {
@@ -947,6 +954,7 @@ const openCreateSessionModal = async () => {
         className: "bg-green-500 text-white",
       });
       setImportStatus("success");
+      setTimetableEntriesRefreshToken((prev) => prev + 1);
       resetManualForm();
       
     } catch (error: any) {
@@ -1082,11 +1090,28 @@ const openCreateSessionModal = async () => {
         setProcessingMakeupId(null);
     }
   };
+  if (showTrash) {
+    return (
+      <TimetableTrashPage
+        collegeId={collegeId}
+        onBack={() => {
+          setShowTrash(false);
+          setTimetableEntriesRefreshToken((prev) => prev + 1);
+          void fetchSessionsGrid(viewDate);
+        }}
+      />
+    );
+  }
+
    return (
     <div className="space-y-6" >
       <Tabs defaultValue="import" className="w-full" dir="rtl">
          {/* ✅ --- قسم الشرح والإرشادات --- ✅ */}
-        <div className="flex justify-end mb-2">
+        <div className="flex justify-between items-center mb-2">
+          <Button variant="destructive" onClick={() => setShowTrash(true)}>
+            <Trash2 className="w-4 h-4 mr-2" />
+            سلة المحذوفات
+          </Button>
           {/* الزر الذي يحتوي على الأيقونة */}
           <Button variant="ghost" size="icon" onClick={() => setIsInfoModalOpen(true)}>
             <Info className="h-5 w-5 text-muted-foreground hover:text-primary" />
@@ -1632,7 +1657,21 @@ const openCreateSessionModal = async () => {
           )}
 
           {/* Success Banner, Conflicts Panel, and Import Log can be added here */}
-  
+
+          {/* ======================================================== */}
+          {/* ========= TIMETABLE ENTRIES LIST (SEARCH + FILTERS) ==== */}
+          {/* ======================================================== */}
+          <TimetableEntriesPanel
+            collegeId={collegeId}
+            departments={departments}
+            days={days}
+            periods={periods}
+            classrooms={classrooms}
+            lecturers={lecturers}
+            refreshToken={timetableEntriesRefreshToken}
+            onChanged={() => void fetchSessionsGrid(viewDate)}
+          />
+
         </TabsContent>
   
           {/* ======================================= */}
