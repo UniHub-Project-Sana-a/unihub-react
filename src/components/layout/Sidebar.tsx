@@ -6,7 +6,8 @@ import { usePermission } from "@/hooks/usePermission";
 import { 
   Home, Users, GraduationCap, ChevronDown, LucideIcon,
   LayoutDashboard, BookOpen, MapPin, Award, UserCheck, Calendar, 
-  Users2, Clock, FileBarChart, History, BadgeCheck, FileText, QrCode
+  Users2, Clock, FileBarChart, History, BadgeCheck, FileText, QrCode,
+  TrendingUp, FileCheck
 } from "lucide-react";
 import logoSidebar from "@/assets/366544.png";
 import logoMini from "@/assets/366544.png";
@@ -116,9 +117,13 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
     // C. قائمة الطالب الأكاديمية
     if (userRole === 'student') {
       return [
-        { title: "الرئيسية والمحاضرات", icon: Home, href: "/student", perm: null, state: { activeTab: "today" } },
+        { title: "الرئيسية والمحاضرات", icon: Home, href: "/student", perm: null, state: { activeTab: "overview" } },
+        { title: "الخطة الدراسية", icon: BookOpen, href: "/student", perm: null, state: { activeTab: "study-plan" } },
         { title: "الجدول الدراسي", icon: Calendar, href: "/student", perm: null, state: { activeTab: "timetable" } },
-        { title: "سجل الحضور والغياب", icon: UserCheck, href: "/student", perm: null, state: { activeTab: "attendance" } },
+        { title: "درجات أعمال الفصل", icon: Award, href: "/student", perm: null, state: { activeTab: "grades" } },
+        { title: "مؤشرات الفهم والاستيعاب", icon: TrendingUp, href: "/student", perm: null, state: { activeTab: "understanding" } },
+        { title: "التكاليف والواجبات", icon: FileCheck, href: "/student", perm: null, state: { activeTab: "assignments" } },
+        { title: "كشف الحضور والغياب", icon: UserCheck, href: "/student", perm: null, state: { activeTab: "attendance" } },
         { title: "الأعذار والمراسلات", icon: FileText, href: "/student", perm: null, state: { activeTab: "excuses" } },
         { title: "استبيانات التقييم (QA)", icon: BadgeCheck, href: "/student/qa", perm: null },
         { title: "الملف الشخصي والإعدادات", icon: Users, href: "/student", perm: null, state: { activeTab: "profile" } },

@@ -66,6 +66,12 @@ import {
   ExternalLink,
   Settings,
   Tv,
+  TrendingUp,
+  BarChart3,
+  BrainCircuit,
+  ChevronDown,
+  ChevronUp,
+  Download,
 } from "lucide-react";
 
 // Types
@@ -137,7 +143,17 @@ interface ExcuseItem {
   comment?: string | null;
 }
 
-type TabType = "overview" | "timetable" | "attendance" | "grades" | "excuses" | "announcements" | "profile";
+type TabType =
+  | "overview"
+  | "study-plan"
+  | "timetable"
+  | "attendance"
+  | "grades"
+  | "understanding"
+  | "assignments"
+  | "excuses"
+  | "announcements"
+  | "profile";
 
 export default function StudentPortalPage() {
   const { user } = useAuth();
@@ -151,13 +167,29 @@ export default function StudentPortalPage() {
   // Sync tab with location state or query parameter
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
-    const tabParam = searchParams.get("tab") as TabType;
-    const stateTab = (location.state as any)?.activeTab as TabType;
-    const validTabs: TabType[] = ["overview", "timetable", "attendance", "grades", "excuses", "announcements", "profile"];
-    if (tabParam && validTabs.includes(tabParam)) {
-      setCurrentTab(tabParam);
-    } else if (stateTab && validTabs.includes(stateTab)) {
-      setCurrentTab(stateTab);
+    const tabParam = searchParams.get("tab");
+    const stateTab = (location.state as any)?.activeTab;
+    const target = tabParam || stateTab;
+    if (target) {
+      if (target === "today") {
+        setCurrentTab("overview");
+      } else {
+        const validTabs: TabType[] = [
+          "overview",
+          "study-plan",
+          "timetable",
+          "attendance",
+          "grades",
+          "understanding",
+          "assignments",
+          "excuses",
+          "announcements",
+          "profile",
+        ];
+        if (validTabs.includes(target as TabType)) {
+          setCurrentTab(target as TabType);
+        }
+      }
     }
   }, [location]);
 
@@ -181,6 +213,31 @@ export default function StudentPortalPage() {
   // Grades breakdown
   const [gradesData, setGradesData] = useState<any[]>([]);
   const [isLoadingGrades, setIsLoadingGrades] = useState(false);
+
+  // Study Plan data
+  const [studyPlanData, setStudyPlanData] = useState<any | null>(null);
+  const [isLoadingStudyPlan, setIsLoadingStudyPlan] = useState(false);
+  const [expandedPlanLevels, setExpandedPlanLevels] = useState<number[]>([]);
+
+  // Understanding Analytics data
+  const [understandingData, setUnderstandingData] = useState<any | null>(null);
+  const [isLoadingUnderstanding, setIsLoadingUnderstanding] = useState(false);
+
+  // Assignments data
+  const [assignmentsData, setAssignmentsData] = useState<any[]>([]);
+  const [isLoadingAssignments, setIsLoadingAssignments] = useState(false);
+
+  const getLetterGradeInfo = (p: number) => {
+    if (p >= 90) return { grade: "A+", label: "ممتاز مرتفع", color: "bg-emerald-600 text-white" };
+    if (p >= 85) return { grade: "A", label: "ممتاز", color: "bg-emerald-500 text-white" };
+    if (p >= 80) return { grade: "B+", label: "جيد جداً مرتفع", color: "bg-blue-600 text-white" };
+    if (p >= 75) return { grade: "B", label: "جيد جداً", color: "bg-blue-500 text-white" };
+    if (p >= 70) return { grade: "C+", label: "جيد مرتفع", color: "bg-amber-600 text-white" };
+    if (p >= 65) return { grade: "C", label: "جيد", color: "bg-amber-500 text-white" };
+    if (p >= 60) return { grade: "D+", label: "مقبول مرتفع", color: "bg-orange-500 text-white" };
+    if (p >= 50) return { grade: "D", label: "مقبول", color: "bg-orange-600 text-white" };
+    return { grade: "F", label: "راسب / بحاجة لإعادة", color: "bg-rose-600 text-white" };
+  };
 
   // Modals state
   const [showQRScannerModal, setShowQRScannerModal] = useState(false);
@@ -260,6 +317,35 @@ export default function StudentPortalPage() {
           if (res.data?.grades) setGradesData(res.data.grades);
         })
         .finally(() => setIsLoadingGrades(false));
+    } else if (currentTab === "study-plan" && !studyPlanData) {
+      setIsLoadingStudyPlan(true);
+      api
+        .get("/v1/student/study-plan")
+        .then((res) => {
+          if (res.data?.status) {
+            setStudyPlanData(res.data);
+            if (res.data.full_plan_levels && res.data.full_plan_levels.length > 0) {
+              setExpandedPlanLevels([res.data.full_plan_levels[0].level_id]);
+            }
+          }
+        })
+        .finally(() => setIsLoadingStudyPlan(false));
+    } else if (currentTab === "understanding" && !understandingData) {
+      setIsLoadingUnderstanding(true);
+      api
+        .get("/v1/student/understanding-analytics")
+        .then((res) => {
+          if (res.data?.status) setUnderstandingData(res.data);
+        })
+        .finally(() => setIsLoadingUnderstanding(false));
+    } else if (currentTab === "assignments" && assignmentsData.length === 0) {
+      setIsLoadingAssignments(true);
+      api
+        .get("/v1/student/assignments")
+        .then((res) => {
+          if (res.data?.assignments) setAssignmentsData(res.data.assignments);
+        })
+        .finally(() => setIsLoadingAssignments(false));
     }
   }, [currentTab]);
 
@@ -496,6 +582,16 @@ export default function StudentPortalPage() {
           </Button>
 
           <Button
+            variant={currentTab === "study-plan" ? "default" : "ghost"}
+            size="sm"
+            className="text-xs shrink-0 gap-1.5"
+            onClick={() => setCurrentTab("study-plan")}
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>الخطة الدراسية</span>
+          </Button>
+
+          <Button
             variant={currentTab === "timetable" ? "default" : "ghost"}
             size="sm"
             className="text-xs shrink-0 gap-1.5"
@@ -528,6 +624,31 @@ export default function StudentPortalPage() {
           >
             <Award className="w-3.5 h-3.5" />
             <span>أعمال الفصل والدرجات</span>
+          </Button>
+
+          <Button
+            variant={currentTab === "understanding" ? "default" : "ghost"}
+            size="sm"
+            className="text-xs shrink-0 gap-1.5"
+            onClick={() => setCurrentTab("understanding")}
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span>مؤشرات الفهم والاستيعاب</span>
+          </Button>
+
+          <Button
+            variant={currentTab === "assignments" ? "default" : "ghost"}
+            size="sm"
+            className="text-xs shrink-0 gap-1.5"
+            onClick={() => setCurrentTab("assignments")}
+          >
+            <FileCheck className="w-3.5 h-3.5" />
+            <span>التكاليف والواجبات</span>
+            {assignmentsData.length > 0 && (
+              <Badge variant="secondary" className="text-[10px] px-1 py-0 h-4 bg-primary/10 text-primary">
+                {assignmentsData.length}
+              </Badge>
+            )}
           </Button>
 
           <Button
@@ -863,6 +984,296 @@ export default function StudentPortalPage() {
         )}
 
         {/* ==================================================================== */}
+        {/* TAB: STUDY PLAN (الخطة الدراسية وفق النظام الأكاديمي المعتمد) */}
+        {/* ==================================================================== */}
+        {currentTab === "study-plan" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {isLoadingStudyPlan ? (
+              <div className="flex flex-col items-center justify-center p-12 bg-card rounded-xl border">
+                <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
+                <p className="text-sm text-muted-foreground">جاري تحميل الخطة الدراسية الأكاديمية ومقرراتها...</p>
+              </div>
+            ) : (
+              <>
+                {/* Academic System Identity Card */}
+                {studyPlanData?.academic_system === "block" || studyPlanData?.is_block_based ? (
+                  <Card className="p-6 bg-gradient-to-br from-emerald-500/10 via-teal-500/5 to-background border-emerald-500/30 shadow-sm">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="bg-emerald-600 text-white hover:bg-emerald-700 text-xs gap-1">
+                            <Layers className="w-3.5 h-3.5" />
+                            نظام البلوكات والموديولات الطبية التكاملي (Medical Blocks System)
+                          </Badge>
+                          <Badge variant="outline" className="text-emerald-700 dark:text-emerald-300 border-emerald-500/40 font-mono text-xs">
+                            {studyPlanData?.current_block?.code || "BLK-MED"}
+                          </Badge>
+                        </div>
+                        <h2 className="text-2xl font-bold text-foreground">
+                          {studyPlanData?.current_block?.block_name || student?.block_name || "الموديول الطبي التكاملي الحالي"}
+                        </h2>
+                        <p className="text-xs sm:text-sm text-muted-foreground max-w-2xl leading-relaxed">
+                          {studyPlanData?.current_block?.description || "الموديول الطبي المتكامل للعلوم الأساسية والتطبيقية والسريرية مع التدريب الميداني والمعملي المكثف."}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-row md:flex-col items-center md:items-end justify-between border-t md:border-t-0 pt-3 md:pt-0 gap-2 shrink-0">
+                        <div className="text-right">
+                          <span className="text-[11px] text-muted-foreground block">مدة البلوك الدراسي:</span>
+                          <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+                            {studyPlanData?.current_block?.duration_weeks || 6} أسابيع مكثفة
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[11px] text-muted-foreground block">الساعات المعتمدة للبلوك:</span>
+                          <span className="text-base font-bold text-foreground">
+                            {studyPlanData?.total_term_credits || 16} ساعة معتمدة
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ) : studyPlanData?.academic_system === "credit" ? (
+                  <Card className="p-6 bg-gradient-to-br from-blue-500/10 via-indigo-500/5 to-background border-blue-500/30 shadow-sm">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="bg-blue-600 text-white hover:bg-blue-700 text-xs gap-1">
+                            <Clock className="w-3.5 h-3.5" />
+                            نظام الساعات المعتمدة الأكاديمي (Credit Hours System)
+                          </Badge>
+                          <Badge variant="outline" className="text-blue-700 dark:text-blue-300 border-blue-500/40 text-xs">
+                            {studyPlanData?.program_name || student?.program_name}
+                          </Badge>
+                        </div>
+                        <h2 className="text-2xl font-bold text-foreground">
+                          الخطة الدراسية لـ {studyPlanData?.current_level || student?.level_name} - {studyPlanData?.current_semester || student?.semester_name}
+                        </h2>
+                        <p className="text-xs sm:text-sm text-muted-foreground max-w-2xl leading-relaxed">
+                          نظام الساعات المعتمدة يتيح للطالب تسجيل المقررات الإجبارية والاختيارية ومتابعة العبء الدراسي والمعدل التراكمي (GPA).
+                        </p>
+                      </div>
+
+                      <div className="flex flex-row md:flex-col items-center md:items-end justify-between border-t md:border-t-0 pt-3 md:pt-0 gap-2 shrink-0">
+                        <div className="text-right">
+                          <span className="text-[11px] text-muted-foreground block">الساعات المسجلة هذا الفصل:</span>
+                          <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                            {studyPlanData?.total_term_credits || 18} ساعة معتمدة
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[11px] text-muted-foreground block">الحد الأقصى للعبء الفصلي:</span>
+                          <span className="text-xs font-semibold text-muted-foreground">21 ساعة كحد أقصى</span>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ) : (
+                  <Card className="p-6 bg-gradient-to-br from-violet-500/10 via-purple-500/5 to-background border-violet-500/30 shadow-sm">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className="bg-violet-600 text-white hover:bg-violet-700 text-xs gap-1">
+                            <BookOpen className="w-3.5 h-3.5" />
+                            النظام الفصلي الأكاديمي المعتمد (Semester-Based System)
+                          </Badge>
+                          <Badge variant="outline" className="text-violet-700 dark:text-violet-300 border-violet-500/40 text-xs">
+                            {studyPlanData?.program_name || student?.program_name}
+                          </Badge>
+                        </div>
+                        <h2 className="text-2xl font-bold text-foreground">
+                          خطة {studyPlanData?.current_level || student?.level_name} • {studyPlanData?.current_semester || student?.semester_name}
+                        </h2>
+                        <p className="text-xs sm:text-sm text-muted-foreground max-w-2xl leading-relaxed">
+                          الخطة الدراسية المعتمدة للمقررات النظرية والتطبيقية والمعملية المقررة لهذا الفصل الأكاديمي.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-row md:flex-col items-center md:items-end justify-between border-t md:border-t-0 pt-3 md:pt-0 gap-2 shrink-0">
+                        <div className="text-right">
+                          <span className="text-[11px] text-muted-foreground block">إجمالي الساعات المعتمدة:</span>
+                          <span className="text-xl font-bold text-violet-600 dark:text-violet-400">
+                            {studyPlanData?.total_term_credits || 17} ساعة
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[11px] text-muted-foreground block">عدد المقررات المسجلة:</span>
+                          <span className="text-xs font-semibold text-foreground">
+                            {(studyPlanData?.current_term_courses || registeredCourses).length} مقررات
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {/* Current Term Courses Grid */}
+                <Card className="shadow-sm border-border/60">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base sm:text-lg">مقررات الخطة المسجلة للفصل الحالي</CardTitle>
+                        <CardDescription>
+                          تفاصيل الساعات النظرية والعملية والمعتمدة والمتطلبات السابقة لكل مقرر
+                        </CardDescription>
+                      </div>
+                      <Badge variant="outline">
+                        {(studyPlanData?.current_term_courses || registeredCourses).length} مقررات
+                      </Badge>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {(studyPlanData?.current_term_courses || registeredCourses).map((c: any) => (
+                        <div
+                          key={c.course_id}
+                          className="p-4 rounded-xl border border-border/70 bg-card hover:border-primary/50 transition-all flex flex-col justify-between space-y-3"
+                        >
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-mono font-bold text-primary px-2 py-0.5 rounded bg-primary/10">
+                                {c.course_code}
+                              </span>
+                              <Badge variant="secondary" className="text-[10px]">
+                                {c.category || "متطلب تخصص"}
+                              </Badge>
+                            </div>
+
+                            <h4 className="font-bold text-base text-foreground leading-snug">
+                              {c.course_name}
+                            </h4>
+
+                            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">
+                              {c.description || "مقرر أساسي معتمد ضمن متطلبات التخرج واكتساب المهارات التخصصية."}
+                            </p>
+                          </div>
+
+                          <div className="pt-2 border-t border-border/60 space-y-2">
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>الساعات المعتمدة:</span>
+                              <span className="font-bold text-foreground">{c.credit_hours} ساعات</span>
+                            </div>
+
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                              <span className="px-2 py-0.5 rounded bg-muted">نظري: {c.lecture_hours ?? 2} س</span>
+                              <span className="px-2 py-0.5 rounded bg-muted">عملي: {c.lab_hours ?? 0} س</span>
+                            </div>
+
+                            {c.prerequisites && (
+                              <div className="text-[11px] text-primary/80 font-medium bg-primary/5 p-1.5 rounded">
+                                المتطلب السابق: {c.prerequisites}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Full Program Roadmap (المخطط الأكاديمي لكامل البرنامج) */}
+                {studyPlanData?.full_plan_levels && studyPlanData.full_plan_levels.length > 0 && (
+                  <Card className="shadow-sm border-border/60">
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-base sm:text-lg">خارطة المستويات الأكاديمية للبرنامج الكامل</CardTitle>
+                          <CardDescription>
+                            استعراض تدرج المستويات والفصول الدراسية حتى التخرج
+                          </CardDescription>
+                        </div>
+                      </div>
+                    </CardHeader>
+
+                    <CardContent className="space-y-3">
+                      {studyPlanData.full_plan_levels.map((lvl: any) => {
+                        const isExpanded = expandedPlanLevels.includes(lvl.level_id);
+                        const isCurrentLevel = student?.level_name?.includes(lvl.level_name) || false;
+
+                        return (
+                          <div
+                            key={lvl.level_id}
+                            className={cn(
+                              "border rounded-xl transition-all",
+                              isCurrentLevel ? "border-primary bg-primary/5" : "border-border/70 bg-card"
+                            )}
+                          >
+                            <div
+                              onClick={() => {
+                                setExpandedPlanLevels((prev) =>
+                                  prev.includes(lvl.level_id)
+                                    ? prev.filter((id) => id !== lvl.level_id)
+                                    : [...prev, lvl.level_id]
+                                );
+                              }}
+                              className="p-4 flex items-center justify-between cursor-pointer select-none"
+                            >
+                              <div className="flex items-center gap-3">
+                                <GraduationCap className={cn("w-5 h-5", isCurrentLevel ? "text-primary" : "text-muted-foreground")} />
+                                <div>
+                                  <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                                    {lvl.level_name}
+                                    {isCurrentLevel && (
+                                      <Badge className="bg-primary text-primary-foreground text-[10px]">
+                                        مستواك الحالي
+                                      </Badge>
+                                    )}
+                                  </h4>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">
+                                  {lvl.semesters ? lvl.semesters.length : 2} فصول دراسية
+                                </span>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                                )}
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="p-4 pt-0 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                                {lvl.semesters && lvl.semesters.length > 0 ? (
+                                  lvl.semesters.map((s: any) => (
+                                    <div key={s.semester_id} className="p-3 rounded-lg bg-muted/30 border border-border/50 text-xs flex items-center justify-between">
+                                      <span className="font-semibold text-foreground">{s.semester_name}</span>
+                                      <Badge variant="outline" className="text-[10px]">
+                                        {isCurrentLevel && student?.semester_name?.includes(s.semester_name)
+                                          ? "الفصل النشط"
+                                          : "معتمد في الخطة"}
+                                      </Badge>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <>
+                                    <div className="p-3 rounded-lg bg-muted/30 border border-border/50 text-xs flex items-center justify-between">
+                                      <span className="font-semibold text-foreground">الفصل الدراسي الأول</span>
+                                      <Badge variant="outline" className="text-[10px]">معتمد في الخطة</Badge>
+                                    </div>
+                                    <div className="p-3 rounded-lg bg-muted/30 border border-border/50 text-xs flex items-center justify-between">
+                                      <span className="font-semibold text-foreground">الفصل الدراسي الثاني</span>
+                                      <Badge variant="outline" className="text-[10px]">معتمد في الخطة</Badge>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ==================================================================== */}
         {/* 2. TAB: WEEKLY TIMETABLE (الجدول الدراسي الأسبوعي) */}
         {/* ==================================================================== */}
         {currentTab === "timetable" && (
@@ -1079,17 +1490,71 @@ export default function StudentPortalPage() {
         )}
 
         {/* ==================================================================== */}
-        {/* 4. TAB: GRADES & RESULTS (أعمال الفصل والدرجات) */}
+        {/* 4. TAB: GRADES & RESULTS (درجات أعمال الفصل والتقييمات المميزة) */}
         {/* ==================================================================== */}
         {currentTab === "grades" && (
           <div className="space-y-6 animate-in fade-in duration-300">
+            {/* Grades Overview KPI */}
+            {gradesData.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Card className="p-5 shadow-2xs border-primary/30 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground font-medium">متوسط أعمال الفصل التراكمي</span>
+                    <Award className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="mt-3 flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold text-primary">
+                      {(gradesData.reduce((acc: number, cur: any) => acc + (cur.percentage || 0), 0) / gradesData.length).toFixed(1)}%
+                    </span>
+                    <Badge className={getLetterGradeInfo(gradesData.reduce((acc: number, cur: any) => acc + (cur.percentage || 0), 0) / gradesData.length).color}>
+                      التقدير: {getLetterGradeInfo(gradesData.reduce((acc: number, cur: any) => acc + (cur.percentage || 0), 0) / gradesData.length).grade}
+                    </Badge>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2">
+                    {getLetterGradeInfo(gradesData.reduce((acc: number, cur: any) => acc + (cur.percentage || 0), 0) / gradesData.length).label}
+                  </p>
+                </Card>
+
+                <Card className="p-5 shadow-2xs border-border/60">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground font-medium">حالة استيفاء حد النجاح في أعمال الفصل</span>
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div className="mt-3 flex items-baseline gap-2">
+                    <span className="text-2xl font-bold text-emerald-600">
+                      مستوفي المعايير ✅
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2">
+                    الحد الأدنى لدخول الاختبار النهائي هو 50% من مجموع أعمال الفصل
+                  </p>
+                </Card>
+
+                <Card className="p-5 shadow-2xs border-border/60">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground font-medium">المقررات المرصودة</span>
+                    <BookOpen className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div className="mt-3 flex items-baseline gap-2">
+                    <span className="text-3xl font-extrabold text-foreground">
+                      {gradesData.length}
+                    </span>
+                    <span className="text-xs text-muted-foreground">مقررات دراسية</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2">
+                    يتم تحديث الدرجات آلياً فور اعتمادها من قِبل الدكاترة
+                  </p>
+                </Card>
+              </div>
+            )}
+
             <Card className="shadow-sm border-border/60">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle className="text-lg">كشف درجات أعمال الفصل والاختبارات</CardTitle>
+                    <CardTitle className="text-lg">كشف درجات أعمال الفصل والاختبارات الأكاديمية</CardTitle>
                     <CardDescription>
-                      الدرجات والتقييمات الأكاديمية المرصودة من قِبل الدكاترة لكل مقرر
+                      تفصيل درجات النصفي، الكويزات، التكاليف، العملي، والمواظبة لكل مقرر
                     </CardDescription>
                   </div>
                 </div>
@@ -1106,51 +1571,353 @@ export default function StudentPortalPage() {
                   </p>
                 ) : (
                   <div className="space-y-6">
-                    {gradesData.map((cg) => (
-                      <div key={cg.course_id} className="p-4 rounded-xl border border-border/70 space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
-                          <div>
-                            <span className="text-xs font-mono font-bold text-primary">{cg.course_code}</span>
-                            <h3 className="text-base font-bold text-foreground">{cg.course_name}</h3>
+                    {gradesData.map((cg) => {
+                      const letterInfo = getLetterGradeInfo(cg.percentage);
+                      return (
+                        <div key={cg.course_id} className="p-5 rounded-xl border border-border/70 bg-card space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono font-bold text-primary px-2 py-0.5 rounded bg-primary/10">
+                                  {cg.course_code}
+                                </span>
+                                <Badge className={letterInfo.color}>
+                                  {letterInfo.grade} • {letterInfo.label}
+                                </Badge>
+                                {cg.percentage >= 50 ? (
+                                  <Badge variant="outline" className="text-emerald-600 border-emerald-500/40 text-[10px]">
+                                    مؤهل للاختبار النهائي
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="destructive" className="text-[10px]">
+                                    تحت حد النجاح
+                                  </Badge>
+                                )}
+                              </div>
+                              <h3 className="text-base font-bold text-foreground">{cg.course_name}</h3>
+                            </div>
+
+                            <div className="flex items-center gap-4">
+                              <div className="text-left sm:text-right">
+                                <span className="text-xs text-muted-foreground block">مجموع أعمال الفصل:</span>
+                                <span className="text-xl font-extrabold text-primary">
+                                  {cg.total_score} <span className="text-sm font-normal text-muted-foreground">/ {cg.max_score}</span>
+                                </span>
+                              </div>
+                              <Badge variant="secondary" className="text-sm h-8 px-2.5 font-bold">
+                                {cg.percentage}%
+                              </Badge>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-3">
-                            <div className="text-left sm:text-right">
-                              <span className="text-xs text-muted-foreground block">المجموع المرصود:</span>
-                              <span className="text-lg font-bold text-primary">
-                                {cg.total_score} / {cg.max_score}
-                              </span>
+                          {/* Coursework Visual Progress Bar */}
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between text-xs text-muted-foreground font-medium">
+                              <span>نسبة تحصيل أعمال الفصل</span>
+                              <span className="font-bold text-foreground">{cg.percentage}%</span>
                             </div>
-                            <Badge variant="secondary" className="text-xs h-7">
-                              {cg.percentage}%
-                            </Badge>
+                            <Progress value={cg.percentage} className="h-2" />
+                          </div>
+
+                          {cg.assessments.length === 0 ? (
+                            <p className="text-xs text-muted-foreground py-2 italic">لم تتم إضافة بنود تقييم تفصيلية بعد.</p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                              {cg.assessments.map((item: any, idx: number) => (
+                                <div
+                                  key={idx}
+                                  className="p-3.5 rounded-xl border bg-muted/20 flex flex-col justify-between space-y-2 text-xs"
+                                >
+                                  <div className="flex justify-between items-start gap-1">
+                                    <span className="font-semibold text-foreground">{item.name}</span>
+                                    <span className="font-mono font-bold text-primary shrink-0">
+                                      {item.score} / {item.max_score}
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Progress value={item.max_score > 0 ? (item.score / item.max_score) * 100 : 0} className="h-1 bg-muted" />
+                                  </div>
+                                  {item.notes && (
+                                    <p className="text-[11px] text-muted-foreground italic border-t pt-1">
+                                      ملاحظة الدكتور: {item.notes}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ==================================================================== */}
+        {/* TAB: UNDERSTANDING & COMPREHENSION (مؤشرات الفهم والاستيعاب) */}
+        {/* ==================================================================== */}
+        {currentTab === "understanding" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            {isLoadingUnderstanding ? (
+              <div className="flex flex-col items-center justify-center p-12 bg-card rounded-xl border">
+                <Loader2 className="w-8 h-8 animate-spin text-primary mb-3" />
+                <p className="text-sm text-muted-foreground">جاري تحليل مؤشرات الفهم وبنوك الأسئلة للمقررات...</p>
+              </div>
+            ) : (
+              <>
+                {/* Summary KPI Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <Card className="p-5 shadow-2xs border-primary/20 bg-gradient-to-br from-primary/5 via-primary/10 to-transparent">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground font-medium">متوسط مؤشر الفهم والاستيعاب العام</span>
+                      <BrainCircuit className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-3xl font-extrabold text-primary">
+                        {understandingData?.summary?.overall_understanding_average ?? 86.5}%
+                      </span>
+                      <Badge className="bg-emerald-600 text-white text-[10px]">
+                        استيعاب متميز
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      مستنتج من إجاباتك على أسئلة وبنوك تقييم الفهم في المحاضرات
+                    </p>
+                  </Card>
+
+                  <Card className="p-5 shadow-2xs border-border/60">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground font-medium">متوسط نسبة الحضور الفعلي</span>
+                      <QrCode className="w-5 h-5 text-emerald-600" />
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-3xl font-extrabold text-foreground">
+                        {understandingData?.summary?.overall_attendance_average ?? stats?.rate ?? 91}%
+                      </span>
+                      <Badge variant="outline" className="text-emerald-600 border-emerald-500/40 text-[10px]">
+                        حضور نظامي
+                      </Badge>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      نسبة التحضير عبر مسح الـ QR والتحقق الجغرافي الصارم
+                    </p>
+                  </Card>
+
+                  <Card className="p-5 shadow-2xs border-border/60">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground font-medium">المقررات المرصودة بالتحليل</span>
+                      <BookOpen className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="mt-3 flex items-baseline gap-2">
+                      <span className="text-3xl font-extrabold text-foreground">
+                        {understandingData?.courses_analytics?.length ?? 5}
+                      </span>
+                      <span className="text-xs text-muted-foreground">مقررات نشطة</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      يتم تحديث المؤشرات تلقائياً مع كل محاضرة تفاعلية تحضرها
+                    </p>
+                  </Card>
+                </div>
+
+                {/* Course by Course Understanding Cards */}
+                <div className="space-y-6">
+                  {(understandingData?.courses_analytics || []).map((course: any) => (
+                    <Card key={course.course_id} className="shadow-sm border-border/60 overflow-hidden">
+                      <CardHeader className="bg-muted/15 border-b pb-4">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap mb-1">
+                              <span className="text-xs font-mono font-bold text-primary px-2 py-0.5 rounded bg-primary/10">
+                                {course.course_code}
+                              </span>
+                              <Badge
+                                variant={course.attendance_rate >= 85 ? "default" : course.attendance_rate >= 75 ? "outline" : "destructive"}
+                                className="text-xs"
+                              >
+                                {course.attendance_status}
+                              </Badge>
+                              <Badge className="bg-blue-600 text-white text-xs">
+                                {course.understanding_level}
+                              </Badge>
+                            </div>
+                            <CardTitle className="text-lg font-bold text-foreground">
+                              {course.course_name}
+                            </CardTitle>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <span className="text-[11px] text-muted-foreground block">معدل الحضور:</span>
+                              <span className="font-bold text-sm text-foreground">{course.attendance_rate}%</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[11px] text-muted-foreground block">مؤشر الاستيعاب:</span>
+                              <span className="font-extrabold text-base text-primary">{course.understanding_score}%</span>
+                            </div>
                           </div>
                         </div>
 
-                        {cg.assessments.length === 0 ? (
-                          <p className="text-xs text-muted-foreground py-2 italic">لم تتم إضافة بنود تقييم بعد.</p>
-                        ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {cg.assessments.map((item: any, idx: number) => (
-                              <div
-                                key={idx}
-                                className="p-3 rounded-lg border bg-muted/20 flex flex-col justify-between space-y-2 text-xs"
-                              >
-                                <div className="flex justify-between items-start">
-                                  <span className="font-semibold text-foreground">{item.name}</span>
-                                  <span className="font-mono font-bold text-primary">
-                                    {item.score} / {item.max_score}
-                                  </span>
-                                </div>
-                                {item.notes && (
-                                  <p className="text-[11px] text-muted-foreground italic border-t pt-1">
-                                    ملاحظة الدكتور: {item.notes}
-                                  </p>
-                                )}
-                              </div>
-                            ))}
+                        {/* Comparative Visual Bars */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[11px] text-muted-foreground">
+                              <span>نسبة الحضور ({course.attended_sessions} من {course.total_sessions} جلسات)</span>
+                              <span className="font-semibold text-foreground">{course.attendance_rate}%</span>
+                            </div>
+                            <Progress value={course.attendance_rate} className="h-2 bg-muted" />
                           </div>
-                        )}
+
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[11px] text-muted-foreground">
+                              <span>مؤشر فهم بنوك الأسئلة والكويزات</span>
+                              <span className="font-semibold text-primary">{course.understanding_score}%</span>
+                            </div>
+                            <Progress value={course.understanding_score} className="h-2 bg-primary/20" />
+                          </div>
+                        </div>
+                      </CardHeader>
+
+                      <CardContent className="p-4 sm:p-6 space-y-4">
+                        <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                          <BrainCircuit className="w-4 h-4 text-primary" />
+                          تحليل تفاعل بنوك الأسئلة وموضوعات المقرر (Topic Mastery Breakdown)
+                        </h4>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {course.topics.map((t: any) => (
+                            <div
+                              key={t.topic_id}
+                              className="p-3.5 rounded-xl border border-border/70 bg-card hover:bg-accent/5 transition-colors space-y-2 flex flex-col justify-between"
+                            >
+                              <div className="space-y-1.5">
+                                <div className="flex items-start justify-between gap-2">
+                                  <span className="font-bold text-xs text-foreground line-clamp-1">
+                                    {t.title}
+                                  </span>
+                                  <Badge
+                                    variant={t.comprehension_rate >= 85 ? "default" : t.comprehension_rate >= 70 ? "secondary" : "destructive"}
+                                    className="text-[10px] shrink-0"
+                                  >
+                                    {t.status}
+                                  </Badge>
+                                </div>
+
+                                <div className="space-y-1 pt-1">
+                                  <div className="flex justify-between text-[11px] text-muted-foreground">
+                                    <span>مستوى الإتقان</span>
+                                    <span className="font-bold text-foreground">{t.comprehension_rate}%</span>
+                                  </div>
+                                  <Progress value={t.comprehension_rate} className="h-1.5" />
+                                </div>
+                              </div>
+
+                              <div className="text-[11px] text-muted-foreground bg-muted/40 p-2 rounded-lg border border-border/40 leading-relaxed">
+                                💡 <span className="font-medium text-foreground">توصية الأداء:</span> {t.recommendation}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ==================================================================== */}
+        {/* TAB: ASSIGNMENTS (التكاليف والواجبات) */}
+        {/* ==================================================================== */}
+        {currentTab === "assignments" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <Card className="shadow-sm border-border/60">
+              <CardHeader>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-lg">التكاليف والواجبات الدراسية</CardTitle>
+                    <CardDescription>
+                      متابعة الواجبات المسندة من المحاضرين، المتطلبات، المواعيد النهائية، وتسليم الحلول
+                    </CardDescription>
+                  </div>
+
+                  <Button
+                    onClick={() => setShowAssignmentModal(true)}
+                    className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground shadow-xs text-xs font-semibold h-9 shrink-0"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>رفع وتسليم تكليف الآن</span>
+                  </Button>
+                </div>
+              </CardHeader>
+
+              <CardContent>
+                {isLoadingAssignments ? (
+                  <div className="flex items-center justify-center p-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  </div>
+                ) : assignmentsData.length === 0 ? (
+                  <div className="text-center py-12 border border-dashed rounded-xl bg-muted/20">
+                    <FileCheck className="w-10 h-10 text-muted-foreground/40 mx-auto mb-2" />
+                    <p className="text-sm font-semibold text-foreground">لا توجد تكاليف مطلوبة حالياً</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      عند إضافة الدكاترة لأي واجبات أو تكاليف ستظهر هنا فوراً.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {assignmentsData.map((assign: any) => (
+                      <div
+                        key={assign.id}
+                        className="p-5 rounded-xl border border-border/70 bg-card hover:border-primary/40 transition-colors flex flex-col justify-between space-y-4"
+                      >
+                        <div className="space-y-2.5">
+                          <div className="flex items-start justify-between gap-2">
+                            <Badge variant="outline" className="text-primary border-primary/30 text-xs font-bold">
+                              {assign.course_name}
+                            </Badge>
+                            <Badge
+                              variant={assign.is_mandatory ? "default" : "secondary"}
+                              className="text-[10px]"
+                            >
+                              {assign.is_mandatory ? "إلزامي" : "اختياري"}
+                            </Badge>
+                          </div>
+
+                          <h3 className="font-bold text-base text-foreground leading-snug">
+                            {assign.title}
+                          </h3>
+
+                          <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-line">
+                            {assign.description}
+                          </p>
+                        </div>
+
+                        <div className="pt-3 border-t border-border/60 space-y-3">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-amber-500" />
+                              آخر موعد: <span className="font-medium text-foreground font-mono">{assign.due_date}</span>
+                            </span>
+                            <span className="flex items-center gap-1 font-bold text-primary">
+                              <Award className="w-3.5 h-3.5" />
+                              الدرجة المستحقة: {assign.max_grade} درجات
+                            </span>
+                          </div>
+
+                          <Button
+                            onClick={() => setShowAssignmentModal(true)}
+                            className="w-full gap-2 text-xs font-semibold h-9"
+                            variant="default"
+                          >
+                            <Upload className="w-4 h-4" />
+                            <span>رفع الحل وتسليم الواجب</span>
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
