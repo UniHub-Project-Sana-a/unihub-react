@@ -154,7 +154,7 @@ export function QaReportPrintDialog({
                     <div className="w-1/4 flex justify-start"><img src={uniLogo} alt="University" className="h-20 w-auto object-contain" /></div>
                     <div className="w-2/4 text-center">
                         <h2 className="text-lg font-bold">الجمهورية اليمنية</h2>
-                        <h2 className="text-lg font-bold mb-2">جامعة صنعاء</h2>
+                        <h2 className="text-lg font-bold mb-2"> جامعة العلوم والتكنولوجيا </h2>
                         <h1 className="text-xl font-black mb-2 inline-block px-4 py-1 bg-gray-100 border border-black/10 rounded">تقرير تقييم الأداء الأكاديمي</h1>
                         <div className="text-xs font-bold mt-1 text-gray-600">الحملة: {campaignName} | تاريخ: {currentDateTime}</div>
                     </div>

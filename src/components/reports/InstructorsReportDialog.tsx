@@ -187,7 +187,7 @@ export function InstructorsReportDialog({
                             {/* المنتصف */}
                             <div className="w-2/4 text-center pt-1">
                                 <h2 className="text-lg font-bold leading-tight">الجمهورية اليمنية</h2>
-                                <h2 className="text-lg font-bold leading-tight mb-2"> جامعة صنعاء </h2>
+                                <h2 className="text-lg font-bold leading-tight mb-2"> جامعة العلوم والتكنولوجيا </h2>
                                 
                                 <h1 className="text-xl font-black mb-2 inline-block px-6 py-1 bg-gray-100 border border-black/10 rounded-md">
                                     {mode === 'financial' ? 'كشف استحقاق الساعات التدريسية' : 'تقرير الأداء الأكاديمي'}

@@ -47,7 +47,7 @@ const EvaluationForm = () => {
     <div className="max-w-4xl mx-auto p-6 bg-white shadow-lg rounded-lg dir-rtl" dir="rtl">
       {/* الترويسة */}
       <div className="text-center border-b-2 border-blue-900 pb-4 mb-6">
-        <h1 className="text-2xl font-bold text-blue-900">جامعة صنعاء</h1>
+        <h1 className="text-2xl font-bold text-blue-900">جامعة العلوم والتكنولوجيا</h1>
         <h2 className="text-xl">مركز التطوير وضمان الجودة</h2>
         <h3 className="bg-blue-100 p-2 mt-3 font-semibold rounded">مقياس تقييم عضو هيئة التدريس من قبل الطالب</h3>
       </div>
@@ -109,7 +109,7 @@ const EvaluationForm = () => {
       </form>
       
       <footer className="mt-10 pt-4 border-t text-center text-xs text-gray-400">
-        جامعة صنعاء - مركز التطوير وضمان الجودة - 2026
+        جامعة العلوم والتكنولوجيا - مركز التطوير وضمان الجودة - 2026
       </footer>
     </div>
   );

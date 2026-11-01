@@ -124,7 +124,7 @@ export function QAReportDialog({
                 <div className="hidden print-header items-start">
                     <div className="w-1/4"><img src={uniLogo} className="h-24 w-auto object-contain" /></div>
                     <div className="w-2/4 text-center pt-2">
-                        <h2 className="text-lg font-bold">الجمهورية اليمنية - جامعة صنعاء</h2>
+                        <h2 className="text-lg font-bold">الجمهورية اليمنية - جامعة العلوم والتكنولوجيا</h2>
                         <h3 className="text-md font-bold mb-2">كلية {reportData.meta.department_name}</h3>
                         <h1 className="text-xl font-black bg-gray-100 border border-black px-4 py-1 inline-block rounded">
                             {selectedSessionId ? "تقرير تفصيلي لجلسة دراسية" : "تقرير الأداء الأكاديمي للمقرر"}
