@@ -28,6 +28,7 @@ import CertInstructionPage from "@/pages/CertInstructionPage";
 import StudentQaPage from "@/components/student/qa/StudentQaPage";
 import StudentPortalPage from "@/pages/StudentPortalPage";
 import LocationsPage from "@/pages/LocationsPage";
+import { PwaInstallPrompt } from "@/components/common/PwaInstallPrompt";
 import StudentsGroupsPage from "@/pages/StudentsGroupsPage";
 import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 
@@ -127,6 +128,7 @@ const App = () => (
               {/* 3. مسار احتياطي لـ 404 */}
               <Route path="*" element={<NotFound />} />
             </Routes>
+            <PwaInstallPrompt />
           </AuthProvider>
         </HashRouter>
       </TooltipProvider>

@@ -28,11 +28,11 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     setLoggingOut(true);
     try {
       await api.post("/v1/auth/logout");
-    }  catch (error) {
-        console.warn("Logout API failed, forcing local logout.");
+    } catch (error) {
+      console.warn("Logout API failed, forcing local logout.");
     }
-    if (setAuthToken) { 
-        setAuthToken(null); 
+    if (setAuthToken) {
+      setAuthToken(null);
     }
     // تنظيف التخزين المحلي
     localStorage.removeItem("token");
@@ -104,21 +104,21 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
               <User className="w-4 h-4 text-primary-foreground" />
             )}
           </div>
-          
+
           <div className="text-sm max-lg:hidden text-right">
             <p className="font-medium text-foreground">
               {user?.full_name || "مستخدم"}
             </p>
-            
+
             <p className="text-muted-foreground text-xs">
               {/* الأولوية 1: النوع المحسوب من المصفوفة */}
-              {myUserType?.user_type_name 
-               /* الأولوية 2: النوع القادم مباشرة داخل كائن المستخدم */
-               || (user as any)?.user_type?.user_type_name 
-               /* الأولوية 3: الكود */
-               || (user as any)?.user_type_code 
-               /* الأخير: افتراضي */
-               || "زائر"}
+              {myUserType?.user_type_name
+                /* الأولوية 2: النوع القادم مباشرة داخل كائن المستخدم */
+                || (user as any)?.user_type?.user_type_name
+                /* الأولوية 3: الكود */
+                || (user as any)?.user_type_code
+                /* الأخير: افتراضي */
+                || "زائر"}
             </p>
           </div>
         </div>

@@ -1,8 +1,51 @@
 // src/lib/api.ts
 import axios from 'axios';
 
-// قراءة الـ API URL من Environment Variables مع fallback
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
+// دالة تحديد عنوان الـ API بمرونة (يدعم التعديل من واجهة المستخدم، الـ Environment Variables، والـ Fallback)
+export const resolveApiBaseUrl = (): string => {
+  // 1. فحص إذا كان المستخدم قام بحفظ عنوان مخصص في المتصفح
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('unihub_api_base_url');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  }
+
+  // 2. قراءة الرابط من متغيرات البيئة
+  const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
+  
+  // 3. إذا كان الموقع مفتوحاً على Vercel أو دومين خارجي، نتجنب الاتصال بـ localhost/127.0.0.1 لمنع تحذيرات الأمان
+  if (typeof window !== 'undefined') {
+    const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    if (isRemote && (!envUrl || envUrl.includes('127.0.0.1') || envUrl.includes('localhost'))) {
+      // نعتمد الرابط المخصص أو فارغ للسماح للمستخدم بضبطه
+      const saved = localStorage.getItem('unihub_api_base_url');
+      if (saved) return saved.trim();
+    }
+  }
+
+  return envUrl || 'http://127.0.0.1:8000/api';
+};
+
+export const API_BASE_URL = resolveApiBaseUrl();
+
+export function setCustomApiBaseUrl(url: string) {
+  if (typeof window !== 'undefined') {
+    let clean = url.trim().replace(/\/+$/, '');
+    if (!clean.endsWith('/api') && !clean.includes('/api/')) {
+      clean += '/api';
+    }
+    localStorage.setItem('unihub_api_base_url', clean);
+    window.location.reload();
+  }
+}
+
+export function clearCustomApiBaseUrl() {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('unihub_api_base_url');
+    window.location.reload();
+  }
+}
 
 // Log للتأكد (فقط في Development)
 if (import.meta.env.DEV) {
@@ -50,7 +93,8 @@ export const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { 
     Accept: 'application/json',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true'
   },
   timeout: 30000, // 30 seconds timeout
 });
