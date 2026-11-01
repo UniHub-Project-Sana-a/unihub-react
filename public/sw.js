@@ -1,5 +1,5 @@
 // Service Worker for UniHub PWA
-const CACHE_NAME = 'unihub-pwa-v1';
+const CACHE_NAME = 'unihub-pwa-v2';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
