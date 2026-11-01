@@ -3,11 +3,17 @@ import axios from 'axios';
 
 // دالة تحديد عنوان الـ API بمرونة (يدعم التعديل من واجهة المستخدم، الـ Environment Variables، والـ Fallback)
 export const resolveApiBaseUrl = (): string => {
-  // 1. فحص إذا كان المستخدم قام بحفظ عنوان مخصص في المتصفح
+  // 1. فحص إذا كان المستخدم قام بحفظ عنوان مخصص في المتصفح وتنظيف أي قيم قديمة معطلة
   if (typeof window !== 'undefined') {
     const custom = localStorage.getItem('unihub_api_base_url');
     if (custom && custom.trim()) {
-      return custom.trim().replace(/\/+$/, '');
+      const cleanCustom = custom.trim().replace(/\/+$/, '');
+      const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      if (isRemote && (cleanCustom.includes('localhost') || cleanCustom.includes('127.0.0.1') || cleanCustom.includes('trycloudflare.com') || cleanCustom.includes('ngrok') || cleanCustom.includes('loca.lt'))) {
+        localStorage.removeItem('unihub_api_base_url');
+      } else {
+        return cleanCustom;
+      }
     }
   }
 
