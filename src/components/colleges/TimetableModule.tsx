@@ -271,7 +271,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
       setLookupsLoading(true);
       setLookupsError(null);
       try {
-        const [colRes, depRes, daysRes, periodsRes, roomsRes, lecturersRes] = await Promise.all([
+        const results = await Promise.allSettled([
           apiJson(`/v1/colleges`),
           apiJson(`/v1/departments?college_id=${collegeIdNum}`),
           apiJson(`/v1/days`),
@@ -280,18 +280,30 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
           apiJson(`/v1/lecturers?college_id=${collegeIdNum}`),
         ]);
 
-        const mapData = (res: any) => res?.data || res || [];
-        setColleges(mapData(colRes).map((c: any) => ({ college_id: c.college_id, name: c.college_name || c.name })));
-        setDepartments(mapData(depRes).map((d: any) => ({ department_id: d.department_id, name: d.department_name || d.name, college_id: d.college_id })));
-        setDays(mapData(daysRes).map((d: any) => ({ day_id: d.day_id, name: d.day_name || d.name, name_ar: d.day_name || d.name_ar })));
-        setPeriods(mapData(periodsRes));
-        setClassrooms(mapData(roomsRes));
-        setLecturers(mapData(lecturersRes).map((l: any) => ({
+        const getData = (r: PromiseSettledResult<any>) => (r.status === 'fulfilled' ? (r.value?.data || r.value || []) : []);
+        const colData = getData(results[0]);
+        const depData = getData(results[1]);
+        const daysData = getData(results[2]);
+        const periodsData = getData(results[3]);
+        const roomsData = getData(results[4]);
+        const lecturersData = getData(results[5]);
+
+        setColleges(colData.map((c: any) => ({ college_id: c.college_id, name: c.college_name || c.name })));
+        setDepartments(depData.map((d: any) => ({ department_id: d.department_id, name: d.department_name || d.name, college_id: d.college_id })));
+        setDays(daysData.map((d: any) => ({ day_id: d.day_id, name: d.day_name || d.name, name_ar: d.day_name || d.name_ar })));
+        setPeriods(periodsData);
+        setClassrooms(roomsData);
+
+        const mappedLecturers = lecturersData.map((l: any) => ({
             lecturer_id: l.lecturer_id,
             name: l.user?.full_name || l.full_name || l.name,
             department_id: l.department_id,
             college_id: l.college_id,
-        })));
+        }));
+        setLecturers(mappedLecturers);
+        if (!isExternalLecturer && mappedLecturers.length > 0) {
+            setAvailableLecturers(mappedLecturers);
+        }
       } catch (e: any) {
         setLookupsError(e?.message || "فشل تحميل البيانات المرجعية");
       } finally {
@@ -348,9 +360,12 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
             }));
             setAvailableLecturers(lecturersData);
         } catch (error) {
-            console.error("Failed to fetch lecturers:", error);
-            toast({ title: "خطأ", description: "فشل جلب قائمة المحاضرين.", variant: "destructive" });
-            setAvailableLecturers([]);
+            console.warn("Failed to fetch lecturers:", error);
+            if (lecturers.length > 0) {
+                setAvailableLecturers(lecturers);
+            } else {
+                setAvailableLecturers([]);
+            }
         }
     };
 
