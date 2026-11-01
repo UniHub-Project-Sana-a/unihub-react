@@ -63,6 +63,8 @@ interface UserOption {
   email?: string;
   phone?: string;
   academicNumber?: string;
+  role?: string;
+  roleName?: string;
 }
 
 type StaffFormData = {
@@ -197,6 +199,11 @@ function UserSearchCombobox({
             <div className="text-right truncate">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-sm text-foreground truncate">{selectedUser.name}</span>
+                {selectedUser.roleName && (
+                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0">
+                    {selectedUser.roleName}
+                  </span>
+                )}
                 <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium shrink-0 flex items-center gap-0.5">
                   <Check className="w-3 h-3" /> تم الاختيار
                 </span>
@@ -241,7 +248,7 @@ function UserSearchCombobox({
               if (!isOpen) setIsOpen(true);
             }}
             onFocus={() => setIsOpen(true)}
-            placeholder="اكتب اسم المحاضر (مثال: م أو محمد) أو رقمه الوظيفي..."
+            placeholder="ابحث بالاسم (مثال: أ.د. عبدالكريم أو د. محمد) أو الرقم الوظيفي..."
             className="pr-9 pl-9 text-sm text-right"
             dir="rtl"
           />
@@ -265,26 +272,26 @@ function UserSearchCombobox({
             <div className="p-4 text-center space-y-1.5 text-xs">
               <AlertCircle className="w-5 h-5 text-amber-600 mx-auto" />
               <p className="font-semibold text-amber-700 dark:text-amber-400">
-                لا يوجد محاضرين متاحين في النظام حالياً
+                لا يوجد مستخدمون متاحون للربط حالياً
               </p>
               <p className="text-muted-foreground leading-relaxed">
-                ملاحظة: المحاضر يجب أن يُضاف أولاً من قبل الإدارة العليا في صفحة "المستخدمين" وتعيين دوره كمحاضر ليظهر هنا.
+                ملاحظة: يمكنك اختيار أي مستخدم مسجل في النظام (عميد، رئيس قسم، أو محاضر) لربطه كعضو هيئة تدريس.
               </p>
             </div>
           ) : filteredUsers.length === 0 ? (
             <div className="p-4 text-center space-y-1.5 text-xs">
               <p className="font-medium text-foreground">
-                لم يتم العثور على أي محاضر يطابق "{searchQuery}"
+                لم يتم العثور على أي مستخدم يطابق "{searchQuery}"
               </p>
               <p className="text-muted-foreground leading-relaxed">
-                إذا كان الشخص غير مضاف من الإدارة العليا، فلن يظهر في القائمة.
+                تأكد من كتابة الاسم أو الرقم الوظيفي بشكل صحيح.
               </p>
             </div>
           ) : (
             <div className="py-1 divide-y divide-border/40">
               <div className="px-3 py-1.5 text-[11px] text-muted-foreground bg-muted/30 font-medium flex items-center justify-between">
-                <span>اختر محاضراً للربط بالكلية:</span>
-                <span>{filteredUsers.length} من {users.length} محاضر</span>
+                <span>اختر مستخدماً للربط كعضو هيئة تدريس:</span>
+                <span>{filteredUsers.length} من {users.length} مستخدم</span>
               </div>
               {filteredUsers.map((u) => {
                 const isAlreadyInCollege = existingStaffUserIds.has(u.id) && u.id !== editingUserId;
@@ -318,7 +325,14 @@ function UserSearchCombobox({
                         {u.name ? u.name.charAt(0) : "م"}
                       </div>
                       <div className="truncate">
-                        <div className="font-medium text-foreground truncate">{u.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground truncate">{u.name}</span>
+                          {u.roleName && (
+                            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.2 rounded font-medium shrink-0">
+                              {u.roleName}
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                           {u.academicNumber && (
                             <span className="bg-muted px-1.5 py-0.2 rounded font-mono text-[11px]">
@@ -562,7 +576,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       const res = await api.get("/v1/users", {
         params: {
-          user_type_code: "lecturer", // ← طلب جميع المحاضرين المضافين من الإدارة العليا
+          user_type_code: "lecturer,dean,dept_head,admin,academic_affairs", // جلب المحاضرين والعمداء ورؤساء الأقسام
           all: "true",
         },
       });
@@ -573,9 +587,11 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         email: u.email || "",
         phone: u.phone || "",
         academicNumber: u.academic_number || "",
+        role: u.user_type?.user_type_code || u.role || "",
+        roleName: u.user_type?.name || u.user_type?.user_type_name || u.role_name || "",
       })));
     } catch {
-      toast({ title: "خطأ", description: "فشل تحميل المستخدمين (المحاضرين)", variant: "destructive" });
+      toast({ title: "خطأ", description: "فشل تحميل المستخدمين (المحاضرين والهيئة الأكاديمية)", variant: "destructive" });
     }
   };
 
@@ -891,7 +907,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                   />
                   {!staffFormData.userId && (
                     <p className="text-[11px] text-muted-foreground">
-                      💡 ملاحظة: المحاضر يجب أن يُضاف مسبقاً من الإدارة العليا في صفحة "المستخدمين" وتعيين دوره كمحاضر ليظهر هنا.
+                      💡 ملاحظة: يمكنك اختيار أي مستخدم مسجل في النظام (عميد، رئيس قسم، أو محاضر) لربطه كعضو هيئة تدريس بالكلية لإسناد المحاضرات إليه.
                     </p>
                   )}
                 </div>
