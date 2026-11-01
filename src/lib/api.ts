@@ -14,17 +14,17 @@ export const resolveApiBaseUrl = (): string => {
   // 2. قراءة الرابط من متغيرات البيئة
   const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
   
-  // 3. إذا كان الموقع مفتوحاً على Vercel أو دومين خارجي، نتجنب الاتصال بـ localhost/127.0.0.1 لمنع تحذيرات الأمان
+  // 3. إذا كان الموقع مفتوحاً على Vercel أو دومين خارجي، نتصل مباشرة بسيرفر الباك إند السحابي
   if (typeof window !== 'undefined') {
     const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
     if (isRemote && (!envUrl || envUrl.includes('127.0.0.1') || envUrl.includes('localhost'))) {
-      // نعتمد الرابط المخصص أو فارغ للسماح للمستخدم بضبطه
       const saved = localStorage.getItem('unihub_api_base_url');
       if (saved) return saved.trim();
+      return 'https://test-uni-hub-api.vercel.app/api';
     }
   }
 
-  return envUrl || 'http://127.0.0.1:8000/api';
+  return envUrl || 'https://test-uni-hub-api.vercel.app/api';
 };
 
 export const API_BASE_URL = resolveApiBaseUrl();
