@@ -58,7 +58,7 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
         homePath = "/lecturer";
     }
     else if (role === 'student') {
-        homePath = "/student/qa";
+        homePath = "/student";
     }
     else if (collegeId) { 
         homePath = getCollegeLandingPath(collegeId, permissions);

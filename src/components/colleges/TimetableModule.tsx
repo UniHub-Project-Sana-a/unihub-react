@@ -402,6 +402,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     course_id: number | "";
     lecturer_id: number | "";
     group_id: number | "";
+    group_ids?: number[];
     classroom_id: number | "";
     day_id: number | "";
     period_id: number | "";
@@ -422,7 +423,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   }
 
   const [manualForm, setManualForm] = useState<ManualForm>({
-    course_id: "", lecturer_id: "", group_id: "", classroom_id: "",
+    course_id: "", lecturer_id: "", group_id: "", group_ids: [], classroom_id: "",
     day_id: "", period_id: "", lecture_type: 0, status: 1, start_date: "",
     end_date: "", academic_year: "", college_id: collegeIdNum || "", department_id: "",
     program_id: "", level_id: "", semester_id: "", block_id: "", gender_type: 0, lecture_hours: 2, allowance_minutes: 15,
@@ -937,6 +938,7 @@ const openCreateSessionModal = async () => {
       course_id: "",
       lecturer_id: "",
       group_id: "",
+      group_ids: [],
       classroom_id: "",
       day_id: "",
       period_id: "",
@@ -1497,18 +1499,59 @@ const openCreateSessionModal = async () => {
                     {manualFormErrors.course_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.course_id}</p>}
                   </div>
                   {/* Group */}
-                  <div className="space-y-2">
-                    <Label>المجموعة الطلابية</Label>
-                    <Select
-                      value={String(manualForm.group_id)}
-                      onValueChange={(v) => setManualForm({ ...manualForm, group_id: v ? Number(v) : "" })}
-                      disabled={groups.length === 0}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={groups.length === 0 ? "اختر المسار أولاً" : "اختر المجموعة"} />
-                      </SelectTrigger>
-                      <SelectContent>{groups.map(g => <SelectItem key={g.group_id} value={String(g.group_id)}>{g.name}</SelectItem>)}</SelectContent>
-                    </Select>
+                  <div className="space-y-2 col-span-1 sm:col-span-2 lg:col-span-3 bg-muted/20 p-3 rounded-lg border">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <Label className="font-semibold text-sm">
+                        المجموعات الطلابية (يمكنك اختيار أكثر من مجموعة لمحاضرة مشتركة)
+                      </Label>
+                      {manualForm.group_ids && manualForm.group_ids.length > 1 && (
+                        <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                          محاضرة مشتركة: {manualForm.group_ids.length} مجموعات مختارة
+                        </Badge>
+                      )}
+                    </div>
+
+                    {groups.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">اختر المسار/المستوى أولاً لعرض المجموعات المتاحة</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {groups.map((g) => {
+                          const isSelected = (manualForm.group_ids || []).includes(g.group_id) || manualForm.group_id === g.group_id;
+                          return (
+                            <Button
+                              key={g.group_id}
+                              type="button"
+                              size="sm"
+                              variant={isSelected ? "default" : "outline"}
+                              className={`text-xs h-8 gap-1.5 transition-all ${
+                                isSelected ? "font-bold shadow-xs" : "text-muted-foreground hover:text-foreground"
+                              }`}
+                              onClick={() => {
+                                const currentSelected = manualForm.group_ids && manualForm.group_ids.length > 0
+                                  ? manualForm.group_ids
+                                  : manualForm.group_id ? [Number(manualForm.group_id)] : [];
+                                
+                                let nextSelected: number[];
+                                if (currentSelected.includes(g.group_id)) {
+                                  nextSelected = currentSelected.filter(id => id !== g.group_id);
+                                } else {
+                                  nextSelected = [...currentSelected, g.group_id];
+                                }
+
+                                setManualForm({
+                                  ...manualForm,
+                                  group_id: nextSelected[0] || "",
+                                  group_ids: nextSelected,
+                                });
+                              }}
+                            >
+                              <span>{isSelected ? "✓" : "+"}</span>
+                              <span>{g.name}</span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    )}
                     {manualFormErrors.group_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.group_id}</p>}
                   </div>
                   

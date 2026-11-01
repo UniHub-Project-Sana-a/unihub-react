@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, FileJson, Monitor, Projector, Tv, MapPin } from "lucide-react";
+import { Plus, Pencil, Trash2, FileJson, Monitor, Projector, Tv, MapPin, Loader2, Navigation } from "lucide-react";
 import JsonImportModal from "@/components/colleges/JsonImportModal";
 import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
 import { cn } from "@/lib/utils";
@@ -192,6 +192,7 @@ export default function ClassroomsModule({ collegeId }: Props) {
   const lastAccuracyRef = useRef<number>(Infinity);
   const locationRequestIdRef = useRef(0);
   const coordinatesEditedRef = useRef(false);
+  const [isLocating, setIsLocating] = useState(false);
   // Buildings
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null);
@@ -402,83 +403,77 @@ export default function ClassroomsModule({ collegeId }: Props) {
   };
 
   // Classrooms
-const handleAddClassroom = () => {
-  if (!selectedBuilding) {
-    toast({ title: "تنبيه", description: "اختر مبنى أولاً لإضافة قاعة", variant: "destructive" });
-    return;
-  }
+  const handleAddClassroom = () => {
+    if (!selectedBuilding) {
+      toast({ title: "تنبيه", description: "اختر مبنى أولاً لإضافة قاعة", variant: "destructive" });
+      return;
+    }
 
-  setEditingClassroomId(null);
-  coordinatesEditedRef.current = false;
-  const locationRequestId = ++locationRequestIdRef.current;
-  setClassroomFormData({
-    name: "",
-    type: "CLASSROOM",
-    capacity: 30,
-    floor: 0,
-    latitude: "",
-    longitude: "",
-    allowedDistance: "",
-    windowsCount: 0,
-    hasComputer: false,
-    displayType: "none",
-    notes: "",
-  });
-  setIsClassroomFormOpen(true);
+    setEditingClassroomId(null);
+    coordinatesEditedRef.current = false;
+    setClassroomFormData({
+      name: "",
+      type: "CLASSROOM",
+      capacity: 30,
+      floor: 0,
+      latitude: "",
+      longitude: "",
+      allowedDistance: "50",
+      windowsCount: 0,
+      hasComputer: false,
+      displayType: "none",
+      notes: "",
+    });
+    setIsClassroomFormOpen(true);
+  };
 
-  if (!navigator.geolocation) {
-    toast({ title: "تنبيه", description: "المتصفح لا يدعم تحديد الموقع", variant: "destructive" });
-    return;
-  }
+  // وظيفة جلب الموقع الجغرافي الحالي بطلب يدوي عند الضغط على الزر
+  const handleDetectCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: "غير مدعوم",
+        description: "المتصفح الحالي لا يدعم ميزة تحديد الموقع الجغرافي. يمكنك إدخال الإحداثيات يدوياً.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-  // محاولة سريعة لعرض إحداثيات فورية
-  const quickOptions: PositionOptions = { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 };
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      if (locationRequestId !== locationRequestIdRef.current) return;
-      const lat = Number(pos.coords.latitude.toFixed(7));
-      const lng = Number(pos.coords.longitude.toFixed(7));
-      const acc = Math.round(pos.coords.accuracy ?? 9999);
-      lastAccuracyRef.current = acc;
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setIsLocating(false);
+        const lat = Number(pos.coords.latitude.toFixed(7));
+        const lng = Number(pos.coords.longitude.toFixed(7));
+        const acc = Math.round(pos.coords.accuracy ?? 9999);
 
-      setClassroomFormData((prev) => ({
-        ...prev,
-        latitude: coordinatesEditedRef.current ? prev.latitude : prev.latitude || lat,
-        longitude: coordinatesEditedRef.current ? prev.longitude : prev.longitude || lng,
-      }));
+        setClassroomFormData((prev) => ({
+          ...prev,
+          latitude: lat,
+          longitude: lng,
+          allowedDistance: prev.allowedDistance || 50,
+        }));
 
-      // تحسين الدقة تدريجيًا
-      getPreciseLocation(10, 30000)
-        .then(({ lat: pLat, lng: pLng, accuracy }) => {
-          if (
-            locationRequestId === locationRequestIdRef.current &&
-            !coordinatesEditedRef.current &&
-            accuracy < lastAccuracyRef.current
-          ) {
-            lastAccuracyRef.current = accuracy;
-            setClassroomFormData((prev) => ({
-              ...prev,
-              latitude: pLat,
-              longitude: pLng,
-            }));
-            // toast({ title: "تم تحسين الدقة", description: `الدقة ≈ ${accuracy}م`, variant: "default" });
-          }
-        })
-        .catch(() => {
-          // تجاهل أو أعرض تنبيه خفيف
+        toast({
+          title: "تم تحديد موقعك بنجاح 📍",
+          description: `خط العرض: ${lat}، خط الطول: ${lng} (الدقة التقريبية: ${acc}م)`,
         });
-    },
-    (err) => {
-      const map: Record<number, string> = {
-        1: "تم رفض الإذن للوصول للموقع",
-        2: "تعذّر الحصول على موقع الجهاز",
-        3: "انتهت مهلة تحديد الموقع",
-      };
-      toast({ title: "تعذّر تحديد الموقع", description: map[err.code] || "تحقق من إعدادات الموقع وGPS", variant: "destructive" });
-    },
-    quickOptions
-  );
-};
+      },
+      (err) => {
+        setIsLocating(false);
+        const map: Record<number, string> = {
+          1: "تم رفض إذن الوصول إلى الموقع في المتصفح. يمكنك إدخال الإحداثيات يدوياً.",
+          2: "تعذر رصد إشارة GPS للجهاز.",
+          3: "انتهت مهلة استجابة الـ GPS.",
+        };
+        toast({
+          title: "تعذر جلب الموقع الحالي",
+          description: map[err.code] || "يرجى التحقق من تفعيل الـ GPS وصلاحيات الموقع، أو إدخال الإحداثيات يدوياً.",
+          variant: "destructive",
+        });
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  };
   const handleSubmitClassroom = async (e: React.FormEvent) => {
     e.preventDefault();
     locationRequestIdRef.current += 1;
@@ -825,38 +820,81 @@ const handleAddClassroom = () => {
                     }
                   />
                 </div>
-                <div>
-                  <Label>خط العرض (Latitude)</Label>
-                  <Input
-                    type="number"
-                    step="0.0000001"
-                    value={classroomFormData.latitude}
-                    onChange={(e) => {
-                      coordinatesEditedRef.current = true;
-                      setClassroomFormData({ ...classroomFormData, latitude: e.target.value });
-                    }}
-                  />
+                <div className="md:col-span-2 p-3.5 bg-muted/30 rounded-xl border space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <Label className="text-sm font-semibold flex items-center gap-1.5">
+                        <MapPin className="w-4 h-4 text-primary" />
+                        الموقع الجغرافي للقاعة (إحداثيات GPS)
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        يمكنك كتابة الإحداثيات يدوياً أو الضغط على زر التحديد التلقائي إذا كنت داخل القاعة.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDetectCurrentLocation}
+                      disabled={isLocating}
+                      className="gap-1.5 text-xs font-medium border-primary/30 hover:bg-primary/10"
+                    >
+                      {isLocating ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                          <span>جاري جلب موقعك...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Navigation className="w-3.5 h-3.5 text-primary" />
+                          <span>📍 تحديد موقعي الحالي الآن</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground">خط العرض (Latitude)</Label>
+                      <Input
+                        type="number"
+                        step="0.0000001"
+                        placeholder="مثال: 15.369445"
+                        value={classroomFormData.latitude}
+                        onChange={(e) => {
+                          coordinatesEditedRef.current = true;
+                          setClassroomFormData({ ...classroomFormData, latitude: e.target.value });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">خط الطول (Longitude)</Label>
+                      <Input
+                        type="number"
+                        step="0.0000001"
+                        placeholder="مثال: 44.191007"
+                        value={classroomFormData.longitude}
+                        onChange={(e) => {
+                          coordinatesEditedRef.current = true;
+                          setClassroomFormData({ ...classroomFormData, longitude: e.target.value });
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <Label>خط الطول (Longitude)</Label>
-                  <Input
-                    type="number"
-                    step="0.0000001"
-                    value={classroomFormData.longitude}
-                    onChange={(e) => {
-                      coordinatesEditedRef.current = true;
-                      setClassroomFormData({ ...classroomFormData, longitude: e.target.value });
-                    }}
-                  />
-                </div>
+
                 <div className="md:col-span-2">
-                  <Label>المسافة المسموحة (متر)</Label>
+                  <Label>المسافة المسموحة لنطاق الحضور (متر)</Label>
                   <Input
                     type="number"
                     min={0}
+                    placeholder="مثال: 50"
                     value={classroomFormData.allowedDistance}
                     onChange={(e) => setClassroomFormData({ ...classroomFormData, allowedDistance: e.target.value })}
                   />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    أقصى مسافة مسموح بها للطالب عن إحداثيات القاعة لتسجيل الحضور (افتراضياً 50 متراً).
+                  </p>
                 </div>
                 <div>
                   <Label>عدد النوافذ</Label>

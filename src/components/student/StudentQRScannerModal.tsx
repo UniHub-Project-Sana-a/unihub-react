@@ -24,6 +24,7 @@ import {
   User,
   Clock,
   XCircle,
+  HelpCircle,
 } from "lucide-react";
 
 interface Props {
@@ -245,8 +246,19 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
                 </div>
               )}
 
-              <Button onClick={onClose} className="w-full bg-emerald-600 hover:bg-emerald-700">
-                إتمام وإغلاق
+              {/* التنبيه بالأسئلة التفاعلية المرفقة */}
+              <div className="p-3.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 text-xs text-right space-y-2">
+                <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400 font-bold">
+                  <HelpCircle className="w-4 h-4 shrink-0" />
+                  <span>توجد أسئلة تفاعلية مرفقة بهذه المحاضرة!</span>
+                </div>
+                <p className="text-muted-foreground leading-relaxed">
+                  يمكنك الإجابة على أسئلة المحاضرة فوراً الآن، أو الإجابة عليها لاحقاً قبل انتهاء موعد المحاضرة من بطاقة المحاضرة في لوحة المتابعة.
+                </p>
+              </div>
+
+              <Button onClick={onClose} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">
+                متابعة إلى لوحة المحاضرات والأسئلة
               </Button>
             </div>
           ) : (

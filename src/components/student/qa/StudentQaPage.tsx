@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Lock, LogOut, BookOpen, User, Loader2, Clock } from "lucide-react";
+import { CheckCircle2, Lock, LogOut, BookOpen, User, Loader2, Clock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { setAuthToken, api } from "@/lib/api";
+import { AdminLayout } from "@/components/layout/AdminLayout";
+import { Link } from "react-router-dom";
 
 // ✅ استدعاء المكون الفرعي (تأكد أن هذا الملف موجود بجانبه)
 import StudentQaModule from './StudentQaModule'; 
@@ -87,43 +89,46 @@ export default function StudentQaPage() {
     // 🔄 التبديل: إذا اختار الطالب تقييم، نعرض له ورقة الأسئلة
     if (activeEvaluation) {
         return (
-            <StudentQaModule 
-                evaluation={activeEvaluation} 
-                onBack={() => setActiveEvaluation(null)}
-                onSuccess={() => {
-                    setActiveEvaluation(null);
-                    fetchEvaluations(); 
-                }} 
-            />
+            <AdminLayout>
+                <div className="p-4 md:p-8 max-w-5xl mx-auto w-full" dir="rtl">
+                    <StudentQaModule 
+                        evaluation={activeEvaluation} 
+                        onBack={() => setActiveEvaluation(null)}
+                        onSuccess={() => {
+                            setActiveEvaluation(null);
+                            fetchEvaluations(); 
+                        }} 
+                    />
+                </div>
+            </AdminLayout>
         );
     }
 
     // العرض الرئيسي: قائمة المواد
     return (
-        <div className="min-h-screen bg-gray-50/50 p-4 md:p-8" dir="rtl">
-            <div className="max-w-4xl mx-auto space-y-8">
+        <AdminLayout>
+            <div className="p-4 md:p-8 max-w-5xl mx-auto w-full space-y-8" dir="rtl">
                 
                 {/* الترويسة */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-5 rounded-xl shadow-sm border border-primary/10 gap-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-card p-5 rounded-xl shadow-sm border border-primary/10 gap-4">
                     <div className="space-y-1">
                         <h1 className="text-xl md:text-2xl font-bold text-primary flex items-center gap-2">
                             <span className="text-2xl">👋</span>
                             مرحباً بك، {studentName}
                         </h1>
                         <p className="text-sm text-muted-foreground">
-                            بوابة التقييم الطلابي - رأيك يساهم في تطوير العملية التعليمية.
+                            بوابة تقييم الجودة الأكاديمية - رأيك يساهم في تطوير العملية التعليمية.
                         </p>
                     </div>
                     
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={handleLogout}
-                        className="hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                    >
-                        <LogOut className="w-4 h-4 ml-2" />
-                        تسجيل الخروج
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Link to="/student">
+                            <Button variant="default" size="sm" className="gap-1.5 shadow-xs">
+                                <ArrowRight className="w-4 h-4 ml-1" />
+                                العودة إلى لوحة المحاضرات
+                            </Button>
+                        </Link>
+                    </div>
                 </div>
 
                 {isLoading ? (
@@ -223,6 +228,6 @@ export default function StudentQaPage() {
                     </>
                 )}
             </div>
-        </div>
+        </AdminLayout>
     );
 }

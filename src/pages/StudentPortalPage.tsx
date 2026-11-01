@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api, setAuthToken } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { AdminLayout } from "@/components/layout/AdminLayout";
 import {
   Card,
   CardHeader,
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -61,6 +63,9 @@ import {
   Paperclip,
   Trash2,
   FileCheck,
+  ExternalLink,
+  Settings,
+  Tv,
 } from "lucide-react";
 
 // Types
@@ -92,6 +97,8 @@ interface AttendanceStats {
 
 interface TodayLecture {
   timetable_id: number;
+  session_id?: number | null;
+  course_id?: number;
   course_name: string;
   course_code: string;
   lecturer_name: string;
@@ -101,6 +108,8 @@ interface TodayLecture {
   lecture_type: string;
   status_code: number; // 0: scheduled, 1: live, 2: completed
   status_text: string;
+  attachments?: Array<{ id: number; title: string; type: string; url: string }>;
+  interactive_questions?: Array<{ id: number; question: string; type: string; options?: string[] }>;
 }
 
 interface RegisteredCourse {
@@ -128,15 +137,29 @@ interface ExcuseItem {
   comment?: string | null;
 }
 
-type TabType = "overview" | "timetable" | "attendance" | "grades" | "excuses" | "announcements";
+type TabType = "overview" | "timetable" | "attendance" | "grades" | "excuses" | "announcements" | "profile";
 
 export default function StudentPortalPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [currentTab, setCurrentTab] = useState<TabType>("overview");
   const [isLoading, setIsLoading] = useState(true);
+
+  // Sync tab with location state or query parameter
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const tabParam = searchParams.get("tab") as TabType;
+    const stateTab = (location.state as any)?.activeTab as TabType;
+    const validTabs: TabType[] = ["overview", "timetable", "attendance", "grades", "excuses", "announcements", "profile"];
+    if (tabParam && validTabs.includes(tabParam)) {
+      setCurrentTab(tabParam);
+    } else if (stateTab && validTabs.includes(stateTab)) {
+      setCurrentTab(stateTab);
+    }
+  }, [location]);
 
   // Data states
   const [student, setStudent] = useState<StudentInfo | null>(null);
@@ -163,6 +186,19 @@ export default function StudentPortalPage() {
   const [showQRScannerModal, setShowQRScannerModal] = useState(false);
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
+
+  // Interactive Questions Modal State
+  const [selectedLectureForQuestions, setSelectedLectureForQuestions] = useState<TodayLecture | null>(null);
+  const [answersMap, setAnswersMap] = useState<Record<number, string>>({});
+  const [isSubmittingAnswers, setIsSubmittingAnswers] = useState(false);
+  const [answeredSessions, setAnsweredSessions] = useState<number[]>([]);
+
+  // Attachments Modal State
+  const [selectedLectureForAttachments, setSelectedLectureForAttachments] = useState<TodayLecture | null>(null);
+
+  // Profile Change Password State
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Submit excuse dialog
   const [showExcuseDialog, setShowExcuseDialog] = useState(false);
@@ -227,6 +263,84 @@ export default function StudentPortalPage() {
     }
   }, [currentTab]);
 
+  // 3. Interactive Lecture Questions Handlers
+  const handleOpenQuestions = (lec: TodayLecture) => {
+    setSelectedLectureForQuestions(lec);
+    setAnswersMap({});
+  };
+
+  const handleSubmitAnswers = async () => {
+    if (!selectedLectureForQuestions) return;
+    if (Object.keys(answersMap).length === 0) {
+      toast({
+        title: "تنبيه",
+        description: "يرجى اختيار إجابة واحدة على الأقل قبل الإرسال.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmittingAnswers(true);
+    try {
+      const payload = {
+        timetable_id: selectedLectureForQuestions.timetable_id,
+        session_id: selectedLectureForQuestions.session_id,
+        answers: Object.entries(answersMap).map(([qId, val]) => ({
+          question_id: Number(qId),
+          answer_value: val,
+        })),
+      };
+
+      await api.post("/v1/student/submit-lecture-answers", payload);
+
+      toast({
+        title: "تم توثيق إجاباتك بنجاح! 🎉",
+        description: "شكراً لمشاركتك وتفاعلك أثناء المحاضرة.",
+      });
+
+      setAnsweredSessions((prev) => [...prev, selectedLectureForQuestions.timetable_id]);
+      setSelectedLectureForQuestions(null);
+    } catch (err: any) {
+      toast({
+        title: "خطأ في الإرسال",
+        description: err?.response?.data?.message || "تعذر إرسال الإجابات، يرجى المحاولة مرة أخرى.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmittingAnswers(false);
+    }
+  };
+
+  // 4. Change Password Handler
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      toast({ title: "خطأ", description: "كلمة المرور الجديدة غير متطابقة مع التأكيد.", variant: "destructive" });
+      return;
+    }
+    if (passwordForm.new_password.length < 6) {
+      toast({ title: "تنبيه", description: "يجب أن تكون كلمة المرور 6 أحرف على الأقل.", variant: "destructive" });
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      await api.post("/v1/auth/change-password", {
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password,
+      });
+      toast({ title: "تم التغيير بنجاح", description: "تم تحديث كلمة المرور الخاصة بك بنجاح." });
+      setPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
+    } catch (err: any) {
+      toast({
+        title: "فشل تغيير كلمة المرور",
+        description: err?.response?.data?.message || "تحقق من كلمة المرور الحالية وحاول مرة أخرى.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   // 3. Submit Medical Excuse
   const handleSubmitExcuse = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -289,90 +403,19 @@ export default function StudentPortalPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4" dir="rtl">
-        <Loader2 className="w-10 h-10 animate-spin text-primary mb-3" />
-        <h2 className="text-lg font-bold text-foreground">بوابة الطالب الذكية - UniHub</h2>
-        <p className="text-muted-foreground text-sm">جاري تحميل بياناتك الأكاديمية وجدول المحاضرات...</p>
-      </div>
+      <AdminLayout>
+        <div className="flex flex-col items-center justify-center p-12 min-h-[60vh]" dir="rtl">
+          <Loader2 className="w-10 h-10 animate-spin text-primary mb-3" />
+          <h2 className="text-lg font-bold text-foreground">بوابة الطالب الذكية - UniHub</h2>
+          <p className="text-muted-foreground text-sm">جاري تحميل بياناتك الأكاديمية وجدول المحاضرات...</p>
+        </div>
+      </AdminLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background" dir="rtl">
-      {/* Top Header */}
-      <header className="border-b bg-card/60 backdrop-blur sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-lg border border-primary/20 shadow-xs">
-              U
-            </div>
-            <div>
-              <h1 className="text-base sm:text-lg font-bold leading-tight flex items-center gap-2">
-                بوابة الطالب الأكاديمية
-                <Badge variant="secondary" className="text-[10px] bg-primary/10 text-primary border-primary/20">
-                  {student?.group_name || "طالب"}
-                </Badge>
-              </h1>
-              <p className="text-xs text-muted-foreground hidden sm:block">
-                {student?.college_name} • {student?.program_name}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Notification Bell Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowNotificationsModal(true)}
-              className="relative h-8 px-2.5 gap-1.5 border-primary/20 hover:bg-primary/5 text-foreground"
-              title="مركز التنبيهات والإعلانات العاجلة"
-            >
-              <Bell className="w-4 h-4 text-primary" />
-              <span className="hidden sm:inline text-xs font-semibold">التنبيهات</span>
-              {announcements.length > 0 && (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
-                </span>
-              )}
-              {announcements.length > 0 && (
-                <Badge variant="destructive" className="h-4 px-1 text-[10px] rounded-full">
-                  {announcements.length}
-                </Badge>
-              )}
-            </Button>
-
-            <Link to="/student/qa">
-              <Button variant="outline" size="sm" className="text-xs gap-1.5 h-8">
-                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                <span className="hidden md:inline">استبيانات التقييم</span>
-              </Button>
-            </Link>
-
-            <Link to="/privacy">
-              <Button variant="ghost" size="sm" className="text-xs gap-1 h-8 text-muted-foreground">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">الأمان والخصوصية</span>
-              </Button>
-            </Link>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleLogout}
-              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 h-8 gap-1"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">خروج</span>
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        
+    <AdminLayout>
+      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full" dir="rtl">
         {/* Student Academic Identity Card */}
         <Card className="p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-background border-primary/20 shadow-sm">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -516,6 +559,16 @@ export default function StudentPortalPage() {
               </Badge>
             )}
           </Button>
+
+          <Button
+            variant={currentTab === "profile" ? "default" : "ghost"}
+            size="sm"
+            className="text-xs shrink-0 gap-1.5"
+            onClick={() => setCurrentTab("profile")}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>الملف الشخصي والإعدادات</span>
+          </Button>
         </div>
 
         {/* ==================================================================== */}
@@ -658,6 +711,60 @@ export default function StudentPortalPage() {
                                 {lec.status_text}
                               </Badge>
                             </div>
+                          </div>
+
+                          {/* شريط الإجراءات المرفقة: المرفقات، الأسئلة التفاعلية، مسح الـ QR */}
+                          <div className="flex items-center justify-between flex-wrap gap-2 pt-3 mt-2 border-t border-dashed">
+                            <div className="flex items-center flex-wrap gap-2">
+                              {/* زر استعراض المرفقات والروابط */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7 gap-1 text-primary border-primary/20 hover:bg-primary/5"
+                                onClick={() => setSelectedLectureForAttachments(lec)}
+                              >
+                                <Paperclip className="w-3.5 h-3.5" />
+                                <span>المرفقات والروابط ({lec.attachments?.length || 0})</span>
+                              </Button>
+
+                              {/* زر الأسئلة التفاعلية */}
+                              {lec.interactive_questions && lec.interactive_questions.length > 0 && (
+                                <Button
+                                  variant={answeredSessions.includes(lec.timetable_id) ? "secondary" : "default"}
+                                  size="sm"
+                                  className={`text-xs h-7 gap-1 transition-all ${
+                                    answeredSessions.includes(lec.timetable_id)
+                                      ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
+                                      : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                  }`}
+                                  onClick={() => handleOpenQuestions(lec)}
+                                >
+                                  {answeredSessions.includes(lec.timetable_id) ? (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>تمت الإجابة ({lec.interactive_questions.length} أسئلة)</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <HelpCircle className="w-3.5 h-3.5" />
+                                      <span>أسئلة المحاضرة التفاعلية ({lec.interactive_questions.length})</span>
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                            </div>
+
+                            {/* زر مسح QR المباشر إذا كانت المحاضرة جارية */}
+                            {lec.status_code === 1 && (
+                              <Button
+                                size="sm"
+                                className="text-xs h-7 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                onClick={() => setShowQRScannerModal(true)}
+                              >
+                                <QrCode className="w-3.5 h-3.5" />
+                                <span>مسح رمز الـ QR الآن</span>
+                              </Button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1192,7 +1299,113 @@ export default function StudentPortalPage() {
           </div>
         )}
 
-      </main>
+        {/* ==================================================================== */}
+        {/* 7. TAB: PROFILE & SETTINGS (الملف الشخصي وإعدادات الحساب) */}
+        {/* ==================================================================== */}
+        {currentTab === "profile" && (
+          <div className="space-y-6 animate-in fade-in duration-300">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Academic Identity Details */}
+              <Card className="lg:col-span-2 shadow-sm border-border/60">
+                <CardHeader>
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                    <GraduationCap className="w-5 h-5 text-primary" />
+                    <span>البيانات الأكاديمية والشخصية للطالب</span>
+                  </CardTitle>
+                  <CardDescription>معلومات القيد الجامعي والمستوى الأكاديمي المسجل في النظام</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">الاسم الرباعي</span>
+                      <p className="font-bold text-sm text-foreground mt-1">{student?.full_name}</p>
+                    </div>
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">الرقم الأكاديمي</span>
+                      <p className="font-bold font-mono text-sm text-primary mt-1">{student?.academic_number}</p>
+                    </div>
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">الكلية</span>
+                      <p className="font-semibold text-sm text-foreground mt-1">{student?.college_name}</p>
+                    </div>
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">القسم والبرنامج</span>
+                      <p className="font-semibold text-sm text-foreground mt-1">{student?.program_name}</p>
+                    </div>
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">المستوى والفصل الدراسي</span>
+                      <p className="font-semibold text-sm text-foreground mt-1">{student?.level_name} - {student?.semester_name}</p>
+                    </div>
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">المجموعة الطلابية</span>
+                      <p className="font-semibold text-sm text-primary mt-1">{student?.group_name}</p>
+                    </div>
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">البريد الإلكتروني الجامعي</span>
+                      <p className="font-mono text-xs text-foreground mt-1">{student?.email}</p>
+                    </div>
+                    <div className="p-3.5 bg-muted/30 rounded-xl border">
+                      <span className="text-[11px] text-muted-foreground block">رقم الهاتف</span>
+                      <p className="font-mono text-xs text-foreground mt-1">{student?.phone || "غير مسجل"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Security & Password Settings */}
+              <Card className="shadow-sm border-border/60">
+                <CardHeader>
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-primary" />
+                    <span>إعدادات الأمان وكلمة المرور</span>
+                  </CardTitle>
+                  <CardDescription>تحديث كلمة المرور لحماية الحساب الجامعي</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleChangePassword} className="space-y-4">
+                    <div>
+                      <Label className="text-xs">كلمة المرور الحالية</Label>
+                      <Input
+                        type="password"
+                        className="mt-1"
+                        placeholder="••••••••"
+                        value={passwordForm.current_password}
+                        onChange={(e) => setPasswordForm(p => ({ ...p, current_password: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">كلمة المرور الجديدة</Label>
+                      <Input
+                        type="password"
+                        className="mt-1"
+                        placeholder="••••••••"
+                        value={passwordForm.new_password}
+                        onChange={(e) => setPasswordForm(p => ({ ...p, new_password: e.target.value }))}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">تأكيد كلمة المرور الجديدة</Label>
+                      <Input
+                        type="password"
+                        className="mt-1"
+                        placeholder="••••••••"
+                        value={passwordForm.confirm_password}
+                        onChange={(e) => setPasswordForm(p => ({ ...p, confirm_password: e.target.value }))}
+                        required
+                      />
+                    </div>
+
+                    <Button type="submit" disabled={isChangingPassword} className="w-full text-xs">
+                      {isChangingPassword ? "جاري التحديث..." : "تحديث كلمة المرور"}
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        )}
 
       {/* نافذة تقديم عذر غياب جديد */}
       <Dialog open={showExcuseDialog} onOpenChange={setShowExcuseDialog}>
@@ -1389,7 +1602,132 @@ export default function StudentPortalPage() {
         onClose={() => setShowAssignmentModal(false)}
         courses={registeredCourses}
       />
+
+      {/* نافذة أسئلة المحاضرة التفاعلية */}
+      <Dialog open={!!selectedLectureForQuestions} onOpenChange={(open) => !open && setSelectedLectureForQuestions(null)}>
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto" dir="rtl">
+          <DialogHeader className="border-b pb-3">
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <HelpCircle className="w-5 h-5 text-indigo-600" />
+              <span>أسئلة المحاضرة التفاعلية</span>
+              <Badge variant="outline" className="text-xs">{selectedLectureForQuestions?.course_name}</Badge>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              يمكنك الإجابة فوراً الآن، أو اختيار "الإجابة لاحقاً" وإرسالها في أي وقت قبل نهاية موعد المحاضرة.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-3">
+            {selectedLectureForQuestions?.interactive_questions?.map((q, qIndex) => (
+              <div key={q.id || qIndex} className="p-4 rounded-xl border bg-muted/20 space-y-3">
+                <div className="font-semibold text-sm flex items-start gap-2">
+                  <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs flex items-center justify-center shrink-0 font-bold">
+                    {qIndex + 1}
+                  </span>
+                  <span className="leading-relaxed">{q.question}</span>
+                </div>
+
+                <RadioGroup
+                  value={answersMap[q.id] || ""}
+                  onValueChange={(val) => setAnswersMap(prev => ({ ...prev, [q.id]: val }))}
+                  className="space-y-2 pr-8"
+                >
+                  {(q.options || ['الخيار الأول', 'الخيار الثاني', 'الخيار الثالث']).map((opt, optIdx) => (
+                    <div key={optIdx} className="flex items-center space-x-2 rtl:space-x-reverse cursor-pointer">
+                      <RadioGroupItem value={opt} id={`q-${q.id}-opt-${optIdx}`} />
+                      <Label htmlFor={`q-${q.id}-opt-${optIdx}`} className="text-xs cursor-pointer font-normal">
+                        {opt}
+                      </Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              </div>
+            ))}
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2 border-t pt-3">
+            <Button
+              onClick={handleSubmitAnswers}
+              disabled={isSubmittingAnswers}
+              className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5"
+            >
+              {isSubmittingAnswers ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              <span>إرسال وتوثيق الإجابات الآن</span>
+            </Button>
+
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => {
+                toast({
+                  title: "تم حفظ اختيارك",
+                  description: "يمكنك العودة للإجابة على الأسئلة من بطاقة المحاضرة قبل نهاية موعدها.",
+                });
+                setSelectedLectureForQuestions(null);
+              }}
+              className="w-full sm:w-auto text-xs"
+            >
+              <span>الإجابة لاحقاً (قبل انتهاء وقت المحاضرة)</span>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* نافذة استعراض المرفقات والروابط */}
+      <Dialog open={!!selectedLectureForAttachments} onOpenChange={(open) => !open && setSelectedLectureForAttachments(null)}>
+        <DialogContent className="max-w-lg" dir="rtl">
+          <DialogHeader className="border-b pb-3">
+            <DialogTitle className="text-lg font-bold flex items-center gap-2">
+              <Paperclip className="w-5 h-5 text-primary" />
+              <span>المرفقات والمراجع الأكاديمية</span>
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              المصادر والملفات والروابط المرفقة بمحاضرة ({selectedLectureForAttachments?.course_name})
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-3 max-h-[60vh] overflow-y-auto">
+            {(!selectedLectureForAttachments?.attachments || selectedLectureForAttachments.attachments.length === 0) ? (
+              <div className="text-center py-8 border border-dashed rounded-lg bg-muted/20">
+                <Paperclip className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground">لم يقم المحاضر برفع ملفات أو روابط لهذه المحاضرة بعد.</p>
+              </div>
+            ) : (
+              selectedLectureForAttachments.attachments.map((att, idx) => (
+                <div key={att.id || idx} className="p-3 rounded-lg border bg-card flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      {att.type === 'video' ? <Tv className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-xs text-foreground truncate">{att.title}</p>
+                      <span className="text-[10px] text-muted-foreground">{att.type === 'file' ? 'ملف مستند / عرض' : 'رابط مرجعي خارجي'}</span>
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    asChild
+                    className="text-xs h-8 gap-1 shrink-0"
+                  >
+                    <a href={att.url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>فتح / تحميل</span>
+                    </a>
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <DialogFooter className="border-t pt-3">
+            <Button variant="ghost" onClick={() => setSelectedLectureForAttachments(null)}>إغلاق</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+    </AdminLayout>
   );
 }
 

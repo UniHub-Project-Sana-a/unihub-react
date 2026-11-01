@@ -6,7 +6,7 @@ import { usePermission } from "@/hooks/usePermission";
 import { 
   Home, Users, GraduationCap, ChevronDown, LucideIcon,
   LayoutDashboard, BookOpen, MapPin, Award, UserCheck, Calendar, 
-  Users2, Clock, FileBarChart, History, BadgeCheck
+  Users2, Clock, FileBarChart, History, BadgeCheck, FileText, QrCode
 } from "lucide-react";
 import logoSidebar from "@/assets/366544.png";
 import logoMini from "@/assets/366544.png";
@@ -113,8 +113,20 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
       return result;
     }
 
+    // C. قائمة الطالب الأكاديمية
+    if (userRole === 'student') {
+      return [
+        { title: "الرئيسية والمحاضرات", icon: Home, href: "/student", perm: null, state: { activeTab: "today" } },
+        { title: "الجدول الدراسي", icon: Calendar, href: "/student", perm: null, state: { activeTab: "timetable" } },
+        { title: "سجل الحضور والغياب", icon: UserCheck, href: "/student", perm: null, state: { activeTab: "attendance" } },
+        { title: "الأعذار والمراسلات", icon: FileText, href: "/student", perm: null, state: { activeTab: "excuses" } },
+        { title: "استبيانات التقييم (QA)", icon: BadgeCheck, href: "/student/qa", perm: null },
+        { title: "الملف الشخصي والإعدادات", icon: Users, href: "/student", perm: null, state: { activeTab: "profile" } },
+      ];
+    }
+
     return [];
-  }, [isSuperUser, collegeId, isLecturer, can]);
+  }, [isSuperUser, collegeId, isLecturer, userRole, can]);
 
   const isCollapsed = !isMobile && !isOpen;
 
