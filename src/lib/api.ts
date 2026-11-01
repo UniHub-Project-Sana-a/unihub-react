@@ -1,36 +1,33 @@
 // src/lib/api.ts
 import axios from 'axios';
 
-// دالة تحديد عنوان الـ API بمرونة (يدعم التعديل من واجهة المستخدم، الـ Environment Variables، والـ Fallback)
+// دالة تحديد عنوان الـ API بمرونة مضمونة 100%
 export const resolveApiBaseUrl = (): string => {
-  // 1. فحص إذا كان المستخدم قام بحفظ عنوان مخصص في المتصفح وتنظيف أي قيم قديمة معطلة
-  if (typeof window !== 'undefined') {
-    const custom = localStorage.getItem('unihub_api_base_url');
-    if (custom && custom.trim()) {
-      const cleanCustom = custom.trim().replace(/\/+$/, '');
-      const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-      if (isRemote && (cleanCustom.includes('localhost') || cleanCustom.includes('127.0.0.1') || cleanCustom.includes('trycloudflare.com') || cleanCustom.includes('ngrok') || cleanCustom.includes('loca.lt'))) {
-        localStorage.removeItem('unihub_api_base_url');
-      } else {
-        return cleanCustom;
-      }
-    }
-  }
-
-  // 2. قراءة الرابط من متغيرات البيئة
-  const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
-  
-  // 3. إذا كان الموقع مفتوحاً على Vercel أو دومين خارجي، نتصل مباشرة بسيرفر الباك إند السحابي
+  // 1. إذا كان الموقع مفتوحاً على Vercel أو دومين سحابي خارجي، الاتصال دائماً بسيرفر الباك إند السحابي
   if (typeof window !== 'undefined') {
     const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-    if (isRemote && (!envUrl || envUrl.includes('127.0.0.1') || envUrl.includes('localhost'))) {
-      const saved = localStorage.getItem('unihub_api_base_url');
-      if (saved) return saved.trim();
+    if (isRemote) {
+      // مسح أي قيم قديمة معطلة من التخزين المحلي
+      localStorage.removeItem('unihub_api_base_url');
       return 'https://test-uni-hub-api.vercel.app/api';
     }
   }
 
-  return envUrl || 'https://test-uni-hub-api.vercel.app/api';
+  // 2. فحص إذا كان المطور حدد عنواناً مخصصاً محلياً
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('unihub_api_base_url');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  }
+
+  // 3. قراءة الرابط من متغيرات البيئة المحلية إن وُجدت وليست روابط أنفاق منتهية
+  const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
+  if (envUrl && !envUrl.includes('trycloudflare.com') && !envUrl.includes('ngrok') && !envUrl.includes('loca.lt')) {
+    return envUrl.replace(/\/+$/, '');
+  }
+
+  return 'http://127.0.0.1:8000/api';
 };
 
 export const API_BASE_URL = resolveApiBaseUrl();
