@@ -7,7 +7,7 @@ import {
   Home, Users, GraduationCap, ChevronDown, LucideIcon,
   LayoutDashboard, BookOpen, MapPin, Award, UserCheck, Calendar, 
   Users2, Clock, FileBarChart, History, BadgeCheck, FileText, QrCode,
-  TrendingUp, FileCheck
+  TrendingUp, FileCheck, Megaphone, Settings
 } from "lucide-react";
 import logoSidebar from "@/assets/366544.png";
 import logoMini from "@/assets/366544.png";
@@ -25,6 +25,7 @@ interface SidebarItem {
   perm: string | null;
   subItems?: SubItem[];
   state?: { activeTab: string }; // خاص بتبويبات الكلية
+  tab?: string; // خاص بتبويبات الطالب
 }
 
 interface SidebarProps {
@@ -41,10 +42,17 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
 
   // الوصول الآمن للبيانات
   // ملاحظة: تأكد من أن User Interface في AuthContext تدعم هذه الحقول
-  const userRole = (me as any)?.user_type?.user_type_code || (me as any)?.user_type_code;
+  const roleCode = String(
+    (me as any)?.user_type?.user_type_code ||
+    (me as any)?.user_type_code ||
+    (me as any)?.role ||
+    ""
+  ).toLowerCase();
+
+  const isStudent = roleCode === 'student' || Boolean((me as any)?.student_id || (me as any)?.student);
   const collegeId = (me as any)?.college_id;
   const isLecturer = Boolean((me as any)?.is_lecturer || (me as any)?.lecturer_id || (me as any)?.lecturer);
-  const isSuperUser = userRole === 'presidency' || userRole === 'admin';
+  const isSuperUser = roleCode === 'presidency' || roleCode === 'admin';
 
   // 2. بناء القائمة ديناميكياً
   const menuItems: SidebarItem[] = useMemo(() => {
@@ -73,7 +81,24 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
       return items;
     }
 
-    // B. قائمة موظفي الكلية
+    // B. قائمة الطالب الأكاديمية (يجب فحصها قبل موظفي الكلية لأن حساب الطالب مسجل بكلية)
+    if (isStudent) {
+      return [
+        { title: "لوحة المتابعة", icon: Home, href: "/student?tab=overview", perm: null, tab: "overview" },
+        { title: "الخطة الدراسية", icon: BookOpen, href: "/student?tab=study-plan", perm: null, tab: "study-plan" },
+        { title: "الجدول الأسبوعي", icon: Calendar, href: "/student?tab=timetable", perm: null, tab: "timetable" },
+        { title: "كشف الحضور والغياب", icon: UserCheck, href: "/student?tab=attendance", perm: null, tab: "attendance" },
+        { title: "أعمال الفصل والدرجات", icon: Award, href: "/student?tab=grades", perm: null, tab: "grades" },
+        { title: "مؤشرات الفهم والاستيعاب", icon: TrendingUp, href: "/student?tab=understanding", perm: null, tab: "understanding" },
+        { title: "التكاليف والواجبات", icon: FileCheck, href: "/student?tab=assignments", perm: null, tab: "assignments" },
+        { title: "أعذاري المرفوعة", icon: FileText, href: "/student?tab=excuses", perm: null, tab: "excuses" },
+        { title: "إعلانات المحاضرين", icon: Megaphone, href: "/student?tab=announcements", perm: null, tab: "announcements" },
+        { title: "استبيانات التقييم (QA)", icon: BadgeCheck, href: "/student/qa", perm: null },
+        { title: "الملف الشخصي والإعدادات", icon: Settings, href: "/student?tab=profile", perm: null, tab: "profile" },
+      ];
+    }
+
+    // C. قائمة موظفي الكلية
     if (collegeId) {
       const basePath = `/colleges/${collegeId}/dashboard`;
       
@@ -114,24 +139,8 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
       return result;
     }
 
-    // C. قائمة الطالب الأكاديمية
-    if (userRole === 'student') {
-      return [
-        { title: "الرئيسية والمحاضرات", icon: Home, href: "/student", perm: null, state: { activeTab: "overview" } },
-        { title: "الخطة الدراسية", icon: BookOpen, href: "/student", perm: null, state: { activeTab: "study-plan" } },
-        { title: "الجدول الدراسي", icon: Calendar, href: "/student", perm: null, state: { activeTab: "timetable" } },
-        { title: "درجات أعمال الفصل", icon: Award, href: "/student", perm: null, state: { activeTab: "grades" } },
-        { title: "مؤشرات الفهم والاستيعاب", icon: TrendingUp, href: "/student", perm: null, state: { activeTab: "understanding" } },
-        { title: "التكاليف والواجبات", icon: FileCheck, href: "/student", perm: null, state: { activeTab: "assignments" } },
-        { title: "كشف الحضور والغياب", icon: UserCheck, href: "/student", perm: null, state: { activeTab: "attendance" } },
-        { title: "الأعذار والمراسلات", icon: FileText, href: "/student", perm: null, state: { activeTab: "excuses" } },
-        { title: "استبيانات التقييم (QA)", icon: BadgeCheck, href: "/student/qa", perm: null },
-        { title: "الملف الشخصي والإعدادات", icon: Users, href: "/student", perm: null, state: { activeTab: "profile" } },
-      ];
-    }
-
     return [];
-  }, [isSuperUser, collegeId, isLecturer, userRole, can]);
+  }, [isSuperUser, collegeId, isLecturer, isStudent, can]);
 
   const isCollapsed = !isMobile && !isOpen;
 
@@ -177,14 +186,19 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
           {menuItems.map((item) => {
             // منطق التنشيط المحسن
             const currentTabState = (location.state as any)?.activeTab;
+            const searchParams = new URLSearchParams(location.search);
+            const currentTabParam = searchParams.get("tab") || "overview";
             
             const isActive = 
               // 1. القائمة الفرعية نشطة
               (item.subItems && item.subItems.some(sub => location.pathname === sub.href)) ||
-              // 2. تطابق الرابط والتبويب (للكليات)
+              // 2. تبويبات الطالب الأكاديمية عبر ?tab= أو مسار QA
+              (isStudent && location.pathname === "/student" && item.tab && currentTabParam === item.tab) ||
+              (isStudent && item.href === "/student/qa" && location.pathname === "/student/qa") ||
+              // 3. تطابق الرابط والتبويب (للكليات)
               (item.state && location.pathname === item.href && currentTabState === item.state.activeTab) ||
-              // 3. تطابق الرابط فقط (للمسؤولين أو عند عدم وجود تبويب)
-              (!item.state && !item.subItems && location.pathname === item.href);
+              // 4. تطابق الرابط فقط (للمسؤولين أو عند عدم وجود تبويب)
+              (!item.state && !item.subItems && !isStudent && location.pathname === item.href);
 
             return (
               <div key={item.title} className="relative group">

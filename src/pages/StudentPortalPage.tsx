@@ -541,14 +541,6 @@ export default function StudentPortalPage() {
             {/* Quick Action Buttons */}
             <div className="flex items-center gap-2 flex-wrap">
               <Button
-                onClick={() => setShowQRScannerModal(true)}
-                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-semibold h-9"
-              >
-                <QrCode className="w-4 h-4" />
-                <span>مسح رمز QR للتحضير</span>
-              </Button>
-
-              <Button
                 onClick={() => setShowAssignmentModal(true)}
                 variant="outline"
                 className="gap-1.5 h-9 border-primary/30 hover:bg-primary/5 text-xs font-medium"
@@ -569,8 +561,8 @@ export default function StudentPortalPage() {
           </div>
         </Card>
 
-        {/* Navigation Tabs Bar */}
-        <div className="flex items-center gap-2 border-b overflow-x-auto pb-2 scrollbar-none">
+        {/* Mobile Navigation Tabs Bar (On desktop, navigation is cleanly handled by the right Sidebar) */}
+        <div className="lg:hidden flex items-center gap-2 border-b overflow-x-auto pb-2 scrollbar-none">
           <Button
             variant={currentTab === "overview" ? "default" : "ghost"}
             size="sm"
@@ -875,16 +867,30 @@ export default function StudentPortalPage() {
                               )}
                             </div>
 
-                            {/* زر مسح QR المباشر إذا كانت المحاضرة جارية */}
-                            {lec.status_code === 1 && (
+                            {/* زر مسح QR المباشر للمحاضرة */}
+                            {lec.status_code === 1 ? (
                               <Button
                                 size="sm"
-                                className="text-xs h-7 gap-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                                className="text-xs h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-bold animate-pulse"
                                 onClick={() => setShowQRScannerModal(true)}
                               >
                                 <QrCode className="w-3.5 h-3.5" />
-                                <span>مسح رمز الـ QR الآن</span>
+                                <span>مسح رمز الـ QR (المحاضرة جارية الآن)</span>
                               </Button>
+                            ) : lec.status_code === 0 ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-8 gap-1.5 border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                                onClick={() => setShowQRScannerModal(true)}
+                              >
+                                <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>مسح رمز الـ QR للتحضير</span>
+                              </Button>
+                            ) : (
+                              <Badge variant="outline" className="text-muted-foreground text-xs">
+                                المحاضرة منتهية
+                              </Badge>
                             )}
                           </div>
                         </div>
@@ -1316,32 +1322,46 @@ export default function StudentPortalPage() {
                             {dayGroup.slots.map((s: any) => (
                               <div
                                 key={s.timetable_id}
-                                className="p-3.5 rounded-xl border border-border/70 bg-card hover:border-primary/40 transition-colors space-y-2"
+                                className="p-3.5 rounded-xl border border-border/70 bg-card hover:border-primary/40 transition-colors space-y-2 flex flex-col justify-between"
                               >
-                                <div className="flex items-start justify-between">
-                                  <span className="font-mono text-xs font-bold text-primary">{s.course_code}</span>
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {s.lecture_type}
-                                  </Badge>
+                                <div>
+                                  <div className="flex items-start justify-between">
+                                    <span className="font-mono text-xs font-bold text-primary">{s.course_code}</span>
+                                    <Badge variant="outline" className="text-[10px]">
+                                      {s.lecture_type}
+                                    </Badge>
+                                  </div>
+
+                                  <h4 className="font-bold text-sm text-foreground mt-1">{s.course_name}</h4>
+
+                                  <div className="text-xs text-muted-foreground space-y-1 pt-2 mt-2 border-t">
+                                    <div className="flex items-center gap-1.5">
+                                      <Clock className="w-3.5 h-3.5 text-primary" />
+                                      <span>
+                                        {s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)} ({s.period_name})
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <Building className="w-3.5 h-3.5 text-primary" />
+                                      <span>{s.classroom_name}</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <User className="w-3.5 h-3.5 text-primary" />
+                                      <span>أستاذ المقرر: {s.lecturer_name}</span>
+                                    </div>
+                                  </div>
                                 </div>
 
-                                <h4 className="font-bold text-sm text-foreground">{s.course_name}</h4>
-
-                                <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t">
-                                  <div className="flex items-center gap-1.5">
-                                    <Clock className="w-3.5 h-3.5 text-primary" />
-                                    <span>
-                                      {s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)} ({s.period_name})
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <Building className="w-3.5 h-3.5 text-primary" />
-                                    <span>{s.classroom_name}</span>
-                                  </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <User className="w-3.5 h-3.5 text-primary" />
-                                    <span>أستاذ المقرر: {s.lecturer_name}</span>
-                                  </div>
+                                <div className="pt-2 border-t mt-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => setShowQRScannerModal(true)}
+                                    className="w-full gap-1.5 border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/30 text-xs h-8 font-medium transition-all"
+                                  >
+                                    <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>مسح رمز الـ QR للتحضير</span>
+                                  </Button>
                                 </div>
                               </div>
                             ))}

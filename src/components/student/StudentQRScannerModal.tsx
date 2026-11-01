@@ -9,7 +9,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   QrCode,
@@ -25,6 +24,8 @@ import {
   Clock,
   XCircle,
   HelpCircle,
+  Upload,
+  Sparkles,
 } from "lucide-react";
 
 interface Props {
@@ -37,6 +38,8 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // States
   const [hasCamera, setHasCamera] = useState<boolean | null>(null);
@@ -45,8 +48,8 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [isGettingGps, setIsGettingGps] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [manualCode, setManualCode] = useState("");
   const [scanResult, setScanResult] = useState<any | null>(null);
+  const [isScanningActive, setIsScanningActive] = useState(false);
 
   // 1. طلب الموقع الجغرافي (GPS Geolocation)
   const acquireLocation = () => {
@@ -82,64 +85,9 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
     );
   };
 
-  // 2. تشغيل الكاميرا المباشرة
-  const startCamera = async () => {
-    setCameraError(null);
-    try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setCameraError("الكاميرا غير مدعومة في هذا المتصفح.");
-        setHasCamera(false);
-        return;
-      }
-
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {});
-      }
-      setHasCamera(true);
-    } catch (err: any) {
-      console.warn("Camera access failed:", err);
-      setCameraError("تعذر تشغيل الكاميرا أو تم رفض الإذن. يمكنك إدخال الرمز يدوياً أدناه.");
-      setHasCamera(false);
-    }
-  };
-
-  // 3. إيقاف الكاميرا
-  const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-  };
-
-  useEffect(() => {
-    if (open) {
-      setScanResult(null);
-      setManualCode("");
-      acquireLocation();
-      startCamera();
-    } else {
-      stopCamera();
-    }
-    return () => {
-      stopCamera();
-    };
-  }, [open]);
-
-  // 4. إرسال رمز الـ QR مع الموقع الجغرافي للباك إند
+  // 2. إرسال رمز الـ QR مع الموقع الجغرافي للباك إند
   const handleVerifyQR = async (qrValue: string) => {
-    if (!qrValue.trim()) {
-      toast({
-        title: "رمز غير مدخل",
-        description: "يرجى توجيه الكاميرا إلى الرمز أو كتابة كود الـ QR.",
-        variant: "destructive",
-      });
-      return;
-    }
+    if (!qrValue || !qrValue.trim()) return;
 
     if (!gpsLocation) {
       toast({
@@ -161,6 +109,8 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
 
       if (res.data?.status) {
         setScanResult(res.data);
+        stopScanningLoop();
+        stopCamera();
         toast({
           title: "تم التحضير بنجاح! 🎉",
           description: res.data.message || "تم تسجيل حضورك في المحاضرة بنجاح.",
@@ -187,6 +137,122 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
     }
   };
 
+  // 3. مسح الفيديو التلقائي عبر BarcodeDetector
+  const startScanningLoop = () => {
+    stopScanningLoop();
+    if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+      try {
+        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+        setIsScanningActive(true);
+        scanIntervalRef.current = setInterval(async () => {
+          if (
+            videoRef.current &&
+            videoRef.current.readyState >= 2 &&
+            !isSubmitting &&
+            !scanResult
+          ) {
+            try {
+              const barcodes = await barcodeDetector.detect(videoRef.current);
+              if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+                const detectedCode = barcodes[0].rawValue;
+                stopScanningLoop();
+                if (navigator.vibrate) {
+                  try { navigator.vibrate(100); } catch (_) {}
+                }
+                handleVerifyQR(detectedCode);
+              }
+            } catch (_) {}
+          }
+        }, 300);
+      } catch (e) {
+        console.warn("BarcodeDetector error:", e);
+      }
+    }
+  };
+
+  const stopScanningLoop = () => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    setIsScanningActive(false);
+  };
+
+  // 4. تشغيل الكاميرا المباشرة
+  const startCamera = async () => {
+    setCameraError(null);
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError("الكاميرا غير مدعومة في هذا المتصفح.");
+        setHasCamera(false);
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+      setHasCamera(true);
+      startScanningLoop();
+    } catch (err: any) {
+      console.warn("Camera access failed:", err);
+      setCameraError("تعذر تشغيل الكاميرا أو تم رفض الإذن. يرجى منح الإذن للكاميرا أو التقاط صورة للرمز.");
+      setHasCamera(false);
+    }
+  };
+
+  // 5. إيقاف الكاميرا
+  const stopCamera = () => {
+    stopScanningLoop();
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  };
+
+  // 6. مسح رمز من صورة ملتقطة بالكاميرا
+  const handleImageCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+      try {
+        const imageBitmap = await createImageBitmap(file);
+        const barcodeDetector = new (window as any).BarcodeDetector({ formats: ["qr_code"] });
+        const barcodes = await barcodeDetector.detect(imageBitmap);
+        if (barcodes && barcodes.length > 0 && barcodes[0].rawValue) {
+          handleVerifyQR(barcodes[0].rawValue);
+          return;
+        }
+      } catch (err) {
+        console.warn("Barcode image detection error:", err);
+      }
+    }
+
+    toast({
+      title: "تعذر قراءة الرمز تلقائياً",
+      description: "يرجى توجيه الكاميرا مباشرة نحو رمز الـ QR المعروض على شاشة الدكتور والمحاولة مرة أخرى.",
+      variant: "destructive",
+    });
+  };
+
+  useEffect(() => {
+    if (open) {
+      setScanResult(null);
+      acquireLocation();
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return () => {
+      stopCamera();
+    };
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-lg p-0 overflow-hidden" dir="rtl">
@@ -207,7 +273,7 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
         <div className="p-6 space-y-5">
           {/* Success Result View */}
           {scanResult ? (
-            <div className="space-y-4 py-4 text-center">
+            <div className="space-y-4 py-4 text-center animate-in fade-in zoom-in-95 duration-300">
               <div className="w-16 h-16 rounded-full bg-emerald-500/10 text-emerald-600 flex items-center justify-center mx-auto border-2 border-emerald-500/30">
                 <CheckCircle2 className="w-10 h-10" />
               </div>
@@ -253,7 +319,7 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
                   <span>توجد أسئلة تفاعلية مرفقة بهذه المحاضرة!</span>
                 </div>
                 <p className="text-muted-foreground leading-relaxed">
-                  يمكنك الإجابة على أسئلة المحاضرة فوراً الآن، أو الإجابة عليها لاحقاً قبل انتهاء موعد المحاضرة من بطاقة المحاضرة في لوحة المتابعة.
+                  يمكنك الإجابة على أسئلة المحاضرة الآن أو قبل انتهاء موعد المحاضرة من بطاقة المحاضرة في جدولك الدراسي.
                 </p>
               </div>
 
@@ -274,7 +340,7 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <Compass className="w-4 h-4 shrink-0 animate-pulse" />
+                  <Compass className={`w-4 h-4 shrink-0 ${isGettingGps ? "animate-spin" : "animate-pulse"}`} />
                   <div>
                     {isGettingGps ? (
                       <span className="font-medium">جاري تحديد موقعك الجغرافي عبر GPS...</span>
@@ -283,7 +349,7 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
                         تم رصد موقعك: {gpsLocation.lat.toFixed(6)}, {gpsLocation.lng.toFixed(6)} (دقة: {gpsLocation.accuracy}م)
                       </span>
                     ) : (
-                      <span className="font-medium">{gpsError || "الموقع الجغرافي مطلوب"}</span>
+                      <span className="font-medium">{gpsError || "الموقع الجغرافي مطلوب للتحضير"}</span>
                     )}
                   </div>
                 </div>
@@ -312,52 +378,68 @@ export default function StudentQRScannerModal({ open, onClose, onSuccess }: Prop
                     />
                     {/* Laser Scanner Frame */}
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div className="w-48 h-48 sm:w-56 sm:h-56 border-2 border-primary/80 rounded-2xl relative shadow-lg">
-                        <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-primary" />
-                        <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-primary" />
-                        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-primary" />
-                        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-primary" />
-                        <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-rose-500 to-transparent absolute top-1/2 -translate-y-1/2 animate-bounce" />
+                      <div className="w-48 h-48 sm:w-56 sm:h-56 border-2 border-emerald-500/80 rounded-2xl relative shadow-lg">
+                        <div className="absolute top-0 left-0 w-4 h-4 border-t-4 border-l-4 border-emerald-500" />
+                        <div className="absolute top-0 right-0 w-4 h-4 border-t-4 border-r-4 border-emerald-500" />
+                        <div className="absolute bottom-0 left-0 w-4 h-4 border-b-4 border-l-4 border-emerald-500" />
+                        <div className="absolute bottom-0 right-0 w-4 h-4 border-b-4 border-r-4 border-emerald-500" />
+                        <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-emerald-400 to-transparent absolute top-1/2 -translate-y-1/2 animate-bounce" />
                       </div>
                     </div>
+
+                    {isSubmitting && (
+                      <div className="absolute inset-0 bg-background/80 backdrop-blur-xs flex flex-col items-center justify-center gap-2">
+                        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                        <span className="text-xs font-semibold text-foreground">جاري توثيق الحضور والتحقق من القاعة...</span>
+                      </div>
+                    )}
                   </>
                 ) : (
-                  <div className="p-6 text-center text-muted-foreground space-y-2">
+                  <div className="p-6 text-center text-muted-foreground space-y-3">
                     <Camera className="w-10 h-10 mx-auto text-muted-foreground/50" />
-                    <p className="text-xs">{cameraError || "جاري تهيئة الكاميرا..."}</p>
-                    <Button variant="outline" size="sm" onClick={startCamera} className="text-xs h-8">
-                      إعادة محاولة فتح الكاميرا
-                    </Button>
+                    <p className="text-xs leading-relaxed">{cameraError || "جاري تهيئة الكاميرا..."}</p>
+                    <div className="flex items-center justify-center gap-2 flex-wrap">
+                      <Button variant="outline" size="sm" onClick={startCamera} className="text-xs h-8">
+                        إعادة فتح الكاميرا
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-xs h-8 gap-1"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        التقاط صورة للـ QR
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Manual Code Entry Fallback */}
-              <div className="space-y-2 pt-2 border-t">
-                <label className="text-xs font-medium text-foreground block">
-                  أو أدخل كود الجلسة / الرمز يدوياً (للاختبار السريع):
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="الصق كود الـ QR المعروض..."
-                    value={manualCode}
-                    onChange={(e) => setManualCode(e.target.value)}
-                    className="text-xs font-mono"
-                    dir="ltr"
-                  />
-                  <Button
-                    onClick={() => handleVerifyQR(manualCode)}
-                    disabled={isSubmitting || !manualCode.trim() || !gpsLocation}
-                    className="gap-1.5 shrink-0"
-                  >
-                    {isSubmitting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="w-4 h-4" />
-                    )}
-                    <span>تأكيد الحضور</span>
-                  </Button>
-                </div>
+              {/* Instructions and Photo Fallback */}
+              <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  وجّه الكاميرا نحو رمز QR على شاشة القاعة ليتم المسح تلقائياً
+                </span>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handleImageCapture}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-[11px] h-7 gap-1 text-primary hover:bg-primary/5"
+                >
+                  <Camera className="w-3 h-3" />
+                  التقاط صورة
+                </Button>
               </div>
             </>
           )}
