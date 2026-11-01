@@ -56,3 +56,4 @@ export class TabErrorBoundary extends Component<Props, State> {
     return this.props.children;
   }
 }
+

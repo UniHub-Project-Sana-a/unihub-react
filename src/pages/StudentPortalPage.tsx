@@ -14,6 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -35,6 +37,7 @@ import { Progress } from "@/components/ui/progress";
 import StudentQRScannerModal from "@/components/student/StudentQRScannerModal";
 import StudentNotificationsModal from "@/components/student/StudentNotificationsModal";
 import StudentAssignmentSubmissionModal from "@/components/student/StudentAssignmentSubmissionModal";
+import { TabErrorBoundary } from "@/components/common/TabErrorBoundary";
 import {
   User,
   LogOut,
@@ -684,6 +687,7 @@ export default function StudentPortalPage() {
           </Button>
         </div>
 
+        <TabErrorBoundary fallbackTitle="تعذر عرض هذا القسم من بوابة الطالب">
         {/* ==================================================================== */}
         {/* 1. TAB: OVERVIEW (لوحة المتابعة الشاملة) */}
         {/* ==================================================================== */}
@@ -2193,6 +2197,7 @@ export default function StudentPortalPage() {
             </div>
           </div>
         )}
+        </TabErrorBoundary>
 
       {/* نافذة تقديم عذر غياب جديد */}
       <Dialog open={showExcuseDialog} onOpenChange={setShowExcuseDialog}>
