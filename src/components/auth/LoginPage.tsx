@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Eye, EyeOff, Lock, User, Server, Settings, Check, RotateCcw } from 'lucide-react';
+import { Eye, EyeOff, Lock, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import logoFull from "@/assets/366544.png";
 import { useAuth } from '@/context/AuthContext';
-import { api, resolveApiBaseUrl, setCustomApiBaseUrl, clearCustomApiBaseUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import { getCollegeLandingPath } from '@/lib/collegeAccess';
 
@@ -24,16 +23,6 @@ export default function LoginPage() {
   // حالات عامة
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // حالات ضبط خادم الـ API
-  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
-  const [serverUrlInput, setServerUrlInput] = useState('');
-  const [hasCustomServerUrl, setHasCustomServerUrl] = useState(false);
-
-  useEffect(() => {
-    setServerUrlInput(resolveApiBaseUrl());
-    setHasCustomServerUrl(Boolean(localStorage.getItem('unihub_api_base_url')));
-  }, []);
   
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -272,85 +261,10 @@ export default function LoginPage() {
                 <span>•</span>
                 <span>نظام UniHub الجامعي</span>
               </div>
-              <div className="pt-2 text-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setServerUrlInput(resolveApiBaseUrl());
-                    setIsServerModalOpen(true);
-                  }}
-                  className="text-[11px] text-muted-foreground/80 hover:text-primary transition-colors flex items-center justify-center gap-1 mx-auto"
-                >
-                  <Server className="w-3 h-3" />
-                  <span>إعدادات خادم النظام (API Server)</span>
-                  {hasCustomServerUrl && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" title="تم تعيين رابط مخصص"></span>
-                  )}
-                </button>
-              </div>
             </div>
           </CardContent>
         </Card>
       </div>
-
-      {/* نافذة ضبط رابط خادم الـ API */}
-      <Dialog open={isServerModalOpen} onOpenChange={setIsServerModalOpen}>
-        <DialogContent className="sm:max-w-md text-right" dir="rtl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-base font-bold">
-              <Server className="w-5 h-5 text-primary" />
-              إعدادات خادم النظام (API Server URL)
-            </DialogTitle>
-            <DialogDescription className="text-xs text-muted-foreground leading-relaxed pt-1">
-              إذا كنت تستخدم رابط نفق سحابي (Cloudflare Tunnel) أو سيرفر خارجي، يمكنك كتابته هنا ليتصل به التطبيق مباشرة.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">رابط الـ API النشط حالياً:</Label>
-              <Input
-                type="url"
-                value={serverUrlInput}
-                onChange={(e) => setServerUrlInput(e.target.value)}
-                placeholder="مثال: https://xxxx.trycloudflare.com/api"
-                className="font-mono text-xs dir-ltr text-left"
-              />
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              💡 ملاحظة: يجب أن ينتهي الرابط بـ <code className="bg-muted px-1 py-0.5 rounded">/api</code>.
-            </p>
-          </div>
-
-          <DialogFooter className="flex-row gap-2 justify-end sm:justify-end">
-            {hasCustomServerUrl && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => clearCustomApiBaseUrl()}
-                className="gap-1 text-xs"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                الافتراضي
-              </Button>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                if (serverUrlInput.trim()) {
-                  setCustomApiBaseUrl(serverUrlInput);
-                }
-              }}
-              className="gap-1 text-xs"
-            >
-              <Check className="w-3.5 h-3.5" />
-              حفظ وتطبيق
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
