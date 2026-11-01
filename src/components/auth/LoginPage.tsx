@@ -118,7 +118,7 @@ export default function LoginPage() {
       if (err?.response?.data?.error_code === 'STUDENT_LOGIN_FORBIDDEN') {
         setError(err.response.data.message);
       } else if (!err?.response) {
-        setError('تعذر الاتصال بخادم النظام (Network Error). يرجى التأكد من تشغيل السيرفر أو فحص رابط الـ API من خيار "إعدادات الخادم" بالأسفل.');
+        setError('تعذر الاتصال بخادم النظام (Network Error). يرجى التأكد من توفر اتصال بالإنترنت والمحاولة مرة أخرى.');
       } else {
         const msg = err?.response?.data?.message || 'بيانات الدخول غير صحيحة أو حدث خطأ بالخادم.';
         setError(msg);
