@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Printer, DollarSign, FileText } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
+import { storageUrl } from "@/lib/api";
 
 // ✅ 1. استيراد شعار الجامعة الثابت
 import uniLogo from "@/assets/logo.png"; 
@@ -52,7 +53,7 @@ export function InstructorsReportDialog({
 
   // ✅ 2. رابط الشعار الديناميكي (مع منع الكاش)
   const currentCollegeLogo = collegeId 
-    ? `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}` 
+    ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
     : null;
 
   // مراقبة للكونسول للتأكد (اختياري)

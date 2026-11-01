@@ -1,5 +1,6 @@
 import React from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { storageUrl } from "@/lib/api";
 
 // ✅ 1. استيراد شعار الجامعة الثابت (محلياً لأنه لا يتغير)
 import uniLogo from "@/assets/logo.png"; 
@@ -47,7 +48,7 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
     // نستخدم collegeId لجلب الصورة من مجلد التخزين العام في لارافيل
     // نضيف timestamp لمنع الكاش عند تحديث الشعار
     const currentCollegeLogo = collegeId 
-        ? `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}` 
+        ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
         : null;
 
     return (

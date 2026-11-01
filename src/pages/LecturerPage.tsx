@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { format, startOfWeek, endOfWeek, isToday } from "date-fns";
 
 // استيراد المكونات الفرعية
-import { LecturerWelcome } from "@/components/lecturer/LecturerWelcome";
+import { LecturerWelcome, LecturerViewType } from "@/components/lecturer/LecturerWelcome";
 import { LectureSchedule } from "@/components/lecturer/LectureSchedule";
 import { StartQRModal, QRFormSettings } from "@/components/lecturer/StartQRModal";
 import { QRSessionView } from "@/components/lecturer/QRSessionView";
@@ -17,6 +17,8 @@ import { AttendanceSummary } from "@/components/lecturer/AttendanceSummary";
 
 // ✅ استيراد مكون الدرجات الجديد
 import { GradesManager } from "@/components/lecturer/GradesManager";
+import { LecturerAnnouncements } from "@/components/lecturer/LecturerAnnouncements";
+import { LecturerExcusesManager } from "@/components/lecturer/LecturerExcusesManager";
 
 // --- واجهات الأنواع (Types) ---
 export interface ActiveQRInfo {
@@ -77,8 +79,8 @@ export default function LecturerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   
-  // ✅ حالة جديدة للتحكم في الصفحة المعروضة (حضور أم درجات)
-  const [currentView, setCurrentView] = useState<'attendance' | 'grades'>('attendance');
+  // ✅ حالة جديدة للتحكم في الصفحة المعروضة
+  const [currentView, setCurrentView] = useState<LecturerViewType>('attendance');
 
   const [currentLecturer, setCurrentLecturer] = useState<any>(null);
   const [sessions, setSessions] = useState<LectureSession[]>([]);
@@ -334,6 +336,20 @@ export default function LecturerPage() {
         {/* ========================================================= */}
         {currentView === 'grades' && (
            <GradesManager />
+        )}
+
+        {/* ========================================================= */}
+        {/* العرض الثالث: قسم إعلانات وتوجيهات الطلاب */}
+        {/* ========================================================= */}
+        {currentView === 'announcements' && (
+          <LecturerAnnouncements />
+        )}
+
+        {/* ========================================================= */}
+        {/* العرض الرابع: قسم مراجعة واعتماد أعذار الطلاب */}
+        {/* ========================================================= */}
+        {currentView === 'excuses' && (
+          <LecturerExcusesManager />
         )}
 
 

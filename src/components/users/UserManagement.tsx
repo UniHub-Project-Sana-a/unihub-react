@@ -4,7 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { 
   Plus, Search, Edit, Trash2, Users, Mail, 
-  MoreHorizontal, Loader2, Phone, UserCircle, Briefcase 
+  MoreHorizontal, Loader2, Phone, UserCircle, Briefcase,
+  Eye, EyeOff, Key, RefreshCw
 } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -51,6 +52,9 @@ const userSchema = z.object({
   gender: z.string(), 
   user_type_id: z.string().min(1, "الدور مطلوب"),
   college_id: z.string().optional(),
+  password: z.string().refine(val => !val || val.length >= 6, {
+    message: "كلمة المرور يجب أن لا تقل عن 6 أحرف",
+  }).optional(),
 });
 
 type UserFormData = z.infer<typeof userSchema>;
@@ -79,16 +83,18 @@ export function UserManagement() {
   // Loading
   const [isLoading, setIsLoading] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
+  const [showAddPassword, setShowAddPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
 
   // Forms
   const addUserForm = useForm<UserFormData>({
     resolver: zodResolver(userSchema),
-    defaultValues: { full_name: "", email: "", phone: "", academic_number: "", gender: "0", user_type_id: "" },
+    defaultValues: { full_name: "", email: "", phone: "", academic_number: "", gender: "0", user_type_id: "", password: "" },
   });
 
   const editUserForm = useForm<UserFormData>({
     resolver: zodResolver(userSchema),
-    defaultValues: { full_name: "", email: "", phone: "", academic_number: "", gender: "0", user_type_id: "" },
+    defaultValues: { full_name: "", email: "", phone: "", academic_number: "", gender: "0", user_type_id: "", password: "" },
   });
 
   // --- Helpers & Computed ---
@@ -117,14 +123,31 @@ export function UserManagement() {
     const code = myUserType?.user_type_code || "";
     let allowed: string[] = [];
     if (code === "admin" || code === "presidency") {
+       // المشرف العام يستطيع إنشاء أي دور
        allowed = userTypes.map(t => t.user_type_code);
-    } else if (code === "dean") {
+    } else if (code === "dean" || can('roles.assign_user')) {
+      // العميد أو من يملك صلاحية تعيين الأدوار يستطيع إنشاء جميع أدوار الكلية
       allowed = userTypes
         .filter(t => !["admin", "presidency", "dean"].includes(t.user_type_code))
         .map(t => t.user_type_code);
+    } else if (
+      can('users.create') ||
+      can('staff.create') ||
+      ["academic_affairs", "dept_head", "control", "classroom_manager", "secretary", "coordinator"].includes(code)
+    ) {
+      // المنسقون الأكاديميون وأصحاب صلاحية إنشاء المستخدمين يستطيعون إضافة محاضرين
+      allowed = ["lecturer"];
     }
-    return allowed.filter(role => role !== 'student');
-  }, [myUserType, userTypes]);
+
+    let filtered = allowed.filter(role => role !== 'student');
+
+    // صمام أمان: إذا كان المستخدم يملك صلاحية فتح نافذة الإضافة، تتاح له صلاحية المحاضر كحد أدنى ولا تكون القائمة فارغة إطلاقاً
+    if (filtered.length === 0 && (can('users.create') || can('staff.create') || isCollegeScopedUser)) {
+      filtered = ["lecturer"];
+    }
+
+    return filtered;
+  }, [myUserType, userTypes, can, isCollegeScopedUser]);
 
   const isCollegeRequired = (roleId: string) => {
       const code = roleCodeById(Number(roleId));
@@ -249,17 +272,21 @@ export function UserManagement() {
       } else if (data.college_id) {
         finalCollegeId = Number(data.college_id);
       }
+      const finalPassword = data.password && data.password.trim() ? data.password.trim() : "12345678";
       const payload = {
         ...data,
         gender: Number(data.gender),
         user_type_id: Number(data.user_type_id),
-        password: "12345678", // كلمة مرور افتراضية، يجب أن يغيرها المستخدم لاحقاً
+        password: finalPassword,
         college_id: finalCollegeId
       };
       // @ts-ignore
       const headers = myUserType?.user_type_code === 'dean' ? { "X-College-Id": String(me?.college_id) } : {};
       await api.post("/v1/users", payload, { headers });
-      toast({ title: "تم بنجاح", description: "تم إنشاء المستخدم بنجاح" });
+      toast({ 
+        title: "تم بنجاح", 
+        description: `تم إنشاء المستخدم بنجاح (كلمة المرور: ${finalPassword})` 
+      });
       addUserForm.reset();
       setIsAddUserOpen(false);
       await fetchUsersData();
@@ -281,17 +308,29 @@ export function UserManagement() {
       } else if (data.college_id) {
         finalCollegeId = Number(data.college_id);
       }
-      const payload = {
-        ...data,
+      const payload: any = {
+        full_name: data.full_name,
+        email: data.email,
+        phone: data.phone,
+        academic_number: data.academic_number,
         gender: Number(data.gender),
         user_type_id: Number(data.user_type_id),
         college_id: finalCollegeId
       };
+      if (data.password && data.password.trim().length > 0) {
+        if (data.password.trim().length < 6) {
+          toast({ title: "خطأ", description: "كلمة المرور يجب ألا تقل عن 6 خانات", variant: "destructive" });
+          setIsLoading(false);
+          return;
+        }
+        payload.password = data.password.trim();
+      }
       await api.put(`/v1/users/${editingUser.user_id}`, payload);
-      toast({ title: "تم بنجاح", description: "تم تحديث البيانات" });
+      toast({ title: "تم بنجاح", description: "تم تحديث بيانات المستخدم وكلمة المرور بنجاح" });
       editUserForm.reset();
       setIsEditUserOpen(false);
       setEditingUser(null);
+      setShowEditPassword(false);
       await fetchUsersData();
     } catch (error: any) {
       toast({ title: "خطأ", description: error?.response?.data?.message || "فشل التحديث", variant: "destructive" });
@@ -301,10 +340,10 @@ export function UserManagement() {
   };
 
   const handleDeleteUser = async (userId: number) => {
-    if (!confirm("هل أنت متأكد من حذف هذا المستخدم؟")) return;
+    if (!confirm("هل أنت متأكد من حذف هذا الحساب نهائياً من قاعدة البيانات؟ لا يمكن التراجع عن هذا الإجراء.")) return;
     try {
       await api.delete(`/v1/users/${userId}`);
-      toast({ title: "تم الحذف", description: "تم حذف المستخدم بنجاح" });
+      toast({ title: "تم الحذف النهائي", description: "تم مسح الحساب نهائياً من قاعدة البيانات بنجاح" });
       await fetchUsersData();
     } catch {
       toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
@@ -356,16 +395,28 @@ export function UserManagement() {
         
         <div className="flex items-center gap-2 w-full md:w-auto">
           {can('users.create') && (
-            <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
+            <Dialog open={isAddUserOpen} onOpenChange={(open) => {
+              setIsAddUserOpen(open);
+              if (open) {
+                const defaultRoleId = allowedRoleCodesForCreate.length === 1 && allowedRoleCodesForCreate[0] === 'lecturer'
+                  ? String(userTypes.find(t => t.user_type_code === 'lecturer')?.user_type_id || "")
+                  : "";
+                addUserForm.reset({
+                  full_name: "", email: "", phone: "", academic_number: "", gender: "0", password: "",
+                  user_type_id: defaultRoleId,
+                  college_id: isCollegeScopedUser && me?.college_id ? String(me.college_id) : undefined
+                });
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button size="lg" className="shadow-md hover:shadow-lg transition-all w-full md:w-auto">
                   <Plus className="w-5 h-5 ml-2" /> إضافة مستخدم
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle className="text-xl">إضافة مستخدم جديد</DialogTitle>
-                  <DialogDescription>بيانات الموظف / عضو هيئة التدريس الجديد.</DialogDescription>
+              <DialogContent className="max-w-2xl" dir="rtl">
+                <DialogHeader className="text-right">
+                  <DialogTitle className="text-xl text-right">إضافة مستخدم جديد</DialogTitle>
+                  <DialogDescription className="text-right">بيانات الموظف / عضو هيئة التدريس الجديد.</DialogDescription>
                 </DialogHeader>
                 <Form {...addUserForm}>
                   <form onSubmit={addUserForm.handleSubmit(onAddUser)} className="space-y-6 mt-4">
@@ -408,7 +459,7 @@ export function UserManagement() {
                         <FormField control={addUserForm.control} name="user_type_id" render={({ field }) => (
                           <FormItem>
                             <FormLabel>الدور (الصلاحية)</FormLabel>
-                            <Select onValueChange={(val) => { field.onChange(val); if(!isCollegeRequired(val)) { addUserForm.setValue("college_id", undefined); } }} defaultValue={field.value}>
+                            <Select onValueChange={(val) => { field.onChange(val); if(!isCollegeRequired(val)) { addUserForm.setValue("college_id", undefined); } }} value={field.value || ""}>
                               <FormControl><SelectTrigger><SelectValue placeholder="اختر الدور" /></SelectTrigger></FormControl>
                               <SelectContent>
                                 {userTypes.filter(t => allowedRoleCodesForCreate.includes(t.user_type_code)).map(t => (
@@ -445,6 +496,69 @@ export function UserManagement() {
                         )}
                       </div>
                     </div>
+
+                    <Separator />
+
+                    {/* حقل كلمة المرور الجديد للمستخدم مع إمكانية التحديد أو التوليد */}
+                    <div className="rounded-lg border p-4 bg-muted/20 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Key className="w-4 h-4 text-primary" />
+                          <span className="text-sm font-semibold">كلمة مرور الحساب</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs text-muted-foreground hover:text-primary gap-1"
+                          onClick={() => {
+                            const randomPass = "U@" + Math.random().toString(36).slice(-6) + "9";
+                            addUserForm.setValue("password", randomPass);
+                            setShowAddPassword(true);
+                            toast({ title: "تم توليد كلمة سر مؤقتة", description: `كلمة السر: ${randomPass}` });
+                          }}
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" /> توليد كلمة مرور
+                        </Button>
+                      </div>
+
+                      <FormField
+                        control={addUserForm.control}
+                        name="password"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs text-muted-foreground">
+                              كلمة المرور (اختياري - إن تركتها فارغة ستكون الافتراضية 12345678)
+                            </FormLabel>
+                            <div className="relative">
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  type={showAddPassword ? "text" : "password"}
+                                  placeholder="أدخل كلمة مرور مخصصة أو اضغط توليد (الافتراضي: 12345678)"
+                                  className="pl-10 text-right"
+                                  dir="ltr"
+                                />
+                              </FormControl>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute left-2 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
+                                onClick={() => setShowAddPassword(!showAddPassword)}
+                              >
+                                {showAddPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                              </Button>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">
+                              💡 يمكن للمستخدم تغيير كلمة المرور هذه بنفسه في أي وقت لاحقاً من حسابه.
+                            </p>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
                     <DialogFooter>
                       <Button type="button" variant="outline" onClick={() => setIsAddUserOpen(false)}>إلغاء</Button>
                       <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ المستخدم</Button>
@@ -579,6 +693,7 @@ export function UserManagement() {
                                 {canEdit && (
                                   <DropdownMenuItem onClick={() => {
                                       setEditingUser(user);
+                                      setShowEditPassword(false);
                                       editUserForm.reset({
                                         full_name: user.full_name,
                                         email: user.email,
@@ -586,7 +701,8 @@ export function UserManagement() {
                                         academic_number: user.academic_number,
                                         gender: String(user.gender) as "0"|"1",
                                         user_type_id: String(user.user_type_id),
-                                        college_id: user.college_id ? String(user.college_id) : undefined
+                                        college_id: user.college_id ? String(user.college_id) : undefined,
+                                        password: ""
                                       });
                                       setIsEditUserOpen(true);
                                   }}>
@@ -595,7 +711,7 @@ export function UserManagement() {
                                 )}
                                 {canDelete && (
                                   <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => handleDeleteUser(user.user_id)}>
-                                    <Trash2 className="w-4 h-4 mr-2" /> حذف الحساب
+                                    <Trash2 className="w-4 h-4 mr-2" /> حذف الحساب نهائياً
                                   </DropdownMenuItem>
                                 )}
                               </DropdownMenuContent>
@@ -612,10 +728,12 @@ export function UserManagement() {
         </CardContent>
       </Card>
       
-      {/* Edit Dialog (نفس السابق) */}
+      {/* Edit Dialog */}
       <Dialog open={isEditUserOpen} onOpenChange={setIsEditUserOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader><DialogTitle>تعديل البيانات</DialogTitle></DialogHeader>
+        <DialogContent className="max-w-2xl" dir="rtl">
+          <DialogHeader className="text-right">
+            <DialogTitle className="text-xl font-bold text-right">تعديل البيانات</DialogTitle>
+          </DialogHeader>
           <Form {...editUserForm}>
             <form onSubmit={editUserForm.handleSubmit(onEditUser)} className="space-y-6 mt-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -659,10 +777,66 @@ export function UserManagement() {
                       }}
                     />
                   )}
+
+                  {/* حقل تعديل كلمة المرور الجديد مع إظهار/إخفاء وتوليد عشوائي */}
+                  <div className="md:col-span-2 rounded-lg border p-4 bg-muted/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Key className="w-4 h-4 text-primary" />
+                        <span className="text-sm font-semibold">تعديل كلمة المرور</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs text-muted-foreground hover:text-primary gap-1"
+                        onClick={() => {
+                          const randomPass = "U@" + Math.random().toString(36).slice(-6) + "9";
+                          editUserForm.setValue("password", randomPass);
+                          setShowEditPassword(true);
+                          toast({ title: "تم توليد كلمة سر مؤقتة", description: `كلمة السر: ${randomPass}` });
+                        }}
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" /> توليد كلمة مرور
+                      </Button>
+                    </div>
+
+                    <FormField
+                      control={editUserForm.control}
+                      name="password"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs text-muted-foreground">
+                            كلمة المرور الجديدة (اتركه فارغاً إذا كنت لا ترغب بتغييرها)
+                          </FormLabel>
+                          <div className="relative">
+                            <FormControl>
+                              <Input
+                                {...field}
+                                type={showEditPassword ? "text" : "password"}
+                                placeholder="أدخل كلمة مرور جديدة أو اتركه فارغاً"
+                                className="pr-10"
+                              />
+                            </FormControl>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="absolute left-2 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
+                              onClick={() => setShowEditPassword(!showEditPassword)}
+                            >
+                              {showEditPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </Button>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
                </div>
                <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setIsEditUserOpen(false)}>إلغاء</Button>
-                  <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ</Button>
+                  <Button type="submit" disabled={isLoading}>{isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} حفظ التغييرات</Button>
                </DialogFooter>
             </form>
           </Form>

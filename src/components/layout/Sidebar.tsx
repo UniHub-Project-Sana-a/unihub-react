@@ -42,13 +42,14 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
   // ملاحظة: تأكد من أن User Interface في AuthContext تدعم هذه الحقول
   const userRole = (me as any)?.user_type?.user_type_code || (me as any)?.user_type_code;
   const collegeId = (me as any)?.college_id;
+  const isLecturer = Boolean((me as any)?.is_lecturer || (me as any)?.lecturer_id || (me as any)?.lecturer);
   const isSuperUser = userRole === 'presidency' || userRole === 'admin';
 
   // 2. بناء القائمة ديناميكياً
   const menuItems: SidebarItem[] = useMemo(() => {
     // A. قائمة المشرف العام
     if (isSuperUser) {
-      return [
+      const items: SidebarItem[] = [
         { title: "لوحة التحكم", icon: Home, href: "/", perm: null },
         { title: "الكليات", icon: GraduationCap, href: "/colleges", perm: null },
         { title: "المباني والقاعات", icon: MapPin, href: "/locations", perm: null },
@@ -65,6 +66,10 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
           ]
         },
       ];
+      if (isLecturer) {
+        items.push({ title: "محاضراتي وتدريسي", icon: GraduationCap, href: "/lecturer", perm: null });
+      }
+      return items;
     }
 
     // B. قائمة موظفي الكلية
@@ -86,7 +91,7 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
         { title: "ضمان الجودة", icon: BadgeCheck, href: basePath, perm: "dashboard.view_college", tab: "QualityAssurance" },
       ];
 
-      return collegeItems
+      const result: SidebarItem[] = collegeItems
         .filter(item => can(item.perm))
         .map(item => ({
           title: item.title,
@@ -95,10 +100,21 @@ export function Sidebar({ isOpen, onToggle, isMobile = false }: SidebarProps) {
           perm: item.perm,
           state: (item as any).tab ? { activeTab: (item as any).tab } : undefined
         }));
+
+      if (isLecturer) {
+        result.splice(1, 0, {
+          title: "محاضراتي وتدريسي",
+          icon: GraduationCap,
+          href: "/lecturer",
+          perm: null,
+        });
+      }
+
+      return result;
     }
 
     return [];
-  }, [isSuperUser, collegeId, can]);
+  }, [isSuperUser, collegeId, isLecturer, can]);
 
   const isCollapsed = !isMobile && !isOpen;
 

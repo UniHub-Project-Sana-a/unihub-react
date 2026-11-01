@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, Loader2, Plus, RefreshCw, Search, Users, UserRoundPlus } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, Edit2, Loader2, Plus, RefreshCw, Search, Users, UserRoundPlus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -204,6 +206,14 @@ function StudentsGroupsContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [isAssigning, setIsAssigning] = useState(false);
   const [isCreatingQuickGroup, setIsCreatingQuickGroup] = useState(false);
+  const [editingGroupModal, setEditingGroupModal] = useState<StudentGroup | null>(null);
+  const [editGroupName, setEditGroupName] = useState("");
+  const [editGroupCapacity, setEditGroupCapacity] = useState("");
+  const [isUpdatingGroup, setIsUpdatingGroup] = useState(false);
+  const [isTransferMode, setIsTransferMode] = useState<boolean>(false);
+  const [transferModalStudent, setTransferModalStudent] = useState<Student | null>(null);
+  const [transferModalTargetGroupId, setTransferModalTargetGroupId] = useState<string>("");
+  const [isTransferring, setIsTransferring] = useState<boolean>(false);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -257,12 +267,13 @@ function StudentsGroupsContent() {
     return students.filter((student) => {
       if (!matchesPathFilters(student, appliedPathFilters)) return false;
       if (appliedGenderFilter !== "all" && String(student.user?.gender ?? "") !== appliedGenderFilter) return false;
-      if (!normalizedSearch) return true;
+      const groupNames = (student.groups ?? []).map((g) => g.group_name).join(" ");
       const searchable = [
         student.user?.full_name,
         student.user?.academic_number,
         student.user?.email,
         student.user?.phone,
+        groupNames,
         student.college?.college_name,
         student.department?.department_name,
         student.program?.program_name,
@@ -353,7 +364,7 @@ function StudentsGroupsContent() {
       });
       return;
     }
-    if (Object.values(pathFilters).some((values) => values.length > 1)) {
+    if ((Object.values(pathFilters) as string[][]).some((values) => values.length > 1)) {
       toast({
         title: "اختر مسارًا واحدًا",
         description: "إنشاء المجموعة يتطلب اختيار قيمة واحدة فقط لكل فلتر مستخدم في المسار.",
@@ -413,27 +424,141 @@ function StudentsGroupsContent() {
     }
   };
 
-  const assignStudents = async () => {
+  const openEditGroupModal = (group: StudentGroup) => {
+    setEditingGroupModal(group);
+    setEditGroupName(group.group_name);
+    setEditGroupCapacity(String(group.max_students));
+  };
+
+  const handleUpdateGroup = async () => {
+    if (!editingGroupModal) return;
+    const trimmed = editGroupName.trim();
+    const capacityVal = Number(editGroupCapacity);
+
+    if (!trimmed) {
+      toast({ title: "تنبيه", description: "اسم المجموعة مطلوب", variant: "destructive" });
+      return;
+    }
+    if (!Number.isInteger(capacityVal) || capacityVal < 1 || capacityVal > 500) {
+      toast({ title: "تنبيه", description: "أدخل سعة صحيحة بين 1 و 500", variant: "destructive" });
+      return;
+    }
+
+    setIsUpdatingGroup(true);
+    try {
+      const res = await api.put(`/v1/student-groups/${editingGroupModal.group_id}`, {
+        group_name: trimmed,
+        max_students: capacityVal,
+      });
+      toast({ title: "نجاح", description: "تم تحديث بيانات وسعة المجموعة بنجاح" });
+
+      const updatedGroupData = res.data?.group;
+      setGroups((prev) =>
+        prev.map((g) =>
+          g.group_id === editingGroupModal.group_id
+            ? {
+                ...g,
+                group_name: trimmed,
+                max_students: capacityVal,
+                ...(updatedGroupData?.students_count !== undefined
+                  ? { students_count: Number(updatedGroupData.students_count) }
+                  : {}),
+              }
+            : g
+        )
+      );
+      setEditingGroupModal(null);
+    } catch (error: any) {
+      toast({
+        title: "خطأ",
+        description: error?.response?.data?.message || getApiErrorMessage(error, "فشل تحديث المجموعة"),
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingGroup(false);
+    }
+  };
+
+  const assignStudents = async (expandCapacity = false) => {
     if (!selectedGroup || selectedIds.length === 0) return;
     setIsAssigning(true);
     try {
       const response = await api.post("/v1/student-groups/assign-students", {
         group_id: selectedGroup.group_id,
         student_ids: selectedIds,
+        expand_capacity: expandCapacity ? 1 : 0,
       });
       toast({
         title: "تم إسناد الطلاب",
         description: response.data?.message || `تم إسناد ${selectedIds.length} طالبًا إلى ${selectedGroup.group_name}.`,
       });
       await loadData();
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error?.response?.data?.message || getApiErrorMessage(error, "تعذر إسناد الطلاب إلى المجموعة المحددة.");
       toast({
         title: "تعذر إسناد الطلاب",
-        description: getApiErrorMessage(error, "تعذر إسناد الطلاب إلى المجموعة المحددة."),
+        description: errorMsg,
         variant: "destructive",
       });
     } finally {
       setIsAssigning(false);
+    }
+  };
+
+  const handleTransferSelected = async (expandCapacity = false) => {
+    if (!selectedGroup || selectedIds.length === 0) return;
+    setIsTransferring(true);
+    try {
+      const response = await api.post("/v1/student-groups/transfer-students", {
+        to_group_id: selectedGroup.group_id,
+        student_ids: selectedIds,
+        expand_capacity: expandCapacity ? 1 : 0,
+      });
+      toast({
+        title: "تم نقل الطلاب بنجاح",
+        description: response.data?.message || `تم نقل ${selectedIds.length} طالبًا إلى ${selectedGroup.group_name}.`,
+      });
+      setSelectedIds([]);
+      await loadData();
+    } catch (error: any) {
+      const errorMsg = error?.response?.data?.message || getApiErrorMessage(error, "تعذر نقل الطلاب إلى المجموعة المحددة.");
+      toast({
+        title: "تعذر نقل الطلاب",
+        description: errorMsg,
+        variant: "destructive",
+      });
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
+  const handleTransferSingleStudent = async (expandCapacity = false) => {
+    if (!transferModalStudent || !transferModalTargetGroupId) return;
+    setIsTransferring(true);
+    try {
+      const fromGroupId = transferModalStudent.groups?.[0]?.group_id;
+      const response = await api.post("/v1/student-groups/transfer-students", {
+        to_group_id: Number(transferModalTargetGroupId),
+        from_group_id: fromGroupId,
+        student_ids: [transferModalStudent.student_id],
+        expand_capacity: expandCapacity ? 1 : 0,
+      });
+      toast({
+        title: "تم نقل الطالب بنجاح",
+        description: response.data?.message || "تم نقل الطالب إلى المجموعة المحددة.",
+      });
+      setTransferModalStudent(null);
+      setTransferModalTargetGroupId("");
+      await loadData();
+    } catch (error: any) {
+      const errorMsg = error?.response?.data?.message || getApiErrorMessage(error, "تعذر نقل الطالب إلى المجموعة المحددة.");
+      toast({
+        title: "تعذر نقل الطالب",
+        description: errorMsg,
+        variant: "destructive",
+      });
+    } finally {
+      setIsTransferring(false);
     }
   };
 
@@ -616,10 +741,30 @@ function StudentsGroupsContent() {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <Card>
           <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle className="flex items-center gap-2 text-lg"><Users className="h-5 w-5" />قائمة الطلاب</CardTitle>
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              <CardTitle className="text-lg">قائمة الطلاب</CardTitle>
+              <Badge variant="outline" className="text-xs font-normal">
+                {visibleStudents.length} من {students.length}
+              </Badge>
+            </div>
             <div className="relative w-full sm:max-w-xs">
               <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث بالاسم أو الرقم الجامعي" className="pr-9" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="ابحث بالاسم، الرقم، البريد، المجموعة..."
+                className="pr-9 pl-8"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -670,13 +815,45 @@ function StudentsGroupsContent() {
                           {assignedGroups.length ? (
                             <div className="space-y-1">
                               {assignedGroups.map((group) => (
-                                <div key={group.group_id}>
-                                  <Badge variant="secondary">{group.group_name}</Badge>
-                                  <div className="mt-1 max-w-xs text-[11px] text-muted-foreground">{groupPathLabel(group)}</div>
+                                <div key={group.group_id} className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <Badge variant="secondary">{group.group_name}</Badge>
+                                    <div className="mt-1 max-w-xs text-[11px] text-muted-foreground">{groupPathLabel(group)}</div>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/50 gap-1"
+                                    onClick={() => {
+                                      setTransferModalStudent(student);
+                                      setTransferModalTargetGroupId("");
+                                    }}
+                                  >
+                                    <ArrowLeftRight className="h-3 w-3" />
+                                    نقل
+                                  </Button>
                                 </div>
                               ))}
                             </div>
-                          ) : <Badge variant="outline">غير مسند</Badge>}
+                          ) : (
+                            <div className="flex items-center justify-between gap-2">
+                              <Badge variant="outline">غير مسند</Badge>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 gap-1"
+                                onClick={() => {
+                                  setTransferModalStudent(student);
+                                  setTransferModalTargetGroupId("");
+                                }}
+                              >
+                                <ArrowLeftRight className="h-3 w-3" />
+                                إسناد/نقل
+                              </Button>
+                            </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -692,38 +869,269 @@ function StudentsGroupsContent() {
 
         <Card className="h-fit">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg"><UserRoundPlus className="h-5 w-5" />إسناد إلى مجموعة</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              {isTransferMode ? <ArrowLeftRight className="h-5 w-5 text-blue-600" /> : <UserRoundPlus className="h-5 w-5 text-primary" />}
+              {isTransferMode ? "نقل الطلاب المحددين" : "إسناد إلى مجموعة"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-lg bg-muted/50 p-3 text-sm">
-              الطلاب المحددون: <strong>{selectedIds.length}</strong>
+            <div className="flex items-center justify-between rounded-lg bg-muted/50 p-3 text-sm">
+              <span>الطلاب المحددون:</span>
+              <strong className="text-base text-primary">{selectedIds.length}</strong>
             </div>
-            <Select value={selectedGroupId} onValueChange={setSelectedGroupId} disabled={!selectedIds.length || isAssigning}>
+
+            {/* وضع النقل أو الإسناد */}
+            <div className="rounded-lg p-2.5 bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 space-y-1">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="transfer-mode-check"
+                  checked={isTransferMode}
+                  onCheckedChange={(c) => setIsTransferMode(c === true)}
+                />
+                <Label htmlFor="transfer-mode-check" className="text-xs font-semibold cursor-pointer text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                  وضع النقل (استبدال المجموعة السابقة)
+                </Label>
+              </div>
+              <p className="text-[11px] text-blue-700 dark:text-blue-300 pr-6">
+                عند التفعيل، سيتم إخراج الطلاب المحددين من مجموعاتهم السابقة ونقلهم مباشرة للمجموعة المختارة.
+              </p>
+            </div>
+
+            <Select value={selectedGroupId} onValueChange={setSelectedGroupId} disabled={!selectedIds.length || isAssigning || isTransferring}>
               <SelectTrigger><SelectValue placeholder="حدد الطلاب أولًا ثم اختر المجموعة" /></SelectTrigger>
               <SelectContent>
                 {groupOptions.map((group) => (
                   <SelectItem key={group.group_id} value={String(group.group_id)}>
-                    {group.group_name} — {groupPathLabel(group)}
+                    {group.group_name} ({group.students_count}/{group.max_students}) — {groupPathLabel(group)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {selectedGroup && (
-              <div className="rounded-lg border p-3 text-xs">
-                <p className="font-semibold">{selectedGroup.group_name}</p>
-                <p className="mt-1 text-muted-foreground">{groupPathLabel(selectedGroup)}</p>
-                <p className="mt-2 text-muted-foreground">
-                  السعة المتبقية: {Math.max(0, selectedGroup.max_students - selectedGroup.students_count)}
-                </p>
-              </div>
-            )}
-            <Button className="w-full" onClick={() => void assignStudents()} disabled={!selectedGroup || !selectedIds.length || isAssigning}>
-              {isAssigning ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <UserRoundPlus className="ml-2 h-4 w-4" />}
-              إسناد الطلاب المحددين
+            {selectedGroup && (() => {
+              const remaining = Math.max(0, selectedGroup.max_students - selectedGroup.students_count);
+              const isOverCapacity = selectedIds.length > remaining;
+              const neededCapacity = selectedGroup.students_count + selectedIds.length;
+
+              return (
+                <div className="rounded-lg border p-3 text-xs space-y-2.5 bg-card/60">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-sm">{selectedGroup.group_name}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs px-2 gap-1"
+                      onClick={() => openEditGroupModal(selectedGroup)}
+                    >
+                      <Edit2 className="h-3 w-3" />
+                      تعديل السعة
+                    </Button>
+                  </div>
+                  <p className="text-muted-foreground">{groupPathLabel(selectedGroup)}</p>
+                  
+                  <div className="grid grid-cols-3 gap-2 pt-1 border-t text-[11px] text-center">
+                    <div className="rounded bg-muted/40 p-1.5">
+                      <span className="block text-muted-foreground text-[10px]">السعة الكلية</span>
+                      <span className="font-bold text-xs">{selectedGroup.max_students}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 p-1.5">
+                      <span className="block text-muted-foreground text-[10px]">الطلاب المسندون</span>
+                      <span className="font-bold text-xs">{selectedGroup.students_count}</span>
+                    </div>
+                    <div className="rounded bg-muted/40 p-1.5">
+                      <span className="block text-muted-foreground text-[10px]">السعة المتبقية</span>
+                      <span className={`font-bold text-xs ${isOverCapacity ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+                        {remaining}
+                      </span>
+                    </div>
+                  </div>
+
+                  {isOverCapacity && (
+                    <div className="rounded-md bg-amber-50 dark:bg-amber-950/40 p-2.5 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200 space-y-2">
+                      <p className="leading-tight">
+                        ⚠️ عدد الطلاب المحددين ({selectedIds.length}) يتجاوز السعة المتبقية ({remaining}).
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="w-full h-7 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+                        onClick={() => isTransferMode ? void handleTransferSelected(true) : void assignStudents(true)}
+                        disabled={isAssigning || isTransferring}
+                      >
+                        زيادة السعة تلقائياً إلى {neededCapacity} و{isTransferMode ? "نقل" : "إسناد"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            <Button
+              className="w-full gap-2"
+              onClick={() => isTransferMode ? void handleTransferSelected(false) : void assignStudents(false)}
+              disabled={!selectedGroup || !selectedIds.length || isAssigning || isTransferring}
+            >
+              {(isAssigning || isTransferring) ? (
+                <Loader2 className="ml-2 h-4 w-4 animate-spin" />
+              ) : isTransferMode ? (
+                <ArrowLeftRight className="ml-2 h-4 w-4" />
+              ) : (
+                <UserRoundPlus className="ml-2 h-4 w-4" />
+              )}
+              {isTransferMode ? "نقل الطلاب واستبدال المجموعة" : "إسناد الطلاب المحددين"}
             </Button>
           </CardContent>
         </Card>
       </div>
+
+      {/* مودال نقل طالب فردي إلى مجموعة أخرى */}
+      <Dialog open={Boolean(transferModalStudent)} onOpenChange={(open) => !open && setTransferModalStudent(null)}>
+        <DialogContent className="sm:max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowLeftRight className="h-5 w-5 text-blue-600" />
+              نقل الطالب إلى مجموعة أخرى
+            </DialogTitle>
+            <DialogDescription>
+              نقل الطالب واستبدال مجموعته السابقة بمجموعة جديدة مباشرة.
+            </DialogDescription>
+          </DialogHeader>
+
+          {transferModalStudent && (() => {
+            const currentGroups = transferModalStudent.groups ?? [];
+            const targetGroupObj = groups.find(g => String(g.group_id) === transferModalTargetGroupId);
+            const remaining = targetGroupObj ? Math.max(0, targetGroupObj.max_students - targetGroupObj.students_count) : null;
+            const isFull = remaining !== null && remaining <= 0;
+
+            return (
+              <div className="space-y-4 py-3">
+                <div className="p-3 bg-muted/50 rounded-lg space-y-1">
+                  <p className="text-sm font-semibold">{transferModalStudent.user?.full_name || `طالب #${transferModalStudent.student_id}`}</p>
+                  <p className="text-xs text-muted-foreground">{transferModalStudent.user?.academic_number || transferModalStudent.user?.email || "لا يوجد رقم جامعي"}</p>
+                  <div className="flex items-center gap-2 pt-1 text-xs">
+                    <span className="text-muted-foreground">المجموعة الحالية:</span>
+                    {currentGroups.length ? (
+                      currentGroups.map(g => <Badge key={g.group_id} variant="secondary">{g.group_name}</Badge>)
+                    ) : (
+                      <Badge variant="outline">غير مسند</Badge>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>المجموعة الهدف المراد النقل إليها</Label>
+                  <Select
+                    value={transferModalTargetGroupId}
+                    onValueChange={setTransferModalTargetGroupId}
+                    disabled={isTransferring}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="اختر المجموعة الهدف..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {groupOptions.map((group) => (
+                        <SelectItem key={group.group_id} value={String(group.group_id)}>
+                          {group.group_name} ({group.students_count}/{group.max_students}) — {groupPathLabel(group)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {isFull && (
+                  <div className="rounded-md bg-amber-50 dark:bg-amber-950/40 p-2.5 border border-amber-200 text-xs text-amber-900 dark:text-amber-200">
+                    ⚠️ هذه المجموعة ممتلئة ({targetGroupObj?.students_count}/{targetGroupObj?.max_students}). سيتم زيادة سعتها تلقائياً عند التأكيد.
+                  </div>
+                )}
+
+                <DialogFooter className="gap-2 sm:gap-0 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setTransferModalStudent(null)}
+                    disabled={isTransferring}
+                  >
+                    إلغاء
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void handleTransferSingleStudent(Boolean(isFull))}
+                    disabled={!transferModalTargetGroupId || isTransferring}
+                    className="gap-2"
+                  >
+                    {isTransferring ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ArrowLeftRight className="ml-2 h-4 w-4" />}
+                    تأكيد نقل الطالب
+                  </Button>
+                </DialogFooter>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* مودال تعديل سعة واسم المجموعة */}
+      <Dialog open={Boolean(editingGroupModal)} onOpenChange={(open) => !open && setEditingGroupModal(null)}>
+        <DialogContent className="sm:max-w-md" dir="rtl">
+          <DialogHeader>
+            <DialogTitle>تعديل بيانات المجموعة</DialogTitle>
+            <DialogDescription>
+              تعديل اسم المجموعة وسعتها الاستيعابية للطلاب.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingGroupModal && (
+            <div className="space-y-4 py-3">
+              <div className="space-y-2">
+                <Label htmlFor="edit-modal-group-name">اسم المجموعة</Label>
+                <Input
+                  id="edit-modal-group-name"
+                  value={editGroupName}
+                  onChange={(e) => setEditGroupName(e.target.value)}
+                  placeholder="مثال: مجموعة A"
+                  maxLength={100}
+                  disabled={isUpdatingGroup}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-modal-group-capacity">سعة المجموعة (الحد الأقصى للطلاب)</Label>
+                <Input
+                  id="edit-modal-group-capacity"
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={editGroupCapacity}
+                  onChange={(e) => setEditGroupCapacity(e.target.value)}
+                  placeholder="السعة"
+                  disabled={isUpdatingGroup}
+                />
+                <p className="text-xs text-muted-foreground">
+                  الطلاب المسندون حالياً في هذه المجموعة: {editingGroupModal.students_count} طالب.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setEditingGroupModal(null)}
+              disabled={isUpdatingGroup}
+            >
+              إلغاء
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleUpdateGroup()}
+              disabled={isUpdatingGroup}
+            >
+              {isUpdatingGroup ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : null}
+              حفظ التعديلات
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

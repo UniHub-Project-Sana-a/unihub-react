@@ -299,12 +299,15 @@ export function Dashboard() {
                   }
 
                   return (
-                    <TableRow key={college.id} className="hover:bg-muted/5 transition-colors">
+                    <TableRow 
+                      key={college.id} 
+                      className="hover:bg-muted/40 transition-colors cursor-pointer"
+                      onClick={() => navigate(`/colleges/${college.id}/dashboard`)}
+                    >
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-primary/5 rounded-lg text-primary"><Building2 className="w-4 h-4" /></div>
-                          {/* حذفنا كلمة كلية الثابتة واعتمدنا على اسم الداتابيز */}
-                          <span>{college.name}</span>
+                          <div className="p-2 bg-primary/10 rounded-lg text-primary"><Building2 className="w-4 h-4" /></div>
+                          <span className="font-semibold text-foreground">{college.name}</span>
                         </div>
                       </TableCell>
                       <TableCell className="text-center">
@@ -330,21 +333,17 @@ export function Dashboard() {
                         )}
                       </TableCell>
                       <TableCell className="text-left">
-                        {/* 🔥 تصحيح الرابط: استخدام college.id بدلاً من index 🔥 */}
                         <Button 
                           size="sm" 
                           variant="ghost" 
-                          className="h-8 w-8 p-0" 
-                          onClick={() => toast("الصفحة قيد التطوير 🚧", {
-                            description: "جاري العمل على لوحة تحكم الكلية التفصيلية، ستكون متاحة قريباً.",
-                            duration: 4000, // تختفي تلقائياً بعد 4 ثواني
-                            action: {
-                              label: "حسناً",
-                              onClick: () => console.log("Dismissed"),
-                            },
-                          })}
+                          className="h-8 w-8 p-0 hover:bg-primary/10 hover:text-primary transition-colors" 
+                          title="عرض تفاصيل ولوحة تحكم الكلية"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/colleges/${college.id}/dashboard`);
+                          }}
                         >
-                          <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                          <ArrowRight className="w-4 h-4 rtl:rotate-180" />
                         </Button>
                       </TableCell>
                     </TableRow>

@@ -1155,10 +1155,10 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                   {can('students.add') && (
                     <Button variant="outline" onClick={() => csvInputRef.current?.click()} disabled={isImporting}>
                       {isImporting && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
-                      <Upload className="w-4 h-4 ml-2" /> استيراد CSV
+                      <Upload className="w-4 h-4 ml-2" /> استيراد ملف (Excel / CSV)
                     </Button>
                   )}
-                  <input ref={csvInputRef} type="file" className="hidden" accept=".csv" onChange={handleCsvChange} />
+                  <input ref={csvInputRef} type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={handleCsvChange} />
                 </div>
                 <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
                   <div className="flex flex-wrap items-center gap-3">
@@ -1268,10 +1268,11 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" 
+                              className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10" 
+                              title="حذف الطالب ونقله إلى سلة المحذوفات"
                               onClick={(e) => {
                                 e.stopPropagation(); 
-                                handleRemoveStudentFromGroup(student.studentDbId);
+                                void handleDeleteStudent(student.studentDbId);
                               }}
                             >
                               <Trash2 className="w-4 h-4 text-destructive" />

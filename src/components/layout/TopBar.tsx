@@ -1,6 +1,7 @@
 // src/components/layout/TopBar.tsx
 import { useState } from "react";
-import { Search, Bell, User, Menu, Settings, LogOut } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Search, Bell, User, Menu, Settings, LogOut, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -12,9 +13,14 @@ interface TopBarProps {
 }
 
 export function TopBar({ onMenuToggle }: TopBarProps) {
+  const navigate = useNavigate();
   const { user, myUserType } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [loggingOut, setLoggingOut] = useState(false);
+
+  const isLecturer = Boolean(user?.is_lecturer || user?.lecturer_id || user?.lecturer);
+  const userRole = user?.user_type?.user_type_code || user?.user_type_code;
+  const isMultiRole = isLecturer && userRole !== 'lecturer';
 
 
   const handleLogout = async () => {
@@ -59,16 +65,20 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
       </div>
 
       <div className="flex items-center space-x-reverse space-x-4">
-        {/* <Button variant="ghost" size="icon" className="relative hover:bg-accent" aria-label="Notifications">
-          <Bell className="w-5 h-5" />
-          <Badge className="absolute -top-1 -left-1 w-5 h-5 flex items-center justify-center p-0 bg-destructive">
-            3
-          </Badge>
-        </Button>
-
-        <Button variant="ghost" size="icon" className="hover:bg-accent" aria-label="Settings">
-          <Settings className="w-5 h-5" />
-        </Button> */}
+        {/* زر التبديل الذكي لوضع التدريس للمسؤولين الممارسين للتدريس */}
+        {isMultiRole && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/lecturer')}
+            className="gap-2 border-emerald-600/30 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-700 font-semibold shadow-xs transition-all h-9 px-3"
+            title="الانتقال إلى واجهة المحاضر ورصد الدرجات والتحضير"
+          >
+            <GraduationCap className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">واجهة المحاضر (التدريس)</span>
+            <span className="sm:hidden">المحاضر</span>
+          </Button>
+        )}
 
         {/* زر تسجيل الخروج */}
         <Button

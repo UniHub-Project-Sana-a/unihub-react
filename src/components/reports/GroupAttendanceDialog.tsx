@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { api } from "@/lib/api";
+import { api, storageUrl } from "@/lib/api";
 import { Loader2, Printer, FileText } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
 
@@ -48,9 +48,8 @@ export function GroupAttendanceDialog({
   const printRef = useRef<HTMLDivElement>(null);
   
   // ✅ رابط الشعار الديناميكي من الباك إند
-  // نضيف timestamp لمنع المتصفح من تخزين الصورة القديمة (Cache busting)
   const currentCollegeLogo = collegeId 
-    ? `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}` 
+    ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
     : null;
 
   const currentDateTime = new Date().toLocaleString('ar-EG', {

@@ -51,7 +51,7 @@ export default function SoftDeleteTrashPage({
   subtitle = "العناصر المحذوفة حذفاً ناعماً في هذه الكلية",
   backLabel = "العودة",
 }: {
-  collegeId?: string;
+  collegeId?: string | number;
   onBack: () => void;
   endpoint?: string;
   permission?: string | string[];
@@ -70,7 +70,7 @@ export default function SoftDeleteTrashPage({
     : can(permission);
 
   // بعض الوحدات (مثل الكليات) غير مرتبطة بكلية أب، لذا نرسل college_id فقط عند توفره.
-  const collegeScope = collegeId ? { college_id: collegeId } : {};
+  const collegeScope = collegeId !== undefined && collegeId !== null && collegeId !== "" ? { college_id: collegeId } : {};
 
   const loadTrash = useCallback(async () => {
     setIsLoading(true);

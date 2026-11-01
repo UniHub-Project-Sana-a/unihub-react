@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Printer, CheckCircle2, Circle, Users, BrainCircuit, ArrowRight } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, storageUrl } from "@/lib/api";
 import { useReactToPrint } from "react-to-print";
 import uniLogo from "@/assets/logo.png"; 
 
@@ -27,10 +27,7 @@ export function QAReportDialog({
   
   const printRef = useRef<HTMLDivElement>(null);
 
-  // ✅ تعريف رابط الصور الديناميكي
-  // نستخدم رابط السيرفر + storage + colleges + id.png
-  // أضفنا Date.now() لمنع الكاش (عشان لو غيرت الصورة تتحدث فوراً)
-  const collegeLogoUrl = `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}`;
+  const collegeLogoUrl = storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`);
 
   const handlePrint = useReactToPrint({
     // @ts-ignore

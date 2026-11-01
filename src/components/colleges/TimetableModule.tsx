@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw  } from "lucide-react";
+import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2 } from "lucide-react";
+import SoftDeleteTrashPage from "./SoftDeleteTrashPage";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -86,6 +87,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const collegeIdNum = Number(collegeId);
   const [importSource, setImportSource] = useState<"manual" | null>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "conflict">("idle");
+  const [showTrash, setShowTrash] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
   
   // قائمة قاعات مخصصة لمودال التعويض (تحتوي على خاصية is_busy)
@@ -168,17 +170,34 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
             session_date: editingSession.session_date,
             status: Number(editingSession.status),
             actual_classroom_id: Number(editingSession.actual_classroom_id),
-            // يمكن إضافة start_time و end_time إذا كان الباك-إند يسمح بتعديل وقت الجلسة الفردية
-            lecturer_id: Number(editingSession.actual_lecturer_id), // تحديث المحاضر الفعلي
+            lecturer_id: Number(editingSession.actual_lecturer_id),
             start_time: editingSession.start_time,
             end_time: editingSession.end_time,
         };
 
         await api.put(`/v1/lecture-sessions/${editingSession.session_id}`, payload);
+
+        // ✅ مزامنة وتحديث جدول المحاضرة الرئيسي (Timetable) أيضاً
+        if (editingSession.timetable_id) {
+            try {
+                const selectedPeriod = periods.find(p => 
+                    p.start_time?.slice(0,5) === editingSession.start_time?.slice(0,5) && 
+                    p.end_time?.slice(0,5) === editingSession.end_time?.slice(0,5)
+                );
+                await api.put(`/v1/timetable/${editingSession.timetable_id}`, {
+                    classroom_id: Number(editingSession.actual_classroom_id),
+                    lecturer_id: Number(editingSession.actual_lecturer_id),
+                    ...(selectedPeriod ? { period_id: selectedPeriod.period_id } : {}),
+                });
+            } catch (syncErr: any) {
+                console.warn("Timetable parent sync notice:", syncErr?.response?.data || syncErr);
+            }
+        }
         
-        toast({ title: "نجاح", description: "تم تحديث بيانات الجلسة" });
+        toast({ title: "نجاح", description: "تم تحديث بيانات المحاضرة والجلسة بنجاح" });
         setIsEditModalOpen(false);
         fetchSessionsGrid(viewDate); // تحديث الشبكة
+        void fetchSchedulableLectures();
 
     } catch (error: any) {
         toast({ title: "خطأ", description: error.response?.data?.message || "فشل التحديث", variant: "destructive" });
@@ -187,17 +206,43 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     }
   };
 
-  // --- ✅ دالة حذف الجلسة ---
+  // --- ✅ دالة حذف المحاضرة بالكامل ونقلها لسلة المحذوفات ---
+  const handleDeleteTimetable = async () => {
+      if (!editingSession?.timetable_id) return;
+      if (!(await confirm({ 
+          title: "حذف المحاضرة (نقل إلى سلة المحذوفات)", 
+          description: "هل أنت متأكد من حذف هذه المحاضرة وجميع جلساتها ونقلها إلى سلة المحذوفات؟ يمكنك استعادتها لاحقاً من سلة المحذوفات." 
+      }))) return;
+
+      try {
+          setIsSavingEdit(true);
+          await api.delete(`/v1/timetable/${editingSession.timetable_id}`);
+          toast({ title: "تم النقل إلى سلة المحذوفات", description: "تم نقل المحاضرة وجلساتها إلى سلة المحذوفات بنجاح" });
+          setIsEditModalOpen(false);
+          fetchSessionsGrid(viewDate);
+          void fetchSchedulableLectures();
+      } catch (error: any) {
+          toast({ title: "خطأ", description: error?.response?.data?.message || "فشل حذف المحاضرة", variant: "destructive" });
+      } finally {
+          setIsSavingEdit(false);
+      }
+  };
+
+  // --- ✅ دالة حذف الجلسة الفردية فقط ---
   const handleDeleteSession = async () => {
-      if (!(await confirm({ title: "حذف جلسة", description: "هل أنت متأكد من حذف هذه الجلسة نهائياً؟" }))) return;
+      if (!(await confirm({ title: "حذف جلسة واحدة", description: "هل أنت متأكد من حذف هذه الجلسة المحددة فقط ونقلها لسلة المحذوفات؟" }))) return;
       
       try {
+          setIsSavingEdit(true);
           await api.delete(`/v1/lecture-sessions/${editingSession.session_id}`);
           toast({ title: "تم الحذف", description: "تم حذف الجلسة بنجاح" });
           setIsEditModalOpen(false);
           fetchSessionsGrid(viewDate); // تحديث الشبكة
+          void fetchSchedulableLectures();
       } catch (error) {
           toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+      } finally {
+          setIsSavingEdit(false);
       }
   };
   // ===================== الجزاء الخاص بالتعديل الجلسات والجدول نهاية =====================
@@ -712,9 +757,9 @@ const openCreateSessionModal = async () => {
               time: `${fmtHHMM(session.start_time)}-${fmtHHMM(session.end_time)}`,
               course: timetable.course?.course_name,
               code: timetable.course?.course_code,
-              instructor: timetable.lecturer?.user?.full_name,
-              room: timetable.classroom?.classroom_name,
-              capacity: String(timetable.classroom?.capacity ?? ''),
+              instructor: session.actual_lecturer?.user?.full_name || session.actualLecturer?.user?.full_name || timetable.lecturer?.user?.full_name || "محاضر غير محدد",
+              room: session.actual_classroom?.classroom_name || session.actualClassroom?.classroom_name || timetable.classroom?.classroom_name || "قاعة غير محددة",
+              capacity: String(session.actual_classroom?.capacity || session.actualClassroom?.capacity || timetable.classroom?.capacity || ''),
               status: session.status,
               isMakeup: session.is_makeup,
               color: "bg-blue-500/10 border-blue-500/30",
@@ -955,17 +1000,22 @@ const openCreateSessionModal = async () => {
       
       const errorData = error.response?.data;
 
-      // ✅ --- التعديل هنا: منطق عرض رسالة التعارض --- ✅
-      if (errorData && Array.isArray(errorData.conflicts) && errorData.conflicts.length > 0) {
-        // إذا أرسل الخادم مصفوفة تعارضات
-        setMockConflicts(errorData.conflicts); // استخدم setMockConflicts
+      // ✅ --- منطق عرض رسالة التعارض وتنبيه سلة المحذوفات --- ✅
+      if (errorData && (errorData.has_trash_conflict || errorData.conflicts?.some((c: any) => c.in_trash))) {
+        setMockConflicts(errorData.conflicts || []);
+        toast({
+          title: "تعارض مع محاضرة في سلة المحذوفات",
+          description: errorData.message || errorData.conflicts?.[0]?.message || "يوجد تعارض مع محاضرة في سلة المحذوفات لنفس القاعة والموعد. يرجى تأكيد الحذف النهائي من سلة المحذوفات.",
+          variant: "destructive",
+        });
+      } else if (errorData && Array.isArray(errorData.conflicts) && errorData.conflicts.length > 0) {
+        setMockConflicts(errorData.conflicts);
         toast({
           title: "تم اكتشاف تعارض",
-          description: errorData.conflicts[0].message, // اعرض رسالة أول تعارض
+          description: errorData.conflicts[0].message,
           variant: "destructive",
         });
       } else {
-        // إذا كان هناك خطأ آخر
         setMockConflicts([{ type: 'غير معروف', message: errorData?.message || 'حدث خطأ غير متوقع' }]);
         toast({
           title: "خطأ",
@@ -1082,11 +1132,41 @@ const openCreateSessionModal = async () => {
         setProcessingMakeupId(null);
     }
   };
-   return (
+
+  if (showTrash) {
+    return (
+      <SoftDeleteTrashPage
+        collegeId={collegeId ? String(collegeId) : undefined}
+        onBack={() => {
+          setShowTrash(false);
+          void fetchSessionsGrid(viewDate);
+          void fetchSchedulableLectures();
+        }}
+        endpoint="/v1/timetable/trash"
+        permission={["timetable.delete_lecture", "timetable.update_lecture", "timetable.view_lectures"]}
+        title="سلة محذوفات الجدول الدراسي"
+        subtitle="المحاضرات وجلسات المحاضرات المحذوفة حذفاً ناعماً في هذه الكلية"
+        backLabel="العودة للجدول الدراسي"
+      />
+    );
+  }
+
+  return (
     <div className="space-y-6" >
       <Tabs defaultValue="import" className="w-full" dir="rtl">
-         {/* ✅ --- قسم الشرح والإرشادات --- ✅ */}
-        <div className="flex justify-end mb-2">
+         {/* ✅ --- قسم الشرح والإرشادات وسلة المحذوفات --- ✅ */}
+        <div className="flex justify-between items-center mb-2 gap-2">
+          {can('timetable.delete_lecture') ? (
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
+              onClick={() => setShowTrash(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>سلة محذوفات المحاضرات</span>
+            </Button>
+          ) : <div />}
           {/* الزر الذي يحتوي على الأيقونة */}
           <Button variant="ghost" size="icon" onClick={() => setIsInfoModalOpen(true)}>
             <Info className="h-5 w-5 text-muted-foreground hover:text-primary" />
@@ -1149,6 +1229,7 @@ const openCreateSessionModal = async () => {
           </DialogContent>
         </Dialog>
         {/* ✅ --- نهاية قسم الشرح --- ✅ */}
+
 
         <TabsList className="grid w-full grid-cols-2 bg-card/50 backdrop-blur-sm">
           <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">إضافة للجدول الرئيسي</TabsTrigger>
@@ -2403,21 +2484,28 @@ const openCreateSessionModal = async () => {
                </div>
             ) : null}
         
-            <DialogFooter className="flex justify-between sm:justify-between gap-2">
-              {can('timetable.delete_lecture') && (
-                <Button variant="destructive" onClick={handleDeleteSession} disabled={isSavingEdit || isEditLoading}>
-                    <span className="sr-only">حذف</span> حذف الجلسة
-                </Button>
-              )}
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>إلغاء</Button>
-                    {can('timetable.update_lecture') && (
-                      <Button onClick={handleSaveChanges} disabled={isSavingEdit || isEditLoading}>
-                          {isSavingEdit && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
-                          حفظ التعديلات
-                      </Button>
-                    )}
-                </div>
+            <DialogFooter className="flex flex-col sm:flex-row justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                {can('timetable.delete_lecture') && editingSession?.timetable_id && (
+                  <Button variant="destructive" onClick={handleDeleteTimetable} disabled={isSavingEdit || isEditLoading}>
+                    حذف المحاضرة (سلة المحذوفات)
+                  </Button>
+                )}
+                {can('timetable.delete_lecture') && (
+                  <Button variant="outline" className="text-destructive hover:bg-destructive/10" onClick={handleDeleteSession} disabled={isSavingEdit || isEditLoading}>
+                    حذف هذه الجلسة فقط
+                  </Button>
+                )}
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>إلغاء</Button>
+                {can('timetable.update_lecture') && (
+                  <Button onClick={handleSaveChanges} disabled={isSavingEdit || isEditLoading}>
+                    {isSavingEdit && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                    حفظ التعديلات
+                  </Button>
+                )}
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

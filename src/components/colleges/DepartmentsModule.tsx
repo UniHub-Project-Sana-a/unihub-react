@@ -18,7 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { 
   Plus, Edit, Trash2, Loader2, Target, Layers, LayoutGrid, 
-  Clock, AlertCircle, X, ChevronRight, BookOpen, GraduationCap, Calendar, Box, Edit2, Save, Lightbulb
+  Clock, AlertCircle, X, ChevronRight, BookOpen, GraduationCap, Calendar, Box, Edit2, Save, Lightbulb,
+  Search, BookMarked, ExternalLink, Sparkles, FolderTree, ArrowLeftRight, Check
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePermission } from "@/hooks/usePermission";
@@ -102,6 +103,26 @@ type ApiCourse = {
     id: number;
     name: string;
     academic_system?: string;
+  };
+
+  level?: {
+    id?: number;
+    level_id?: number;
+    level_number?: number;
+  };
+
+  semester?: {
+    id?: number;
+    semester_id?: number;
+    term_number?: number;
+    semester_name?: string;
+  };
+
+  block?: {
+    id?: number;
+    block_id?: number;
+    block_name?: string;
+    name?: string;
   };
 };
 
@@ -350,6 +371,18 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   const [editingCourse, setEditingCourse] = useState<ApiCourse | null>(null);
   const [activeCourseCategory, setActiveCourseCategory] = useState<string | null>(null);
   const [highlightedCourseId, setHighlightedCourseId] = useState<number | null>(null);
+
+  // ✅ البحث والفهرسة في الخطة الدراسية
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFilterType, setSearchFilterType] = useState<"all" | "courses" | "programs">("all");
+  const [searchResultsCourses, setSearchResultsCourses] = useState<ApiCourse[]>([]);
+  const [searchResultsPrograms, setSearchResultsPrograms] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isPlanIndexOpen, setIsPlanIndexOpen] = useState(false);
+  const [allCollegePrograms, setAllCollegePrograms] = useState<any[]>([]);
+  const [allCollegeCourses, setAllCollegeCourses] = useState<ApiCourse[]>([]);
+  const [isLoadingPlanIndex, setIsLoadingPlanIndex] = useState(false);
   const [courseFormData, setCourseFormData] = useState<{
     courseCode: string;
     courseName: string;
@@ -384,6 +417,133 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     corequisiteIds: []
   });
 
+  // ✅ بنك المتطلبات الجامعية
+  const [universityRequirements, setUniversityRequirements] = useState<any[]>([]);
+  const [selectedUniReqId, setSelectedUniReqId] = useState<string>("");
+  const [uniReqMode, setUniReqMode] = useState<"select_existing" | "create_new">("select_existing");
+
+  const fetchUniversityRequirements = async () => {
+    try {
+      const res = await api.get("/v1/courses/university-requirements");
+      const list = res.data?.data || res.data || [];
+      setUniversityRequirements(list);
+    } catch (err) {
+      console.error("فشل جلب المتطلبات الجامعية:", err);
+    }
+  };
+
+  const renderUniversityRequirementSelector = () => {
+    if (courseFormData.category !== "متطلب جامعة") return null;
+
+    return (
+      <div className="col-span-1 md:col-span-3 bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-blue-50/90 border-2 border-blue-300 rounded-xl p-4 shadow-sm space-y-3 animate-in fade-in duration-200">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-blue-200/80 pb-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <div>
+              <h5 className="font-bold text-sm text-blue-950 flex items-center gap-2">
+                بنك المتطلبات الجامعية المشتركة
+                <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-100 border border-blue-200 text-blue-800">
+                  {universityRequirements.length} مقرر متاح
+                </span>
+              </h5>
+              <p className="text-[11px] text-blue-700">مقررات عامة ومشتركة يتم تدريسها مع أكثر من قسم أو مجموعة في الجامعة</p>
+            </div>
+          </div>
+
+          <div className="flex items-center bg-white/90 p-1 rounded-lg border border-blue-200 shadow-xs">
+            <button
+              type="button"
+              onClick={() => setUniReqMode("select_existing")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer",
+                uniReqMode === "select_existing"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-blue-800 hover:bg-blue-50"
+              )}
+            >
+              اختر من بنك المتطلبات الجامعية
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setUniReqMode("create_new");
+                setSelectedUniReqId("");
+              }}
+              className={cn(
+                "px-3 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer",
+                uniReqMode === "create_new"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-blue-800 hover:bg-blue-50"
+              )}
+            >
+              إضافة متطلب جامعي جديد
+            </button>
+          </div>
+        </div>
+
+        {uniReqMode === "select_existing" ? (
+          <div className="space-y-2 bg-white/70 p-3 rounded-lg border border-blue-200/80">
+            <Label className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+              اختر المقرر من بنك المتطلبات الجامعية للتعبئة التلقائية:
+            </Label>
+            <Select
+              value={selectedUniReqId}
+              onValueChange={(val) => {
+                setSelectedUniReqId(val);
+                const selected = universityRequirements.find(
+                  (r) => String(r.course_id || r.id) === val
+                );
+                if (selected) {
+                  setCourseFormData((prev) => ({
+                    ...prev,
+                    courseCode: selected.course_code || prev.courseCode,
+                    courseName: selected.course_name || prev.courseName,
+                    creditHours: Number(selected.credit_hours) || prev.creditHours,
+                    courseParts: Array.isArray(selected.course_parts) && selected.course_parts.length > 0
+                      ? selected.course_parts
+                      : prev.courseParts,
+                    teachingLanguage: selected.teaching_language || prev.teachingLanguage,
+                    notes: selected.notes || prev.notes,
+                  }));
+                  toast({
+                    title: "تم استيراد بيانات المتطلب الجامعي",
+                    description: `تم تعبئة تفاصيل (${selected.course_name}) وساعاته المعتمدة بنجاح.`,
+                  });
+                }
+              }}
+            >
+              <SelectTrigger className="bg-white border-blue-300 h-10 font-medium text-right text-sm">
+                <SelectValue placeholder="-- اضغط هنا لاختيار المتطلب الجامعي المشترك --" />
+              </SelectTrigger>
+              <SelectContent className="max-h-72" dir="rtl">
+                {universityRequirements.map((req) => (
+                  <SelectItem key={req.course_id || req.id} value={String(req.course_id || req.id)}>
+                    <div className="flex items-center justify-between gap-4 w-full">
+                      <span className="font-bold text-slate-800">{req.course_name}</span>
+                      <span className="text-xs font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200">
+                        {req.course_code} | {req.credit_hours} ساعات
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-blue-700">
+              💡 بمجرد اختيار المقرر، ستُعبأ جميع حقول النموذج (الاسم، الكود، الساعات، وتوزيع الساعات الفعلية) تلقائياً!
+            </p>
+          </div>
+        ) : (
+          <div className="p-3 bg-white/80 rounded-lg border border-blue-200 text-xs text-blue-900 leading-relaxed">
+            ✨ أنت الآن في وضع <b>إضافة متطلب جامعي جديد</b>. قم بتعبئة بيانات المقرر أدناه (الكود، الاسم، الساعات المعتمدة وتوزيعها)، وعند الحفظ سيتم إدراجه تلقائياً في بنك المتطلبات الجامعية ليصبح متاحاً لكافة الأقسام والمجموعات.
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const [isProgramOutcomesDialogOpen, setIsProgramOutcomesDialogOpen] = useState(false);
   const [activeProgramForOutcomes, setActiveProgramForOutcomes] = useState<Program | null>(null);
   const [programOutcomes, setProgramOutcomes] = useState<ProgramOutcome[]>([]);
@@ -414,6 +574,244 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     resolver: zodResolver(departmentSchema), 
     defaultValues: { department_name: "", department_code: "" } 
   });
+
+  // ==========================================
+  // البحث والفهرسة والانتقال السريع
+  // ==========================================
+
+  // ✅ بحث المقررات والبرامج الأكاديمية
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResultsCourses([]);
+      setSearchResultsPrograms([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const trimmed = searchQuery.trim().toLowerCase();
+
+        // 1. بحث المقررات عبر API
+        const coursePromise = (searchFilterType === "all" || searchFilterType === "courses")
+          ? api.get("/v1/courses", { params: { college_id: collegeId, q: trimmed } })
+          : Promise.resolve({ data: [] });
+
+        // 2. بحث البرامج
+        const programPromise = (searchFilterType === "all" || searchFilterType === "programs")
+          ? api.get("/v1/programs")
+          : Promise.resolve({ data: [] });
+
+        const [coursesRes, programsRes] = await Promise.all([coursePromise, programPromise]);
+
+        const rawCourses = coursesRes.data?.data || coursesRes.data || [];
+        setSearchResultsCourses(rawCourses);
+
+        const rawPrograms = programsRes.data?.data || programsRes.data || [];
+        const collegeDeptIds = departments.map(d => d.department_id);
+        const filteredPrograms = (rawPrograms as any[]).filter(p => {
+          const matchName = (p.program_name || p.name || "").toLowerCase().includes(trimmed);
+          const inCollege = collegeDeptIds.length === 0 || collegeDeptIds.includes(p.department_id);
+          return matchName && inCollege;
+        });
+        setSearchResultsPrograms(filteredPrograms);
+      } catch (err) {
+        console.error("فشل البحث في الخطة الدراسية:", err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, searchFilterType, collegeId, departments]);
+
+  const navigateToProgram = async (departmentId: number, programId: number) => {
+    try {
+      setIsSearchOpen(false);
+      setIsPlanIndexOpen(false);
+
+      const dept = departments.find(d => d.department_id === departmentId);
+      if (dept) {
+        setSelectedDepartment(dept);
+      }
+
+      const res = await api.get("/v1/programs", { params: { department_id: departmentId } });
+      const raw = res.data?.data ?? res.data;
+      const progs = (raw as any[]).map((p) => ({
+        id: p.id ?? p.program_id,
+        name: p.name ?? p.program_name,
+        is_active: Boolean(p.is_active ?? 1),
+        academic_system: p.academic_system,
+        block_based: Boolean(p.block_based ?? false),
+        total_hours: p.total_hours
+      }));
+      setDepartmentPrograms(progs);
+
+      const prog = progs.find(p => p.id === programId);
+      if (prog) {
+        setSelectedProgram(prog);
+        setSelectedLevel(null);
+        setSelectedTerm(null);
+        setSelectedBlock(null);
+        await Promise.all([
+          fetchLevels(prog.id),
+          fetchBlocks(prog.id)
+        ]);
+
+        toast({
+          title: "تم فتح البرنامج الأكاديمي",
+          description: prog.name,
+        });
+
+        setTimeout(() => {
+          document.getElementById('program-levels-section')?.scrollIntoView({ behavior: 'smooth' });
+        }, 300);
+      }
+    } catch (err) {
+      console.error("خطأ في الانتقال للبرنامج:", err);
+    }
+  };
+
+  const navigateToCourse = async (course: ApiCourse) => {
+    try {
+      setIsSearchOpen(false);
+      setIsPlanIndexOpen(false);
+
+      const deptId = course.department_id || course.department?.id;
+      const progId = course.program_id || course.program?.id;
+      const levelId = course.level_id || course.level?.id;
+      const semesterId = course.semester_id || course.semester?.id;
+      const blockId = course.block_id || course.block?.id;
+
+      if (!deptId || !progId) {
+        toast({
+          title: "تعذر الانتقال",
+          description: "بيانات مسار المقرر غير مكتملة في الخطة",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // 1. القسم
+      const dept = departments.find(d => d.department_id === deptId);
+      if (dept) setSelectedDepartment(dept);
+
+      // 2. البرنامج
+      const progRes = await api.get("/v1/programs", { params: { department_id: deptId } });
+      const rawProgs = progRes.data?.data ?? progRes.data;
+      const progs = (rawProgs as any[]).map((p) => ({
+        id: p.id ?? p.program_id,
+        name: p.name ?? p.program_name,
+        is_active: Boolean(p.is_active ?? 1),
+        academic_system: p.academic_system,
+        block_based: Boolean(p.block_based ?? false),
+        total_hours: p.total_hours
+      }));
+      setDepartmentPrograms(progs);
+      const prog = progs.find(p => p.id === progId);
+      if (prog) {
+        setSelectedProgram(prog);
+      }
+
+      // 3. المستوى
+      if (levelId) {
+        const lvlRes = await api.get("/v1/levels", { params: { program_id: progId } });
+        const rawLvls = lvlRes.data?.data ?? lvlRes.data;
+        const lvls = (rawLvls as any[]).map((l) => ({
+          id: l.id ?? l.level_id,
+          program_id: l.program_id ?? progId,
+          level_number: l.level_number ?? l.number ?? 1
+        }));
+        setProgramLevels(lvls);
+        const lvl = lvls.find(l => l.id === levelId);
+        if (lvl) setSelectedLevel(lvl);
+
+        // 4. الفصل أو البلوك
+        if (semesterId) {
+          const semRes = await api.get("/v1/semesters", { params: { level_id: levelId } });
+          const rawSems = semRes.data?.data ?? semRes.data;
+          const sems = (rawSems as any[]).map((t) => ({
+            id: t.id ?? t.semester_id,
+            semester_name: t.semester_name || `الفصل ${t.term_number}`,
+            level_id: t.level_id ?? levelId,
+            term_number: t.term_number ?? 1
+          }));
+          setLevelTerms(sems);
+          const sem = sems.find(s => s.id === semesterId);
+          if (sem) {
+            setSelectedTerm(sem);
+            setSelectedBlock(null);
+            await fetchCourses(semesterId);
+          }
+        } else if (blockId) {
+          const blkRes = await api.get("/v1/blocks", { params: { program_id: progId, level_id: levelId } });
+          const rawBlks = blkRes.data?.data ?? blkRes.data;
+          const blks: Block[] = (rawBlks as any[]).map((b) => ({
+            id: b.id ?? b.block_id,
+            program_id: b.program_id ?? progId,
+            level_id: b.level_id ?? levelId,
+            block_name: b.name ?? b.block_name ?? "",
+            block_number: b.number ?? b.block_number ?? 1,
+            weeks: b.weeks ?? 0,
+            weight: b.weight ?? 0,
+            credit_hours: b.credit_hours ?? 0,
+            type: b.type ?? 'compulsory',
+            description: b.description ?? ""
+          }));
+          setLevelBlocks(blks);
+          const blk = blks.find(b => b.id === blockId);
+          if (blk) {
+            setSelectedBlock(blk);
+            setSelectedTerm(null);
+            await fetchCourses(undefined, blockId);
+          }
+        }
+      }
+
+      setHighlightedCourseId(course.id);
+      toast({
+        title: "تم الانتقال إلى المقرر في الخطة",
+        description: `${course.course_code} - ${course.course_name}`,
+      });
+
+      setTimeout(() => {
+        const el = document.getElementById(`course-row-${course.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 500);
+
+      setTimeout(() => {
+        setHighlightedCourseId(null);
+      }, 6000);
+
+    } catch (err) {
+      console.error("خطأ في الانتقال للمقرر:", err);
+    }
+  };
+
+  const openPlanIndexModal = async () => {
+    setIsPlanIndexOpen(true);
+    setIsLoadingPlanIndex(true);
+    try {
+      const [programsRes, coursesRes] = await Promise.all([
+        api.get("/v1/programs"),
+        api.get("/v1/courses", { params: { college_id: collegeId } }),
+      ]);
+      const rawPrograms = programsRes.data?.data || programsRes.data || [];
+      const collegeDeptIds = departments.map(d => d.department_id);
+      const filtered = (rawPrograms as any[]).filter(p => collegeDeptIds.length === 0 || collegeDeptIds.includes(p.department_id));
+      setAllCollegePrograms(filtered);
+
+      const rawCourses = coursesRes.data?.data || coursesRes.data || [];
+      setAllCollegeCourses(rawCourses);
+    } catch (err) {
+      console.error("فشل جلب بيانات فهرس الخطة:", err);
+    } finally {
+      setIsLoadingPlanIndex(false);
+    }
+  };
 
   // ==========================================
   // Fetch Functions
@@ -1396,6 +1794,9 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
     
     // ✅ جلب المقررات المتاحة للمتطلبات
     fetchAvailableCoursesForPrereq();
+    setSelectedUniReqId("");
+    setUniReqMode("select_existing");
+    fetchUniversityRequirements();
     
     setIsCourseFormOpen(true); 
   };
@@ -1403,6 +1804,9 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
   const handleEditCourse = (course: ApiCourse) => {
     setEditingCourse(course);
     fetchCourseWeightSummary(selectedProgram?.id, course.id);
+    if (course.category === "متطلب جامعة") {
+      fetchUniversityRequirements();
+    }
     
     setCourseFormData({
       courseCode: course.course_code,
@@ -1607,6 +2011,10 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
         toast({ title: "نجاح", description: "تم إضافة المقرر بنجاح" });
       }
       
+      if (courseFormData.category === "متطلب جامعة") {
+        fetchUniversityRequirements();
+      }
+      
       setIsCourseFormOpen(false);
       setEditingCourse(null);
       
@@ -1749,7 +2157,17 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
           <h2 className="text-2xl font-bold text-slate-800">إدارة الخطة الدراسية</h2>
           <p className="text-sm text-muted-foreground">إدارة الأقسام والبرامج والمقررات الدراسية</p>
         </div>
-        <div className="flex items-center gap-2 justify-self-end">
+        <div className="flex items-center gap-2 justify-self-end flex-wrap sm:flex-nowrap">
+          <Button
+            variant="outline"
+            onClick={openPlanIndexModal}
+            className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 shadow-xs gap-1.5"
+          >
+            <BookMarked className="w-4 h-4 text-indigo-600" />
+            <span className="hidden sm:inline">فهرس الخطة الأكاديمية</span>
+            <span className="sm:hidden">الفهرس</span>
+          </Button>
+
           {can('study_plan.create') && (
             <Button onClick={() => openDialog()} className="shadow-md hover:shadow-lg transition-all">
               <Plus className="w-4 h-4 mr-2" /> إضافة قسم
@@ -1764,6 +2182,224 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
           </Button>
         </div>
       </div>
+
+      {/* شريط البحث والفهرسة الذكي في الخطة الدراسية */}
+      <Card className="border border-indigo-100 shadow-sm bg-gradient-to-r from-slate-50 via-indigo-50/20 to-blue-50/20">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute right-3.5 top-3 h-4 w-4 text-slate-400" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setIsSearchOpen(true);
+                }}
+                onFocus={() => setIsSearchOpen(true)}
+                placeholder="ابحث عن برنامج أكاديمي أو مقرر دراسي (مثال: علوم الحاسوب، البرمجة، CS101)..."
+                className="pr-10 pl-10 bg-white border-slate-200 focus:border-indigo-500 rounded-lg shadow-2xs"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSearchResultsCourses([]);
+                    setSearchResultsPrograms([]);
+                    setIsSearchOpen(false);
+                  }}
+                  className="absolute left-3 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-100"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5 self-start md:self-auto overflow-x-auto pb-1 md:pb-0 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={() => setSearchFilterType("all")}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all shrink-0 cursor-pointer",
+                  searchFilterType === "all"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                )}
+              >
+                الكل
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchFilterType("programs")}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all shrink-0 flex items-center gap-1 cursor-pointer",
+                  searchFilterType === "programs"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                )}
+              >
+                <GraduationCap className="w-3.5 h-3.5" />
+                البرامج الأكاديمية
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchFilterType("courses")}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-semibold rounded-lg transition-all shrink-0 flex items-center gap-1 cursor-pointer",
+                  searchFilterType === "courses"
+                    ? "bg-indigo-600 text-white shadow-xs"
+                    : "bg-white text-slate-700 hover:bg-slate-100 border border-slate-200"
+                )}
+              >
+                <BookOpen className="w-3.5 h-3.5" />
+                المقررات
+              </button>
+            </div>
+          </div>
+
+          {/* لوحة نتائج البحث الذكي */}
+          {isSearchOpen && searchQuery.trim() && (
+            <div className="bg-white rounded-xl border border-indigo-200 shadow-md p-4 space-y-4 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between border-b pb-2 text-xs text-slate-500">
+                <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  {isSearching ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      جاري البحث في قاعدة البيانات...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                      نتائج البحث عن "{searchQuery}": ({searchResultsPrograms.length} برنامج، {searchResultsCourses.length} مقرر)
+                    </>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsSearchOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 font-medium cursor-pointer"
+                >
+                  إغلاق النتائج ✕
+                </button>
+              </div>
+
+              {/* 1. البرامج الأكاديمية المطابقة */}
+              {(searchFilterType === "all" || searchFilterType === "programs") && searchResultsPrograms.length > 0 && (
+                <div className="space-y-2">
+                  <h5 className="text-xs font-bold text-indigo-900 flex items-center gap-1.5">
+                    <GraduationCap className="w-4 h-4 text-indigo-600" />
+                    البرامج الأكاديمية ({searchResultsPrograms.length})
+                  </h5>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                    {searchResultsPrograms.map(prog => {
+                      const dept = departments.find(d => d.department_id === prog.department_id);
+                      return (
+                        <div
+                          key={prog.program_id || prog.id}
+                          className="flex items-center justify-between p-3 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30 transition-all bg-slate-50/50"
+                        >
+                          <div className="space-y-1">
+                            <p className="font-bold text-sm text-slate-800">{prog.program_name || prog.name}</p>
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span>قسم: {dept?.department_name || "غير محدد"}</span>
+                              <span>•</span>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                                {prog.academic_system === 'credit' ? 'ساعات معتمدة' : 'فصول دراسية'}
+                              </Badge>
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs h-8 px-3 gap-1 shrink-0"
+                            onClick={() => navigateToProgram(prog.department_id, prog.program_id || prog.id)}
+                          >
+                            فتح البرنامج
+                            <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 2. المقررات الدراسية المطابقة */}
+              {(searchFilterType === "all" || searchFilterType === "courses") && searchResultsCourses.length > 0 && (
+                <div className="space-y-2">
+                  <h5 className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                    <BookOpen className="w-4 h-4 text-blue-600" />
+                    المقررات الدراسية ({searchResultsCourses.length})
+                  </h5>
+                  <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                    {searchResultsCourses.map(course => {
+                      const pathParts = [
+                        course.department?.name || departments.find(d => d.department_id === course.department_id)?.department_name,
+                        course.program?.name,
+                        course.level?.level_number ? `المستوى ${course.level.level_number}` : null,
+                        course.semester?.term_number ? `الفصل ${course.semester.term_number}` : null,
+                        course.block?.block_name || course.block?.name
+                      ].filter(Boolean);
+
+                      return (
+                        <div
+                          key={course.id}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/30 transition-all gap-3 bg-white"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge className="font-mono bg-slate-100 text-slate-800 border-slate-300 text-xs">
+                                {course.course_code}
+                              </Badge>
+                              <span className="font-bold text-sm text-slate-900">{course.course_name}</span>
+                              <Badge variant="outline" className="text-[11px] text-blue-700 bg-blue-50">
+                                {course.credit_hours} ساعات
+                              </Badge>
+                              <Badge variant="secondary" className="text-[11px]">
+                                {course.category === 'متطلب جامعة' ? 'بنك المتطلبات الجامعية' : course.category}
+                              </Badge>
+                            </div>
+                            
+                            {/* مسار المقرر الكامل */}
+                            <div className="flex items-center gap-1 text-xs text-slate-500 flex-wrap">
+                              <span className="font-semibold text-slate-600">المسار الأكاديمي:</span>
+                              {pathParts.map((part, idx) => (
+                                <React.Fragment key={idx}>
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-medium text-[11px]">
+                                    {part}
+                                  </span>
+                                  {idx < pathParts.length - 1 && <span className="text-slate-300">›</span>}
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-blue-400 text-blue-700 hover:bg-blue-600 hover:text-white text-xs h-8 px-3 gap-1 shrink-0 self-end sm:self-center"
+                            onClick={() => navigateToCourse(course)}
+                          >
+                            انتقال إلى المقرر
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* إذا لم توجد نتائج */}
+              {!isSearching && searchResultsPrograms.length === 0 && searchResultsCourses.length === 0 && (
+                <div className="text-center py-6 text-slate-500 space-y-1">
+                  <p className="font-semibold text-sm">لم يتم العثور على أي برامج أو مقررات مطابقة لـ "{searchQuery}"</p>
+                  <p className="text-xs text-slate-400">تأكد من كتابة الاسم أو الكود بشكل صحيح أو تصفح الخطة مباشرة عبر الفهرس</p>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* الأقسام */}
       <Card className="border-t-4 border-t-slate-700 shadow-sm">
@@ -2764,20 +3400,26 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                               <Label>نوع المتطلب</Label>
                               <Select 
                                 value={courseFormData.category}
-                                onValueChange={v => setCourseFormData({...courseFormData, category: v as "متطلب جامعة" | "متطلب كلية" | "متطلب تخصص إجباري" | "متطلب تخصص اختياري"})}
+                                onValueChange={v => {
+                                  setCourseFormData({...courseFormData, category: v as any});
+                                  if (v === "متطلب جامعة") {
+                                    fetchUniversityRequirements();
+                                  }
+                                }}
                               >
                                 <SelectTrigger className="bg-white">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
-                                  <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
+                                  <SelectItem value="متطلب جامعة">بنك المتطلبات الجامعية</SelectItem>
                                   <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
                                   <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                           </div>
+
+                          {renderUniversityRequirementSelector()}
 
                           {/* ==================== القسم 2: أجزاء المقرر والساعات ==================== */}
                           <div className="bg-white p-4 rounded-lg border space-y-4">
@@ -3214,7 +3856,11 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                                termCourses.map(course => (
                                  <TableRow 
                                    key={course.id}
-                                   className="hover:bg-slate-50 transition-colors border-b border-slate-100"
+                                   id={'course-row-' + course.id}
+                                   className={cn(
+                                     "hover:bg-slate-50 transition-all border-b border-slate-100 duration-300",
+                                     highlightedCourseId === course.id && "bg-amber-100/70 ring-2 ring-amber-500 shadow-sm"
+                                   )}
                                  >
                                    {/* الكود */}
                                    <TableCell className="font-mono text-slate-700 font-bold text-sm align-top py-4">
@@ -3643,20 +4289,26 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                               <Label>نوع المتطلب</Label>
                               <Select 
                                 value={courseFormData.category}
-                                onValueChange={v => setCourseFormData({...courseFormData, category: v as "متطلب جامعة" | "متطلب كلية" | "متطلب تخصص إجباري" | "متطلب تخصص اختياري"})}
+                                onValueChange={v => {
+                                  setCourseFormData({...courseFormData, category: v as any});
+                                  if (v === "متطلب جامعة") {
+                                    fetchUniversityRequirements();
+                                  }
+                                }}
                               >
                                 <SelectTrigger className="bg-white">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
-                                  <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
+                                  <SelectItem value="متطلب جامعة">بنك المتطلبات الجامعية</SelectItem>
                                   <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
                                   <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                           </div>
+              
+                          {renderUniversityRequirementSelector()}
               
                           {/* القسم 2: أجزاء المقرر */}
                           <div className="bg-white p-4 rounded-lg border space-y-4">
@@ -3999,10 +4651,14 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                               </TableRow>
                             ) : (
                               blockCourses.map(course => (
-                                <TableRow 
-                                  key={course.id}
-                                  className="hover:bg-slate-50 transition-colors border-b border-slate-100"
-                                >
+                                 <TableRow 
+                                   key={course.id}
+                                   id={'course-row-' + course.id}
+                                   className={cn(
+                                     "hover:bg-slate-50 transition-all border-b border-slate-100 duration-300",
+                                     highlightedCourseId === course.id && "bg-amber-100/70 ring-2 ring-amber-500 shadow-sm"
+                                   )}
+                                 >
                                   {/* الكود */}
                                   <TableCell className="font-mono text-slate-700 font-bold text-sm align-top py-4">
                                     <div className="bg-slate-100 px-2 py-1 rounded border border-slate-200 inline-block">
@@ -4336,7 +4992,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                       )}
                     >
                       <span className="flex items-center gap-2">
-                        🏫 جامعة
+                        🏛️ متطلبات جامعية
                         <Badge 
                           variant="secondary" 
                           className={cn(
@@ -4345,30 +5001,6 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                           )}
                         >
                           {categoryCourses.filter(c => c.category === 'متطلب جامعة').length}
-                        </Badge>
-                      </span>
-                    </button>
-              
-                    {/* متطلب كلية */}
-                    <button
-                      onClick={() => setActiveCourseCategory('متطلب كلية')}
-                      className={cn(
-                        "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
-                        activeCourseCategory === 'متطلب كلية'
-                          ? "bg-blue-600 text-white border-blue-600 shadow-md"
-                          : "bg-white text-blue-700 border-blue-200 hover:border-blue-400"
-                      )}
-                    >
-                      <span className="flex items-center gap-2">
-                        🏢 كلية
-                        <Badge 
-                          variant="secondary" 
-                          className={cn(
-                            "ml-1",
-                            activeCourseCategory === 'متطلب كلية' ? "bg-blue-400 text-white" : "bg-blue-100"
-                          )}
-                        >
-                          {categoryCourses.filter(c => c.category === 'متطلب كلية').length}
                         </Badge>
                       </span>
                     </button>
@@ -4492,20 +5124,26 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                             <Label>نوع المتطلب</Label>
                             <Select 
                               value={courseFormData.category}
-                              onValueChange={v => setCourseFormData({...courseFormData, category: v as any})}
+                              onValueChange={v => {
+                                setCourseFormData({...courseFormData, category: v as any});
+                                if (v === "متطلب جامعة") {
+                                  fetchUniversityRequirements();
+                                }
+                              }}
                             >
                               <SelectTrigger className="bg-white">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
-                                <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
+                                <SelectItem value="متطلب جامعة">بنك المتطلبات الجامعية</SelectItem>
                                 <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
                                 <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
                               </SelectContent>
                             </Select>
                           </div>
                         </div>
+          
+                        {renderUniversityRequirementSelector()}
           
                         {/* أجزاء المقرر */}
                         <div className="bg-white p-4 rounded-lg border space-y-4">
@@ -5765,20 +6403,7 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                             : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
                         )}
                       >
-                        🏫 جامعة <Badge className="ml-2">{blockCourses.filter(c => c.category === 'متطلب جامعة').length}</Badge>
-                      </button>
-              
-                      {/* كلية */}
-                      <button
-                        onClick={() => setActiveCourseCategory('متطلب كلية')}
-                        className={cn(
-                          "px-4 py-2 rounded-lg font-medium text-sm transition-all border-2",
-                          activeCourseCategory === 'متطلب كلية'
-                            ? "bg-blue-600 text-white border-blue-600"
-                            : "bg-white text-blue-700 border-blue-200 hover:border-blue-400"
-                        )}
-                      >
-                        🏢 كلية <Badge className="ml-2">{blockCourses.filter(c => c.category === 'متطلب كلية').length}</Badge>
+                        🏛️ متطلبات جامعية <Badge className="ml-2">{blockCourses.filter(c => c.category === 'متطلب جامعة').length}</Badge>
                       </button>
               
                       {/* إجباري */}
@@ -5877,20 +6502,26 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
                               <Label>نوع المتطلب</Label>
                               <Select 
                                 value={courseFormData.category}
-                                onValueChange={v => setCourseFormData({...courseFormData, category: v as any})}
+                                onValueChange={v => {
+                                  setCourseFormData({...courseFormData, category: v as any});
+                                  if (v === "متطلب جامعة") {
+                                    fetchUniversityRequirements();
+                                  }
+                                }}
                               >
                                 <SelectTrigger className="bg-white">
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="متطلب جامعة">متطلب جامعة</SelectItem>
-                                  <SelectItem value="متطلب كلية">متطلب كلية</SelectItem>
+                                  <SelectItem value="متطلب جامعة">بنك المتطلبات الجامعية</SelectItem>
                                   <SelectItem value="متطلب تخصص إجباري">متطلب تخصص (إجباري)</SelectItem>
                                   <SelectItem value="متطلب تخصص اختياري">متطلب تخصص (اختياري)</SelectItem>
                                 </SelectContent>
                               </Select>
                             </div>
                           </div>
+            
+                          {renderUniversityRequirementSelector()}
             
                           {/* أجزاء المقرر */}
                           <div className="bg-white p-4 rounded-lg border space-y-4">
@@ -6586,6 +7217,114 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
  
         </div>
       )}
+
+      {/* مودال فهرس الخطة الدراسية الشامل */}
+      <Dialog open={isPlanIndexOpen} onOpenChange={setIsPlanIndexOpen}>
+        <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col p-0" dir="rtl">
+          <DialogHeader className="p-6 pb-4 border-b bg-gradient-to-r from-slate-50 to-indigo-50/40">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-xs">
+                <BookMarked className="w-5 h-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg">فهرس ودليل الخطة الدراسية الشامل</DialogTitle>
+                <DialogDescription className="text-xs mt-1">
+                  تصفح الهيكل الأكاديمي للكلية بالكامل وانتقل فوراً لأي برنامج أو مقرر بنقرة واحدة
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="p-6 overflow-y-auto space-y-6 flex-1">
+            {isLoadingPlanIndex ? (
+              <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
+                <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                <span>جاري تحميل هيكل الخطة الدراسية...</span>
+              </div>
+            ) : departments.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                لا توجد أقسام مسجلة في هذه الكلية بعد.
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {departments.map((dept) => {
+                  const deptPrograms = allCollegePrograms.filter(p => p.department_id === dept.department_id);
+                  const deptCourses = allCollegeCourses.filter(c => (c.department_id || c.department?.id) === dept.department_id);
+
+                  return (
+                    <div key={dept.department_id} className="rounded-xl border border-slate-200 overflow-hidden shadow-2xs bg-white">
+                      <div className="bg-slate-50/80 p-4 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <FolderTree className="w-5 h-5 text-indigo-600" />
+                          <h4 className="font-bold text-base text-slate-900">{dept.department_name}</h4>
+                          <Badge variant="outline" className="font-mono text-xs">{dept.department_code}</Badge>
+                        </div>
+                        <div className="text-xs text-slate-500 flex items-center gap-2">
+                          <span>{deptPrograms.length} برنامج</span>
+                          <span>•</span>
+                          <span>{deptCourses.length} مقرر</span>
+                        </div>
+                      </div>
+
+                      <div className="p-4 space-y-4">
+                        {deptPrograms.length === 0 ? (
+                          <p className="text-xs text-slate-400 py-2">لا توجد برامج مسجلة في هذا القسم.</p>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {deptPrograms.map(prog => {
+                              const progId = prog.program_id || prog.id;
+                              const progCourses = deptCourses.filter(c => (c.program_id || c.program?.id) === progId);
+
+                              return (
+                                <div
+                                  key={progId}
+                                  className="p-3.5 rounded-lg border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50/20 transition-all flex flex-col justify-between gap-3"
+                                >
+                                  <div>
+                                    <div className="flex items-start justify-between gap-2">
+                                      <h5 className="font-bold text-sm text-slate-900">{prog.program_name || prog.name}</h5>
+                                      <Badge variant="outline" className="text-[10px] shrink-0">
+                                        {prog.academic_system === 'credit' ? 'ساعات معتمدة' : 'فصول دراسية'}
+                                      </Badge>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                      {progCourses.length} مقرر مسجل في هذا البرنامج
+                                    </p>
+                                  </div>
+
+                                  <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                                    <span className="text-[11px] text-indigo-700 font-medium">
+                                      {prog.block_based ? "نظام بلوكات" : "نظام تقليدي"}
+                                    </span>
+                                    <Button
+                                      size="sm"
+                                      className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 gap-1"
+                                      onClick={() => navigateToProgram(dept.department_id, progId)}
+                                    >
+                                      عرض البرنامج في الخطة
+                                      <ExternalLink className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="p-4 border-t bg-slate-50">
+            <Button variant="outline" onClick={() => setIsPlanIndexOpen(false)}>
+              إغلاق
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <CourseQualityDialog
         isOpen={!!qualityDialogCourse}

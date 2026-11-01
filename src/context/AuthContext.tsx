@@ -21,7 +21,9 @@ interface User {
   user_type: UserType;
   college_id?: number;
   permissions?: string[];
-  lecturer?: LecturerInfo
+  lecturer?: LecturerInfo;
+  is_lecturer?: boolean;
+  lecturer_id?: number;
 }
 
 interface AuthContextType {

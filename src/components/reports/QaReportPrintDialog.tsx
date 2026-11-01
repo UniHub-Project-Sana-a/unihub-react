@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Printer, BarChart3, Star, Trophy, Medal } from "lucide-react";
 import { useReactToPrint } from "react-to-print";
 import { cn } from "@/lib/utils";
+import { storageUrl } from "@/lib/api";
 
 // ✅ استيراد شعار الجامعة (تأكد من المسار)
 import uniLogo from "@/assets/logo.png";
@@ -52,7 +53,7 @@ export function QaReportPrintDialog({
 
   // رابط الشعار الديناميكي للكلية
   const currentCollegeLogo = collegeId 
-    ? `http://192.168.0.124/unihub-api/storage/colleges/${collegeId}.png?t=${new Date().toDateString()}` 
+    ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
     : null;
 
   const currentDateTime = new Date().toLocaleString('ar-EG', {

@@ -140,7 +140,7 @@ export default function LoginPage() {
       let destination = '/dashboard';
 
       if (role === 'student') {
-          destination = '/student/qa';
+          destination = '/student/portal';
       } 
       else {
           let defaultPath = '/dashboard';
@@ -248,10 +248,17 @@ export default function LoginPage() {
                 {isLoading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
               </Button>
             </form>
-            <div className="text-center mt-6">
+            <div className="text-center mt-6 space-y-2">
               <Button variant="link" onClick={() => navigate('/forgot-password')} className="text-sm text-primary hover:underline">
                 هل نسيت كلمة المرور؟
               </Button>
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <Button variant="link" onClick={() => navigate('/privacy')} className="text-xs text-slate-500 hover:text-slate-800 p-0 h-auto">
+                  سياسة الخصوصية والأمان
+                </Button>
+                <span>•</span>
+                <span>نظام UniHub الجامعي</span>
+              </div>
             </div>
           </CardContent>
         </Card>
