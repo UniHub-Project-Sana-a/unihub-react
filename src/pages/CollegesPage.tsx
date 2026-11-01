@@ -18,19 +18,21 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { usePermission } from "@/hooks/usePermission";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
+import { TabErrorBoundary } from "@/components/common/TabErrorBoundary";
 
 // Lazy imports
-const TimetableModule = lazy(() => import("@/components/colleges/TimetableModule"));
-const EnrollmentModule = lazy(() => import("@/components/colleges/EnrollmentModule"));
-const ReportsModule = lazy(() => import("@/components/colleges/ReportsModule"));
-const AcademicStaffModule = lazy(() => import("@/components/colleges/AcademicStaffModule"));
-const ClassroomsModule = lazy(() => import("@/components/colleges/ClassroomsModule"));
-const CollegesDashboardModule = lazy(() => import("@/components/colleges/CollegesDashboardModule"));
-const DepartmentsModule = lazy(() => import("@/components/colleges/DepartmentsModule"));
-const AcademicTitlesModule = lazy(() => import("@/components/colleges/AcademicTitlesModule"));
-const PeriodsModule = lazy(() => import("@/components/colleges/PeriodsModule"));
-const MakeupRequestsModule = lazy(() => import("@/components/colleges/MakeupRequestsModule"));
-const QualityAssuranceModule = lazy(() => import("@/components/colleges/qa/QualityAssuranceModule"));
+const TimetableModule = lazyWithRetry(() => import("@/components/colleges/TimetableModule"));
+const EnrollmentModule = lazyWithRetry(() => import("@/components/colleges/EnrollmentModule"));
+const ReportsModule = lazyWithRetry(() => import("@/components/colleges/ReportsModule"));
+const AcademicStaffModule = lazyWithRetry(() => import("@/components/colleges/AcademicStaffModule"));
+const ClassroomsModule = lazyWithRetry(() => import("@/components/colleges/ClassroomsModule"));
+const CollegesDashboardModule = lazyWithRetry(() => import("@/components/colleges/CollegesDashboardModule"));
+const DepartmentsModule = lazyWithRetry(() => import("@/components/colleges/DepartmentsModule"));
+const AcademicTitlesModule = lazyWithRetry(() => import("@/components/colleges/AcademicTitlesModule"));
+const PeriodsModule = lazyWithRetry(() => import("@/components/colleges/PeriodsModule"));
+const MakeupRequestsModule = lazyWithRetry(() => import("@/components/colleges/MakeupRequestsModule"));
+const QualityAssuranceModule = lazyWithRetry(() => import("@/components/colleges/qa/QualityAssuranceModule"));
 
 const ModuleSkeleton = ({ title }: { title: string }) => (
   <div className="p-6">
@@ -665,72 +667,94 @@ export default function CollegesPage() {
                 </TabsList>
 
               <TabsContent value="colleges-dashboard">
-                <Suspense fallback={<ModuleSkeleton title="لوحة التحكم " />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل لوحة التحكم">
+                  <Suspense fallback={<ModuleSkeleton title="لوحة التحكم " />}>
                   {activeTab === "colleges-dashboard" && (
                     <CollegesDashboardModule collegeId={selectedCollege.id} />
                   )}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
               <TabsContent value="academic-titles">
-                <Suspense fallback={<ModuleSkeleton title="الدرجات الأكاديمية" />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل الدرجات الأكاديمية">
+                  <Suspense fallback={<ModuleSkeleton title="الدرجات الأكاديمية" />}>
                   {activeTab === "academic-titles" && <AcademicTitlesModule collegeId={selectedCollege.id} />} 
-                </Suspense> 
+                </Suspense>
+                </TabErrorBoundary> 
               </TabsContent>
 
               <TabsContent value="departments">
-                <Suspense fallback={<ModuleSkeleton title=" ألاقسام " />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل الأقسام">
+                  <Suspense fallback={<ModuleSkeleton title=" ألاقسام " />}>
                   {activeTab === "departments" && <DepartmentsModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
               <TabsContent value="classrooms">
-                <Suspense fallback={<ModuleSkeleton title=" المباني " />}>
-                  {activeTab === "classrooms" && <ClassroomsModule collegeId={selectedCollege.id} />}
-                </Suspense>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل قسم القاعات والمباني">
+                  <Suspense fallback={<ModuleSkeleton title=" المباني " />}>
+                    {activeTab === "classrooms" && <ClassroomsModule collegeId={selectedCollege.id} />}
+                  </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
               <TabsContent value="Academic Staff">
-                <Suspense fallback={<ModuleSkeleton title=" أعضاء هيئة التدريس " />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل أعضاء هيئة التدريس">
+                  <Suspense fallback={<ModuleSkeleton title=" أعضاء هيئة التدريس " />}>
                   {activeTab === "Academic Staff" && <AcademicStaffModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
               <TabsContent value="Timetable">
-                <Suspense fallback={<ModuleSkeleton title="الجدول الزمني" />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل الجدول الزمني">
+                  <Suspense fallback={<ModuleSkeleton title="الجدول الزمني" />}>
                   {activeTab === "Timetable" && <TimetableModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
               <TabsContent value="periods">
-                <Suspense fallback={<ModuleSkeleton title="الفترات" />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل الفترات">
+                  <Suspense fallback={<ModuleSkeleton title="الفترات" />}>
                   {activeTab === "periods" && <PeriodsModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
               
               <TabsContent value="Enrollment">
-                <Suspense fallback={<ModuleSkeleton title="تسجيل الطلاب" />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل تسجيل الطلاب">
+                  <Suspense fallback={<ModuleSkeleton title="تسجيل الطلاب" />}>
                   {activeTab === "Enrollment" && <EnrollmentModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
               
               <TabsContent value="Reports">
-                <Suspense fallback={<ModuleSkeleton title="التقارير" />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل التقارير">
+                  <Suspense fallback={<ModuleSkeleton title="التقارير" />}>
                   {activeTab === "Reports" && <ReportsModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
               <TabsContent value="MakeupRequests">
-                <Suspense fallback={<ModuleSkeleton title="طلبات التعويض" />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل طلبات التعويض">
+                  <Suspense fallback={<ModuleSkeleton title="طلبات التعويض" />}>
                   {activeTab === "MakeupRequests" && <MakeupRequestsModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
               {/* ✅ الإضافة الجديدة هنا */}
               <TabsContent value="QualityAssurance">
-                <Suspense fallback={<ModuleSkeleton title="نظام ضمان الجودة" />}>
+                <TabErrorBoundary fallbackTitle="تعذر تحميل نظام ضمان الجودة">
+                  <Suspense fallback={<ModuleSkeleton title="نظام ضمان الجودة" />}>
                   {activeTab === "QualityAssurance" && <QualityAssuranceModule collegeId={selectedCollege.id} />}
                 </Suspense>
+                </TabErrorBoundary>
               </TabsContent>
 
             </Tabs>

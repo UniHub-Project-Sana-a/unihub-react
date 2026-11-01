@@ -1,9 +1,8 @@
 // Service Worker for UniHub PWA
 (() => {
-  const CACHE_NAME = 'unihub-pwa-v2';
+  const CACHE_NAME = 'unihub-pwa-v3';
   const PRECACHE_ASSETS = [
     '/',
-    '/index.html',
     '/manifest.json',
     '/favicon.png'
   ];
@@ -46,10 +45,13 @@
       fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            const responseClone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone).catch(() => {});
-            });
+            // Only cache images and fonts, avoid caching hashed js chunks that can go stale
+            if (url.pathname.endsWith('.png') || url.pathname.endsWith('.jpg') || url.pathname.endsWith('.woff2')) {
+              const responseClone = networkResponse.clone();
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(event.request, responseClone).catch(() => {});
+              });
+            }
           }
           return networkResponse;
         })
