@@ -302,6 +302,9 @@ export default function StudentPortalPage() {
         setRegisteredCourses(res.data.registered_courses || []);
         setAnnouncements(res.data.announcements || []);
         setExcuses(res.data.recent_excuses || []);
+        try {
+          window.dispatchEvent(new CustomEvent("unihub:announcements-updated"));
+        } catch (_) {}
       }
     } catch (error) {
       console.error("Error loading student portal summary:", error);
@@ -1034,14 +1037,25 @@ export default function StudentPortalPage() {
                 {/* Latest Announcements */}
                 <Card className="lg:col-span-5 shadow-sm border-border/60">
                   <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2">
                         <Megaphone className="w-5 h-5 text-amber-500" />
                         <CardTitle className="text-base sm:text-lg">تنبيهات وإعلانات الدكاترة</CardTitle>
                       </div>
-                      <Badge variant="secondary" className="text-xs">
-                        {announcements.length} إشعار
-                      </Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-xs">
+                          {announcements.length} إشعار
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowNotificationsModal(true)}
+                          className="h-7 text-xs gap-1 text-primary border-primary/20 hover:bg-primary/5"
+                        >
+                          <Bell className="w-3.5 h-3.5" />
+                          <span>فتح التنبيهات</span>
+                        </Button>
+                      </div>
                     </div>
                     <CardDescription>
                       إشعارات فورية حول مواعيد الاختبارات والتكليفات واعتذارات المحاضرين
