@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { api, setAuthToken } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -213,6 +213,16 @@ export default function StudentPortalPage() {
   // Weekly Timetable data
   const [weeklyTimetable, setWeeklyTimetable] = useState<any[]>([]);
   const [isLoadingTimetable, setIsLoadingTimetable] = useState(false);
+  const [selectedTimetableDay, setSelectedTimetableDay] = useState<string>("all");
+
+  const currentDayOfWeek = useMemo(() => {
+    const days = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+    return days[new Date().getDay()];
+  }, []);
+
+  const totalWeeklySlots = useMemo(() => {
+    return weeklyTimetable.reduce((acc, d) => acc + (d.slots?.length || 0), 0);
+  }, [weeklyTimetable]);
 
   // Attendance full breakdown
   const [attendanceCourses, setAttendanceCourses] = useState<any[]>([]);
@@ -554,25 +564,20 @@ export default function StudentPortalPage() {
               </div>
             </div>
 
-            {/* Quick Action Buttons */}
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button
-                onClick={() => setShowAssignmentModal(true)}
-                variant="outline"
-                className="gap-1.5 h-9 border-primary/30 hover:bg-primary/5 text-xs font-medium"
-              >
-                <FileCheck className="w-4 h-4 text-primary" />
-                <span>تسليم تكليف / واجب</span>
-              </Button>
-
-              <Button
-                onClick={() => setShowExcuseDialog(true)}
-                variant="outline"
-                className="gap-1.5 h-9 border-primary/30 hover:bg-primary/5 text-xs font-medium"
-              >
-                <PlusCircle className="w-4 h-4 text-primary" />
-                <span>رفع عذر طبي / غياب</span>
-              </Button>
+            {/* Academic Status Pills */}
+            <div className="flex flex-col md:items-end gap-2 shrink-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge className="bg-primary/10 text-primary hover:bg-primary/15 border-primary/20 text-xs px-3 py-1 font-semibold">
+                  {student?.group_name || "المجموعة الدراسية"}
+                </Badge>
+                <Badge variant="secondary" className="text-xs px-2.5 py-1">
+                  {student?.semester_name || "الفصل الدراسي الحالي"}
+                </Badge>
+              </div>
+              <span className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
+                <GraduationCap className="w-3.5 h-3.5 text-primary/70" />
+                العام الأكاديمي: 2026-2027
+              </span>
             </div>
           </div>
         </Card>
@@ -1350,103 +1355,246 @@ export default function StudentPortalPage() {
         )}
 
         {/* ==================================================================== */}
-        {/* 2. TAB: WEEKLY TIMETABLE (الجدول الدراسي الأسبوعي) */}
+        {/* 2. TAB: WEEKLY TIMETABLE (الجدول الدراسي الأسبوعي الذكي والمحسّن للجوال) */}
         {/* ==================================================================== */}
         {currentTab === "timetable" && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            <Card className="shadow-sm border-border/60">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg">الجدول الدراسي الأسبوعي المعتمد</CardTitle>
-                    <CardDescription>
-                      مجموعتك: {student?.group_name} • من السبت إلى الخميس
-                    </CardDescription>
+          <div className="space-y-5 animate-in fade-in duration-300">
+            {/* Header Card with Academic Stats */}
+            <Card className="p-4 sm:p-5 bg-gradient-to-br from-primary/10 via-primary/5 to-background border-primary/20 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="w-8 h-8 rounded-lg bg-primary/15 text-primary flex items-center justify-center">
+                      <Calendar className="w-4 h-4" />
+                    </div>
+                    <CardTitle className="text-base sm:text-lg">الجدول الدراسي الأسبوعي المعتمد</CardTitle>
+                    <Badge variant="outline" className="text-xs font-mono">
+                      {student?.group_name || "مجموعتك الدراسية"}
+                    </Badge>
                   </div>
+                  <CardDescription className="text-xs">
+                    مواعيد المحاضرات والقاعات وأساتذة المقررات موزعة على أيام الأسبوع الأكاديمي.
+                  </CardDescription>
                 </div>
-              </CardHeader>
 
-              <CardContent>
-                {isLoadingTimetable ? (
-                  <div className="flex items-center justify-center p-12">
-                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                  </div>
-                ) : weeklyTimetable.length === 0 ? (
-                  <p className="text-center py-8 text-muted-foreground text-sm">لم يتم العثور على حصص مجدولة.</p>
-                ) : (
-                  <div className="space-y-6">
-                    {weeklyTimetable.map((dayGroup) => (
+                <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                  <Badge variant="secondary" className="text-xs px-2.5 py-1 gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-500" />
+                    <span>{totalWeeklySlots} حصة أسبوعياً</span>
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant={selectedTimetableDay === currentDayOfWeek ? "default" : "outline"}
+                    className="h-8 text-xs gap-1.5"
+                    onClick={() => setSelectedTimetableDay(selectedTimetableDay === currentDayOfWeek ? "all" : currentDayOfWeek)}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    <span>جدول اليوم ({currentDayOfWeek})</span>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Day Filter Pills for Mobile and Desktop */}
+              <div className="flex items-center gap-1.5 pt-4 mt-3 border-t border-primary/10 overflow-x-auto pb-1 scrollbar-none">
+                <Button
+                  size="sm"
+                  variant={selectedTimetableDay === "all" ? "default" : "outline"}
+                  onClick={() => setSelectedTimetableDay("all")}
+                  className={`h-7 px-3 text-xs rounded-full shrink-0 ${
+                    selectedTimetableDay === "all"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "border-border/60 hover:bg-accent/40"
+                  }`}
+                >
+                  جميع الأيام ({totalWeeklySlots})
+                </Button>
+
+                {weeklyTimetable.map((dayGroup) => {
+                  const isToday = dayGroup.day === currentDayOfWeek;
+                  const isSelected = selectedTimetableDay === dayGroup.day;
+                  return (
+                    <Button
+                      key={dayGroup.day}
+                      size="sm"
+                      variant={isSelected ? "default" : "outline"}
+                      onClick={() => setSelectedTimetableDay(dayGroup.day)}
+                      className={`h-7 px-3 text-xs rounded-full shrink-0 gap-1.5 transition-all ${
+                        isSelected
+                          ? "bg-primary text-primary-foreground shadow-xs"
+                          : isToday
+                          ? "border-emerald-500 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 font-bold"
+                          : "border-border/60 hover:bg-accent/40"
+                      }`}
+                    >
+                      {isToday && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />}
+                      <span>يوم {dayGroup.day}</span>
+                      <span className="text-[10px] opacity-75">({dayGroup.slots?.length || 0})</span>
+                    </Button>
+                  );
+                })}
+              </div>
+            </Card>
+
+            {/* Timetable Content */}
+            {isLoadingTimetable ? (
+              <div className="flex flex-col items-center justify-center p-12 bg-card rounded-xl border">
+                <Loader2 className="w-8 h-8 animate-spin text-primary mb-2" />
+                <p className="text-xs text-muted-foreground">جاري تحميل وتنسيق جدولك الدراسي...</p>
+              </div>
+            ) : weeklyTimetable.length === 0 ? (
+              <Card className="p-8 text-center text-muted-foreground">
+                <Calendar className="w-10 h-10 mx-auto text-muted-foreground/40 mb-2" />
+                <p className="text-sm font-semibold">لم يتم العثور على حصص مجدولة لمجموعتك حالياً.</p>
+                <p className="text-xs text-muted-foreground mt-1">تأكد من تسجيل مقررات الفصل الدراسي أو مراجعة مسجل الكلية.</p>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                {weeklyTimetable
+                  .filter((dayGroup) => selectedTimetableDay === "all" || selectedTimetableDay === dayGroup.day)
+                  .map((dayGroup) => {
+                    const isToday = dayGroup.day === currentDayOfWeek;
+                    return (
                       <div key={dayGroup.day} className="space-y-3">
-                        <div className="flex items-center gap-2 border-b pb-2">
-                          <Calendar className="w-4 h-4 text-primary" />
-                          <h3 className="font-bold text-base text-foreground">يوم {dayGroup.day}</h3>
-                          <Badge variant="secondary" className="text-xs">
-                            {dayGroup.slots.length} حصص
+                        {/* Day Header Bar */}
+                        <div className="flex items-center justify-between pb-2 border-b">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-3 h-3 rounded-full ${isToday ? "bg-emerald-500 animate-pulse" : "bg-primary/50"}`} />
+                            <h3 className="font-bold text-sm sm:text-base text-foreground">
+                              يوم {dayGroup.day}
+                            </h3>
+                            {isToday && (
+                              <Badge className="bg-emerald-600 text-white text-[10px] py-0 px-2 h-5">
+                                اليوم الدراسي الحالي
+                              </Badge>
+                            )}
+                          </div>
+                          <Badge variant="secondary" className="text-xs font-mono">
+                            {dayGroup.slots.length} محاضرات
                           </Badge>
                         </div>
 
                         {dayGroup.slots.length === 0 ? (
-                          <p className="text-xs text-muted-foreground italic pr-6">لا توجد محاضرات في هذا اليوم.</p>
+                          <div className="p-6 rounded-xl border border-dashed text-center bg-muted/20">
+                            <Sparkles className="w-5 h-5 mx-auto text-muted-foreground/40 mb-1" />
+                            <p className="text-xs text-muted-foreground">لا توجد محاضرات في هذا اليوم (يوم دراسة ذاتية / راحة).</p>
+                          </div>
                         ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pr-2">
-                            {dayGroup.slots.map((s: any) => (
-                              <div
-                                key={s.timetable_id}
-                                className="p-3.5 rounded-xl border border-border/70 bg-card hover:border-primary/40 transition-colors space-y-2 flex flex-col justify-between"
-                              >
-                                <div>
-                                  <div className="flex items-start justify-between">
-                                    <span className="font-mono text-xs font-bold text-primary">{s.course_code}</span>
-                                    <Badge variant="outline" className="text-[10px]">
-                                      {s.lecture_type}
-                                    </Badge>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                            {dayGroup.slots.map((s: any) => {
+                              const isAttended = Boolean(
+                                isToday && (todayLectures.find((t) => t.timetable_id === s.timetable_id)?.is_attended || scannedSessions.includes(s.timetable_id))
+                              );
+                              const isPractical = s.lecture_type?.includes("عملي") || s.lecture_type?.includes("معمل");
+                              const isClinical = s.lecture_type?.includes("سريري");
+
+                              // Clean period name: e.g. "الفترة الأولى" without duplicate hours
+                              const cleanPeriodName = (s.period_name || "").replace(/\(.*?\)/g, "").trim() || s.period_name;
+
+                              return (
+                                <Card
+                                  key={s.timetable_id}
+                                  className={`p-4 rounded-xl border transition-all flex flex-col justify-between shadow-2xs hover:shadow-xs ${
+                                    isPractical
+                                      ? "border-r-4 border-r-emerald-500 bg-card hover:border-emerald-500/50"
+                                      : isClinical
+                                      ? "border-r-4 border-r-purple-500 bg-card hover:border-purple-500/50"
+                                      : "border-r-4 border-r-indigo-500 bg-card hover:border-indigo-500/50"
+                                  }`}
+                                >
+                                  <div className="space-y-3">
+                                    {/* Top Bar: Code, Type, Period */}
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="font-mono text-xs font-bold text-primary px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20">
+                                          {s.course_code}
+                                        </span>
+                                        <Badge
+                                          variant="outline"
+                                          className={`text-[10px] py-0 px-2 h-5 font-semibold ${
+                                            isPractical
+                                              ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                              : isClinical
+                                              ? "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300"
+                                              : "bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300"
+                                          }`}
+                                        >
+                                          {s.lecture_type}
+                                        </Badge>
+                                      </div>
+
+                                      {cleanPeriodName && (
+                                        <span className="text-[11px] text-muted-foreground font-medium bg-muted/60 px-2 py-0.5 rounded">
+                                          {cleanPeriodName}
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Course Title */}
+                                    <h4 className="font-bold text-sm text-foreground line-clamp-2 leading-snug">
+                                      {s.course_name}
+                                    </h4>
+
+                                    {/* Details Grid */}
+                                    <div className="space-y-1.5 text-xs text-muted-foreground pt-2 border-t border-border/50">
+                                      <div className="flex items-center gap-1.5 text-foreground font-medium">
+                                        <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
+                                        <span className="font-mono">
+                                          {s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <Building className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+                                        <span className="truncate">{s.classroom_name} {s.building_name ? `• ${s.building_name}` : ""}</span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <User className="w-3.5 h-3.5 text-muted-foreground/80 shrink-0" />
+                                        <span className="truncate">أستاذ المقرر: {s.lecturer_name}</span>
+                                      </div>
+                                    </div>
                                   </div>
 
-                                  <h4 className="font-bold text-sm text-foreground mt-1">{s.course_name}</h4>
-
-                                  <div className="text-xs text-muted-foreground space-y-1 pt-2 mt-2 border-t">
-                                    <div className="flex items-center gap-1.5">
-                                      <Clock className="w-3.5 h-3.5 text-primary" />
-                                      <span>
-                                        {s.start_time.slice(0, 5)} - {s.end_time.slice(0, 5)} ({s.period_name})
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <Building className="w-3.5 h-3.5 text-primary" />
-                                      <span>{s.classroom_name}</span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5">
-                                      <User className="w-3.5 h-3.5 text-primary" />
-                                      <span>أستاذ المقرر: {s.lecturer_name}</span>
-                                    </div>
+                                  {/* Card Footer: Conditional for Today vs Other Days */}
+                                  <div className="pt-3 border-t mt-3">
+                                    {isToday ? (
+                                      isAttended ? (
+                                        <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold dark:bg-emerald-950/40 dark:text-emerald-300">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          <span>تم التحضير بنجاح اليوم ✓</span>
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          onClick={() => {
+                                            const matched = todayLectures.find((t) => t.timetable_id === s.timetable_id);
+                                            if (matched) setActiveScannerLecture(matched);
+                                            setShowQRScannerModal(true);
+                                          }}
+                                          className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 font-semibold shadow-xs transition-all animate-pulse"
+                                        >
+                                          <QrCode className="w-3.5 h-3.5" />
+                                          <span>مسح رمز الـ QR للتحضير الآن</span>
+                                        </Button>
+                                      )
+                                    ) : (
+                                      <div className="flex items-center justify-between text-[11px] text-muted-foreground py-1 px-2 rounded-md bg-muted/40 border border-border/40">
+                                        <span className="flex items-center gap-1">
+                                          <Calendar className="w-3 h-3 text-primary/70" />
+                                          <span>مجدولة كل أسبوع (يوم {dayGroup.day})</span>
+                                        </span>
+                                        <span className="font-mono text-[10px] text-muted-foreground/80">ثابتة</span>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
-
-                                <div className="pt-2 border-t mt-2">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      const matched = todayLectures.find((t) => t.timetable_id === s.timetable_id);
-                                      if (matched) setActiveScannerLecture(matched);
-                                      setShowQRScannerModal(true);
-                                    }}
-                                    className="w-full gap-1.5 border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/30 text-xs h-8 font-medium transition-all"
-                                  >
-                                    <QrCode className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>مسح رمز الـ QR للتحضير</span>
-                                  </Button>
-                                </div>
-                              </div>
-                            ))}
+                                </Card>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 
