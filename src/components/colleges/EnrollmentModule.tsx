@@ -575,55 +575,16 @@ export default function EnrollmentModule({ collegeId }: EnrollmentModuleProps) {
     }
   };
 
-  // --- رابط وتوكّن الـ API موحّدان مع بقية التطبيق ---
-  const apiBase = String(
-    import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ""
-  );
-  const readToken = () =>
-    sessionStorage.getItem("access_token") ||
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("token") ||
-    "";
-
   /**
-   * رفع ملف CSV إلى مسار استيراد الطلاب.
-   * نستخدم fetch عمدًا مع عدم تحديد Content-Type ليضيف المتصفح الحد (boundary)
-   * تلقائيًا، مع استخدام نفس رابط الـ API والتوكن الموجودين في بقية التطبيق.
-   * يرمي خطأً يحمل `response.data` (قد يكون HTML) تفهمه getApiErrorMessage.
+   * رفع ملف CSV إلى مسار استيراد الطلاب عبر عميل الـ API المركزي (api).
    */
   const postStudentsCsv = async (formData: FormData): Promise<any> => {
-    const token = readToken();
-
-    const response = await fetch(`${apiBase}/v1/student-groups/import-csv`, {
-      method: "POST",
+    const response = await api.post("/v1/student-groups/import-csv", formData, {
       headers: {
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "Content-Type": "multipart/form-data",
       },
-      body: formData,
     });
-
-    const text = await response.text();
-    const contentType = response.headers.get("content-type") || "";
-
-    // نحوّل إلى JSON إن أمكن، وإلا نحتفظ بالنص (مثل صفحة HTML عند خطأ 500)
-    let payload: any = text;
-    if (contentType.includes("json")) {
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        payload = text;
-      }
-    }
-
-    // فشل، أو استجابة ناجحة لكنها ليست JSON (مثل صفحة خطأ HTML)
-    if (!response.ok || typeof payload === "string") {
-      const error: any = new Error(`HTTP ${response.status}`);
-      error.response = { status: response.status, data: payload };
-      throw error;
-    }
-
-    return payload;
+    return response.data;
   };
 
   const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {

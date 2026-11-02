@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ArrowRight, Loader2, RotateCcw, Trash2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, getApiErrorMessage } from "@/lib/api";
 import { usePermission } from "@/hooks/usePermission";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -80,10 +80,10 @@ export default function SoftDeleteTrashPage({
         ...collegeScope,
       });
       setGroups(response.data?.groups ?? []);
-    } catch {
+    } catch (error: any) {
       toast({
-        title: "خطأ",
-        description: "تعذر تحميل سلة المحذوفات",
+        title: "تنبيه",
+        description: getApiErrorMessage(error, "تعذر تحميل سلة المحذوفات"),
         variant: "destructive",
       });
     } finally {
