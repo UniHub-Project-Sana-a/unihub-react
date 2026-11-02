@@ -59,6 +59,7 @@ import {
   QrCode,
   ShieldCheck,
   HelpCircle,
+  Lock,
   Layers,
   Bell,
   Camera,
@@ -112,11 +113,14 @@ interface TodayLecture {
   course_code: string;
   lecturer_name: string;
   classroom: string;
+  classroom_name?: string;
   start_time: string;
   end_time: string;
   lecture_type: string;
   status_code: number; // 0: scheduled, 1: live, 2: completed
   status_text: string;
+  is_attended?: boolean;
+  has_answered_questions?: boolean;
   attachments?: Array<{ id: number; title: string; type: string; url: string }>;
   interactive_questions?: Array<{ id: number; question: string; type: string; options?: string[] }>;
 }
@@ -254,6 +258,8 @@ export default function StudentPortalPage() {
   const [answersMap, setAnswersMap] = useState<Record<number, string>>({});
   const [isSubmittingAnswers, setIsSubmittingAnswers] = useState(false);
   const [answeredSessions, setAnsweredSessions] = useState<number[]>([]);
+  const [scannedSessions, setScannedSessions] = useState<number[]>([]);
+  const [activeScannerLecture, setActiveScannerLecture] = useState<TodayLecture | null>(null);
 
   // Attachments Modal State
   const [selectedLectureForAttachments, setSelectedLectureForAttachments] = useState<TodayLecture | null>(null);
@@ -789,29 +795,50 @@ export default function StudentPortalPage() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {todayLectures.map((lec) => (
+                      {todayLectures.map((lec) => {
+                        const isScanned = Boolean(lec.is_attended || scannedSessions.includes(lec.timetable_id));
+                        const isAnswered = Boolean(lec.has_answered_questions || answeredSessions.includes(lec.timetable_id));
+                        const hasQuestions = Boolean(lec.interactive_questions && lec.interactive_questions.length > 0);
+
+                        return (
                         <div
                           key={lec.timetable_id}
                           className={`p-4 rounded-xl border transition-all ${
-                            lec.status_code === 1
+                            isScanned && (!hasQuestions || isAnswered)
+                              ? "border-emerald-500/30 bg-emerald-500/[0.02]"
+                              : isScanned && hasQuestions && !isAnswered
+                              ? "border-amber-500/40 bg-amber-500/[0.02]"
+                              : lec.status_code === 1
                               ? "border-emerald-500/50 bg-emerald-50/30 dark:bg-emerald-950/20 shadow-xs"
                               : "border-border/70 bg-card hover:bg-accent/5"
                           }`}
                         >
                           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                             <div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <h4 className="font-bold text-foreground text-sm sm:text-base">
                                   {lec.course_name}
                                 </h4>
                                 <Badge variant="secondary" className="text-[11px]">
                                   {lec.lecture_type}
                                 </Badge>
+                                {isScanned && (!hasQuestions || isAnswered) && (
+                                  <Badge className="bg-emerald-600/10 text-emerald-700 border-emerald-300 text-[11px] gap-1">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>تم التحضير بنجاح</span>
+                                  </Badge>
+                                )}
+                                {isScanned && hasQuestions && !isAnswered && (
+                                  <Badge className="bg-amber-600/10 text-amber-700 border-amber-300 text-[11px] gap-1">
+                                    <HelpCircle className="w-3 h-3 text-amber-600" />
+                                    <span>بانتظار إجابة الأسئلة التفاعلية</span>
+                                  </Badge>
+                                )}
                               </div>
                               <p className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
                                 <span>أستاذ المقرر: {lec.lecturer_name}</span>
                                 <span>•</span>
-                                <span className="font-semibold text-foreground">القاعة: {lec.classroom}</span>
+                                <span className="font-semibold text-foreground">القاعة: {lec.classroom || lec.classroom_name}</span>
                               </p>
                             </div>
 
@@ -851,39 +878,61 @@ export default function StudentPortalPage() {
                                 <span>المرفقات والروابط ({lec.attachments?.length || 0})</span>
                               </Button>
 
-                              {/* زر الأسئلة التفاعلية */}
-                              {lec.interactive_questions && lec.interactive_questions.length > 0 && (
-                                <Button
-                                  variant={answeredSessions.includes(lec.timetable_id) ? "secondary" : "default"}
-                                  size="sm"
-                                  className={`text-xs h-7 gap-1 transition-all ${
-                                    answeredSessions.includes(lec.timetable_id)
-                                      ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
-                                      : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                                  }`}
-                                  onClick={() => handleOpenQuestions(lec)}
-                                >
-                                  {answeredSessions.includes(lec.timetable_id) ? (
-                                    <>
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>تمت الإجابة ({lec.interactive_questions.length} أسئلة)</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <HelpCircle className="w-3.5 h-3.5" />
-                                      <span>أسئلة المحاضرة التفاعلية ({lec.interactive_questions.length})</span>
-                                    </>
-                                  )}
-                                </Button>
+                              {/* زر الأسئلة التفاعلية - مشروط بعدم الفتح إلا بعد مسح الـ QR */}
+                              {hasQuestions && (
+                                !isScanned ? (
+                                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground bg-muted/50 px-2.5 py-1 rounded-md border border-dashed border-border/80 select-none">
+                                    <Lock className="w-3 h-3 text-muted-foreground/70" />
+                                    <span>الأسئلة التفاعلية ({lec.interactive_questions!.length}) - تُفتح تلقائياً بعد مسح الـ QR</span>
+                                  </div>
+                                ) : !isAnswered ? (
+                                  <Button
+                                    size="sm"
+                                    className="text-xs h-7 gap-1 bg-amber-600 hover:bg-amber-700 text-white animate-pulse"
+                                    onClick={() => handleOpenQuestions(lec)}
+                                  >
+                                    <HelpCircle className="w-3.5 h-3.5" />
+                                    <span>بانتظار إجابة الأسئلة التفاعلية ({lec.interactive_questions!.length})</span>
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    className="text-xs h-7 gap-1 text-emerald-700 bg-emerald-50 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                    disabled
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>تم توثيق إجابات الأسئلة بنجاح ✓</span>
+                                  </Button>
+                                )
                               )}
                             </div>
 
-                            {/* زر مسح QR المباشر للمحاضرة */}
-                            {lec.status_code === 1 ? (
+                            {/* زر مسح QR المباشر للمحاضرة أو إكمال الأسئلة أو شارة التوثيق */}
+                            {isScanned ? (
+                              hasQuestions && !isAnswered ? (
+                                <Button
+                                  size="sm"
+                                  className="text-xs h-8 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-xs"
+                                  onClick={() => handleOpenQuestions(lec)}
+                                >
+                                  <HelpCircle className="w-3.5 h-3.5" />
+                                  <span>إكمال إجابة الأسئلة التفاعلية</span>
+                                </Button>
+                              ) : (
+                                <Badge className="bg-emerald-600/10 text-emerald-700 border border-emerald-300 gap-1.5 text-xs py-1.5 px-3">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>حاضر وموثق بالكامل</span>
+                                </Badge>
+                              )
+                            ) : lec.status_code === 1 ? (
                               <Button
                                 size="sm"
                                 className="text-xs h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-bold animate-pulse"
-                                onClick={() => setShowQRScannerModal(true)}
+                                onClick={() => {
+                                  setActiveScannerLecture(lec);
+                                  setShowQRScannerModal(true);
+                                }}
                               >
                                 <QrCode className="w-3.5 h-3.5" />
                                 <span>مسح رمز الـ QR (المحاضرة جارية الآن)</span>
@@ -893,7 +942,10 @@ export default function StudentPortalPage() {
                                 size="sm"
                                 variant="outline"
                                 className="text-xs h-8 gap-1.5 border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-                                onClick={() => setShowQRScannerModal(true)}
+                                onClick={() => {
+                                  setActiveScannerLecture(lec);
+                                  setShowQRScannerModal(true);
+                                }}
                               >
                                 <QrCode className="w-3.5 h-3.5 text-emerald-600" />
                                 <span>مسح رمز الـ QR للتحضير</span>
@@ -905,7 +957,8 @@ export default function StudentPortalPage() {
                             )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
@@ -1373,7 +1426,11 @@ export default function StudentPortalPage() {
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => setShowQRScannerModal(true)}
+                                    onClick={() => {
+                                      const matched = todayLectures.find((t) => t.timetable_id === s.timetable_id);
+                                      if (matched) setActiveScannerLecture(matched);
+                                      setShowQRScannerModal(true);
+                                    }}
                                     className="w-full gap-1.5 border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/30 text-xs h-8 font-medium transition-all"
                                   >
                                     <QrCode className="w-3.5 h-3.5 text-emerald-600" />
@@ -2433,8 +2490,23 @@ export default function StudentPortalPage() {
       {/* نوافذ المودال التفاعلية الاحترافية */}
       <StudentQRScannerModal
         open={showQRScannerModal}
-        onClose={() => setShowQRScannerModal(false)}
-        onSuccess={() => fetchSummary()}
+        onClose={() => {
+          setShowQRScannerModal(false);
+          setActiveScannerLecture(null);
+        }}
+        onSuccess={(scanData) => {
+          fetchSummary();
+          const timetableId = scanData?.data?.timetable_id || activeScannerLecture?.timetable_id;
+          if (timetableId) {
+            setScannedSessions((prev) => Array.from(new Set([...prev, timetableId])));
+            const targetLecture = todayLectures.find((l) => l.timetable_id === timetableId) || activeScannerLecture;
+            if (targetLecture && targetLecture.interactive_questions && targetLecture.interactive_questions.length > 0) {
+              setTimeout(() => {
+                setSelectedLectureForQuestions(targetLecture);
+              }, 400);
+            }
+          }
+        }}
       />
 
       <StudentNotificationsModal
