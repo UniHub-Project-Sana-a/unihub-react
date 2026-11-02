@@ -27,6 +27,7 @@ import UnauthorizedPage from "./pages/UnauthorizedPage";
 import CertInstructionPage from "@/pages/CertInstructionPage";
 import StudentQaPage from "@/components/student/qa/StudentQaPage";
 import StudentPortalPage from "@/pages/StudentPortalPage";
+import StudentQRScannerPage from "@/pages/StudentQRScannerPage";
 import LocationsPage from "@/pages/LocationsPage";
 import { PwaInstallPrompt } from "@/components/common/PwaInstallPrompt";
 import StudentsGroupsPage from "@/pages/StudentsGroupsPage";
@@ -121,6 +122,7 @@ const App = () => (
                   <Route path="/student/portal" element={<StudentPortalPage />} />
                   <Route path="/student" element={<StudentPortalPage />} />
                   <Route path="/student/qa" element={<StudentQaPage />} />
+                  <Route path="/student/scan-qr" element={<StudentQRScannerPage />} />
                 </Route>
   
               </Route>

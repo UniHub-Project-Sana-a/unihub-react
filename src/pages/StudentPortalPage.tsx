@@ -301,8 +301,7 @@ export default function StudentPortalPage() {
     return { grade: "F", label: "راسب / بحاجة لإعادة", color: "bg-rose-600 text-white" };
   };
 
-  // Modals state
-  const [showQRScannerModal, setShowQRScannerModal] = useState(false);
+  // Modals state (QR scanner is now a full page)
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [showAssignmentModal, setShowAssignmentModal] = useState(false);
 
@@ -1049,8 +1048,7 @@ export default function StudentPortalPage() {
                                     size="sm"
                                     className="text-xs h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs font-bold animate-pulse"
                                     onClick={() => {
-                                      setActiveScannerLecture(lec);
-                                      setShowQRScannerModal(true);
+                                      navigate('/student/scan-qr', { state: { lecture: lec } });
                                     }}
                                   >
                                     <QrCode className="w-3.5 h-3.5" />
@@ -1781,8 +1779,7 @@ export default function StudentPortalPage() {
                                                     <Button
                                                       size="sm"
                                                       onClick={() => {
-                                                        if (matchedToday) setActiveScannerLecture(matchedToday);
-                                                        setShowQRScannerModal(true);
+                                                        navigate('/student/scan-qr', { state: { lecture: matchedToday } });
                                                       }}
                                                       className="w-full gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] h-7 px-1.5 font-bold shadow-xs transition-all animate-pulse"
                                                     >
@@ -1954,8 +1951,7 @@ export default function StudentPortalPage() {
                                             <Button
                                               size="sm"
                                               onClick={() => {
-                                                if (matched) setActiveScannerLecture(matched);
-                                                setShowQRScannerModal(true);
+                                                navigate('/student/scan-qr', { state: { lecture: matched } });
                                               }}
                                               className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 font-semibold shadow-xs transition-all animate-pulse"
                                             >
@@ -3039,31 +3035,6 @@ export default function StudentPortalPage() {
         </Dialog>
 
         {/* نوافذ المودال التفاعلية الاحترافية */}
-        <StudentQRScannerModal
-          open={showQRScannerModal}
-          onClose={() => {
-            setShowQRScannerModal(false);
-            setActiveScannerLecture(null);
-          }}
-          activeLecture={activeScannerLecture}
-          onSuccess={(scanData) => {
-            fetchSummary();
-            const timetableId = scanData?.data?.timetable_id || activeScannerLecture?.timetable_id;
-            if (timetableId) {
-              setScannedSessions((prev) => Array.from(new Set([...prev, timetableId])));
-              if (scanData?.finalized) {
-                setAnsweredSessions((prev) => Array.from(new Set([...prev, timetableId])));
-              } else {
-                const targetLecture = todayLectures.find((l) => l.timetable_id === timetableId) || activeScannerLecture;
-                if (targetLecture && targetLecture.interactive_questions && targetLecture.interactive_questions.length > 0) {
-                  setTimeout(() => {
-                    setSelectedLectureForQuestions(targetLecture);
-                  }, 400);
-                }
-              }
-            }
-          }}
-        />
 
         <StudentNotificationsModal
           open={showNotificationsModal}
@@ -3106,14 +3077,17 @@ export default function StudentPortalPage() {
                     onValueChange={(val) => setAnswersMap(prev => ({ ...prev, [q.id]: val }))}
                     className="space-y-2 pr-8"
                   >
-                    {(q.options || ['الخيار الأول', 'الخيار الثاني', 'الخيار الثالث']).map((opt, optIdx) => (
-                      <div key={optIdx} className="flex items-center space-x-2 rtl:space-x-reverse cursor-pointer">
-                        <RadioGroupItem value={opt} id={`q-${q.id}-opt-${optIdx}`} />
-                        <Label htmlFor={`q-${q.id}-opt-${optIdx}`} className="text-xs cursor-pointer font-normal">
-                          {opt}
-                        </Label>
-                      </div>
-                    ))}
+                    {(q.options || ['الخيار الأول', 'الخيار الثاني', 'الخيار الثالث']).map((rawOpt: any, optIdx: number) => {
+                      const opt = typeof rawOpt === 'string' ? rawOpt : rawOpt?.text || rawOpt?.option_text || String(rawOpt);
+                      return (
+                        <div key={optIdx} className="flex items-center space-x-2 rtl:space-x-reverse cursor-pointer">
+                          <RadioGroupItem value={opt} id={`q-${q.id}-opt-${optIdx}`} />
+                          <Label htmlFor={`q-${q.id}-opt-${optIdx}`} className="text-xs cursor-pointer font-normal">
+                            {opt}
+                          </Label>
+                        </div>
+                      );
+                    })}
                   </RadioGroup>
                 </div>
               ))}
