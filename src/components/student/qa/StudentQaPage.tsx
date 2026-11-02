@@ -35,8 +35,9 @@ export default function StudentQaPage() {
 
         // تنظيف التخزين المحلي
         localStorage.removeItem("token");
+        localStorage.removeItem("access_token");
         localStorage.removeItem("user");
-        window.location.href = "/react-app/login";
+        window.location.hash = "/login";
     };
     // جلب القائمة
     const fetchEvaluations = async () => {

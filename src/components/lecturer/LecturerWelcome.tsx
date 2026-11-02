@@ -45,8 +45,10 @@ export function LecturerWelcome({
     // تنظيف التوكن والبيانات
     setAuthToken(undefined);
     localStorage.removeItem("access_token");
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     // توجيه المستخدم لصفحة الدخول
-    window.location.href = "/react-app/login";
+    window.location.hash = "/login";
   };
 
   return (

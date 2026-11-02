@@ -36,8 +36,9 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     }
     // تنظيف التخزين المحلي
     localStorage.removeItem("token");
+    localStorage.removeItem("access_token");
     localStorage.removeItem("user");
-    window.location.href = "/react-app/login";
+    window.location.hash = "/login";
   };
 
   return (
