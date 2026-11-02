@@ -26,6 +26,7 @@ interface AttendanceSummaryProps {
   classroomName: string;
   buildingName: string;
   groupId: string;
+  allGroupIds?: string[];
   timetableId: string;
   sessionId: string;
   onFinalized: () => void;
@@ -40,6 +41,7 @@ export function AttendanceSummary({
   classroomName,
   buildingName,
   groupId,
+  allGroupIds,
   timetableId,
   sessionId,
   onFinalized,
@@ -102,17 +104,24 @@ export function AttendanceSummary({
   // --- Fetch Students ---
   useEffect(() => {
     const fetchAllStudents = async () => {
-      if (!groupId) return;
+      const groupIdsToFetch = allGroupIds && allGroupIds.length > 0 ? allGroupIds : (groupId ? [groupId] : []);
+      if (groupIdsToFetch.length === 0) return;
       setIsLoadingStudents(true);
       try {
-        const res = await api.get(`/v1/groups/${groupId}/students`);
-        const rawData = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-        const normalizedStudents: StudentData[] = rawData.map((s: any) => ({
-          student_id: s.student_id,
-          academic_number: String(s.user?.academic_number || s.academic_number || s.student_university_id || "---"), 
-          name: s.user?.full_name || s.name || s.full_name || "اسم طالب غير متوفر"
-        }));
-        setAllStudents(normalizedStudents);
+        const responses = await Promise.all(
+          groupIdsToFetch.map(gId => api.get(`/v1/groups/${gId}/students`))
+        );
+        let combined: StudentData[] = [];
+        responses.forEach(res => {
+          const rawData = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+          const normalizedStudents: StudentData[] = rawData.map((s: any) => ({
+            student_id: s.student_id,
+            academic_number: String(s.user?.academic_number || s.academic_number || s.student_university_id || "---"), 
+            name: s.user?.full_name || s.name || s.full_name || "اسم طالب غير متوفر"
+          }));
+          combined = [...combined, ...normalizedStudents];
+        });
+        setAllStudents(combined);
       } catch (error) {
         console.error("Error fetching students:", error);
         toast({ title: "تنبيه", description: "فشل جلب قائمة الطلاب.", variant: "destructive" });
@@ -121,7 +130,7 @@ export function AttendanceSummary({
       }
     };
     fetchAllStudents();
-  }, [groupId, toast]);
+  }, [groupId, allGroupIds, toast]);
 
   // ✅ إصلاح: تحديث القائمة عند وصول بيانات جديدة من السيرفر (تجاوز الكاش القديم)
   useEffect(() => {

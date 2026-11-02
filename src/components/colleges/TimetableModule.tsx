@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2, Users } from "lucide-react";
+import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2, Users, Sparkles } from "lucide-react";
 import SoftDeleteTrashPage from "./SoftDeleteTrashPage";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1900,6 +1900,9 @@ const openCreateSessionModal = async () => {
                                                   {session.code || 'N/A'}
                                                 </span>
                                                 <div className="flex gap-1 flex-wrap justify-end">
+                                                  {session.isShared && (
+                                                    <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-300/60 text-[9px] sm:text-[10px] px-1 h-5">مشتركة</Badge>
+                                                  )}
                                                   {isMakeup && (
                                                     <Badge className="bg-amber-500 hover:bg-amber-600 border-0 text-[9px] sm:text-[10px] px-1 h-5">تعويضية</Badge>
                                                   )}
@@ -1911,7 +1914,10 @@ const openCreateSessionModal = async () => {
                                             <div className="mt-2 pt-1 border-t border-dashed border-border/50 space-y-1">
                                               {session.group && (
                                                 <p className="text-primary/90 font-medium flex items-center justify-end gap-1 break-words text-[10px]">
-                                                  <span className="line-clamp-1">{session.group}</span>
+                                                  <span className="line-clamp-1">
+                                                    {session.group}
+                                                    {session.students_count ? ` (${session.students_count} طالب)` : ''}
+                                                  </span>
                                                   <Users className="w-3 h-3 shrink-0 text-primary/70" />
                                                 </p>
                                               )}
@@ -1938,22 +1944,48 @@ const openCreateSessionModal = async () => {
                                         ) : sessionsInSlot.length === 1 ? (
                                           <SessionCard session={sessionsInSlot[0]} />
                                         ) : (
-                                          <Card
-                                            className="h-full min-h-[110px] border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
-                                            onClick={() => openSlotModal(sessionsInSlot, format(currentDay, 'eeee', { locale: ar }), timeLabel)}
-                                          >
-                                            <CardContent className="p-2">
-                                              <div className="font-bold text-base sm:text-lg text-primary">{sessionsInSlot.length}</div>
-                                              <p className="text-xs sm:text-sm text-primary/80">
-                                                {sessionsInSlot.some((s, idx, arr) => arr.some((other, oIdx) => idx !== oIdx && s.course === other.course))
-                                                  ? "محاضرة مشتركة"
-                                                  : "جلسات"}
-                                              </p>
-                                              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 font-medium">
-                                                {sessionsInSlot.length} مجموعات • انقر للعرض
-                                              </p>
-                                            </CardContent>
-                                          </Card>
+                                          (() => {
+                                            // التحقق هل جميع الجلسات في هذه الخلية تتبع نفس المحاضرة المشتركة
+                                            const isUnifiedSharedLecture = sessionsInSlot.length > 1 && 
+                                              sessionsInSlot.every(s => 
+                                                s.course === sessionsInSlot[0].course && 
+                                                s.instructor === sessionsInSlot[0].instructor && 
+                                                s.room === sessionsInSlot[0].room
+                                              );
+                                            
+                                            if (isUnifiedSharedLecture) {
+                                              // دمج المجموعات برمجياً في بطاقة موحدة لعرض الجدول
+                                              const allGroups = Array.from(new Set(sessionsInSlot.map(s => s.group).filter(Boolean)));
+                                              const totalStudents = sessionsInSlot.reduce((sum, s) => sum + Number(s.students_count || 0), 0);
+                                              const unifiedSession = {
+                                                ...sessionsInSlot[0],
+                                                group: allGroups.join(' + '),
+                                                students_count: totalStudents,
+                                                isShared: true,
+                                                sharedCount: sessionsInSlot.length
+                                              };
+                                              return <SessionCard session={unifiedSession} />;
+                                            }
+
+                                            return (
+                                              <Card
+                                                className="h-full min-h-[110px] border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
+                                                onClick={() => openSlotModal(sessionsInSlot, format(currentDay, 'eeee', { locale: ar }), timeLabel)}
+                                              >
+                                                <CardContent className="p-2">
+                                                  <div className="font-bold text-base sm:text-lg text-primary">{sessionsInSlot.length}</div>
+                                                  <p className="text-xs sm:text-sm text-primary/80">
+                                                    {sessionsInSlot.some((s, idx, arr) => arr.some((other, oIdx) => idx !== oIdx && s.course === other.course))
+                                                      ? "محاضرة مشتركة"
+                                                      : "جلسات"}
+                                                  </p>
+                                                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 font-medium">
+                                                    {sessionsInSlot.length} مجموعات • انقر للعرض
+                                                  </p>
+                                                </CardContent>
+                                              </Card>
+                                            );
+                                          })()
                                         )}
                                       </div>
                                     );
@@ -2009,7 +2041,7 @@ const openCreateSessionModal = async () => {
                 />
             </div>
         
-            {/* --- عرض الجلسات المفلترة مع التلوين --- */}
+            {/* --- عرض الجلسات المفلترة مع التلوين والدمج الذكي للمحاضرات المشتركة --- */}
             <div className="max-h-[50vh] overflow-y-auto p-1 -m-1 space-y-4">
               {(() => {
                 // فلترة الجلسات بناءً على نص البحث
@@ -2019,7 +2051,8 @@ const openCreateSessionModal = async () => {
                     return (
                       session.course?.toLowerCase().includes(searchTerm) ||
                       session.instructor?.toLowerCase().includes(searchTerm) ||
-                      session.room?.toLowerCase().includes(searchTerm)
+                      session.room?.toLowerCase().includes(searchTerm) ||
+                      session.group?.toLowerCase().includes(searchTerm)
                     );
                 });
         
@@ -2031,17 +2064,62 @@ const openCreateSessionModal = async () => {
                         </div>
                     );
                 }
+
+                // ✅ تجميع الجلسات المشتركة لنفس المقرر والمحاضر والقاعة والتوقيت
+                const sessionGroupsMap = new Map<string, {
+                  key: string;
+                  primarySession: any;
+                  sessions: any[];
+                  course: string;
+                  code: string;
+                  instructor: string;
+                  room: string;
+                  date: string;
+                  status: number;
+                  groupsDetail: Array<{ name: string; count?: number; id: number }>;
+                  totalStudents: number;
+                }>();
+
+                filteredSessions.forEach(session => {
+                  const key = `${session.course || ''}___${session.instructor || ''}___${session.room || ''}___${session.date || ''}___${session.time || ''}`;
+                  if (!sessionGroupsMap.has(key)) {
+                    sessionGroupsMap.set(key, {
+                      key,
+                      primarySession: session,
+                      sessions: [session],
+                      course: session.course,
+                      code: session.code,
+                      instructor: session.instructor,
+                      room: session.room,
+                      date: session.date,
+                      status: session.status,
+                      groupsDetail: session.group ? [{ name: session.group, count: session.students_count, id: session.id }] : [],
+                      totalStudents: Number(session.students_count || 0)
+                    });
+                  } else {
+                    const existing = sessionGroupsMap.get(key)!;
+                    existing.sessions.push(session);
+                    if (session.group && !existing.groupsDetail.some(g => g.name === session.group)) {
+                      existing.groupsDetail.push({ name: session.group, count: session.students_count, id: session.id });
+                    }
+                    existing.totalStudents += Number(session.students_count || 0);
+                    // إذا كانت إحدى الجلسات مكتملة نعتبرها مكتملة
+                    if (session.status === 1) existing.status = 1;
+                  }
+                });
+
+                const unifiedList = Array.from(sessionGroupsMap.values());
         
-                return filteredSessions.map(session => {
-                  // --- منطق تحديد الألوان (نفس منطق الجدول الرئيسي) ---
-                  const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
+                return unifiedList.map(item => {
+                  const isShared = item.sessions.length > 1;
+                  const isPast = new Date(item.date) < new Date() && !isToday(new Date(item.date));
                   
                   let cardClass = "bg-background";
                   let badgeText = "مجدولة";
                   let badgeVariant: "outline" | "secondary" | "destructive" | "default" = "outline";
         
                   if (isPast) {
-                      if (session.status === 1) { // تم التحضير
+                      if (item.status === 1) { // تم التحضير
                           cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
                           badgeText = "مكتملة";
                           badgeVariant = "secondary";
@@ -2054,35 +2132,50 @@ const openCreateSessionModal = async () => {
         
                   return (
                     <Card 
-                        key={session.id} 
+                        key={item.key} 
                         // ✅ إضافة حدث النقر وتغيير شكل المؤشر
-                        onClick={() => handleSessionClick(session.id)}
+                        onClick={() => handleSessionClick(item.primarySession.id)}
                         className={cn("border transition-colors cursor-pointer hover:shadow-md", cardClass)}
                     >
-                      <CardContent className="p-4 text-right">
-                          <div className="flex justify-between items-start mb-2">
+                      <CardContent className="p-4 text-right space-y-3">
+                          <div className="flex justify-between items-start gap-2">
                             <div>
-                              <p className="font-bold text-base sm:text-lg">{session.course} <span className="text-sm font-normal text-muted-foreground font-mono">({session.code})</span></p>
-                              {session.group && (
-                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs gap-1 py-0.5">
-                                    <Users className="w-3 h-3 text-primary/70" />
-                                    <span>{session.group}</span>
-                                    {session.students_count ? <span className="text-[10px] opacity-75 mr-1">({session.students_count} طالب)</span> : null}
+                              <p className="font-bold text-base sm:text-lg">
+                                {item.course} <span className="text-sm font-normal text-muted-foreground font-mono">({item.code})</span>
+                              </p>
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                {isShared && (
+                                  <Badge className="bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-300/70 text-xs font-semibold gap-1 py-0.5">
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    محاضرة مشتركة ({item.groupsDetail.length} مجموعات)
                                   </Badge>
-                                  {filteredSessions.length > 1 && (
-                                    <Badge variant="secondary" className="text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-300">
-                                      محاضرة مشتركة
-                                    </Badge>
-                                  )}
-                                </div>
-                              )}
+                                )}
+                                {item.totalStudents > 0 && (
+                                  <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20 text-xs py-0.5">
+                                    إجمالي الطلاب: {item.totalStudents} طالب
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
                             <Badge variant={badgeVariant}>{badgeText}</Badge>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                              <p className="flex items-center justify-end gap-2"><span>{session.instructor}</span><User className="w-4 h-4 text-muted-foreground" /></p>
-                              <p className="flex items-center justify-end gap-2"><span>{session.room}</span><MapPin className="w-4 h-4 text-muted-foreground" /></p>
+
+                          {/* عرض تفاصيل المجموعات المشاركة في الجلسة المشتركة */}
+                          {item.groupsDetail.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-1 border-t border-border/40">
+                              {item.groupsDetail.map(g => (
+                                <Badge key={g.name} variant="outline" className="bg-muted/50 text-foreground border-border text-xs gap-1 py-1 font-normal">
+                                  <Users className="w-3 h-3 text-primary" />
+                                  <span>{g.name}</span>
+                                  {g.count ? <span className="text-[11px] font-semibold text-primary mr-1">({g.count} طالب)</span> : null}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2 text-sm pt-1 border-t border-dashed border-border/50">
+                              <p className="flex items-center justify-end gap-2"><span>{item.instructor}</span><User className="w-4 h-4 text-muted-foreground" /></p>
+                              <p className="flex items-center justify-end gap-2"><span>{item.room}</span><MapPin className="w-4 h-4 text-muted-foreground" /></p>
                           </div>
                       </CardContent>
                     </Card>
