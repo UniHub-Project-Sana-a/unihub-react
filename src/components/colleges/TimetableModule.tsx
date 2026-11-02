@@ -82,6 +82,15 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [availableLecturers, setAvailableLecturers] = useState<Lecturer[]>([]);
   // --- ⬆️ نهاية الإضافة ⬆️ ---
 
+  // --- حالات دمج مجموعات من أقسام وتخصصات أخرى (المقررات المشتركة لنظام الفصول) ---
+  const [isCrossProgram, setIsCrossProgram] = useState(false);
+  const [crossDepartmentId, setCrossDepartmentId] = useState<string>("");
+  const [crossProgramId, setCrossProgramId] = useState<string>("");
+  const [crossProgramsList, setCrossProgramsList] = useState<Program[]>([]);
+  const [crossGroups, setCrossGroups] = useState<Group[]>([]);
+  const [isFetchingCrossGroups, setIsFetchingCrossGroups] = useState(false);
+  const [crossGroupsMeta, setCrossGroupsMeta] = useState<Record<number, { group_id: number; name: string; departmentName?: string; programName?: string }>>({});
+
   const { toast } = useToast();
   const { confirm, confirmDialog } = useConfirmDialog();
   const collegeIdNum = Number(collegeId);
@@ -611,6 +620,97 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     })();
   }, [manualForm.level_id, manualForm.semester_id, manualForm.block_id, manualForm.department_id, manualForm.program_id, collegeIdNum, programs]);
 
+  // ✅ جلب برامج وتخصصات القسم الآخر عند اختياره
+  useEffect(() => {
+    if (!crossDepartmentId) {
+      setCrossProgramsList([]);
+      setCrossProgramId("");
+      setCrossGroups([]);
+      return;
+    }
+    apiJson(`/v1/programs?department_id=${crossDepartmentId}`).then((res) => {
+      const data = res?.data || res || [];
+      setCrossProgramsList(data.map((p: any) => ({
+        ...p,
+        academic_system: p.academic_system,
+        block_based: Boolean(p.block_based),
+      })));
+    }).catch(err => {
+      console.error("Failed to fetch cross programs", err);
+    });
+  }, [crossDepartmentId]);
+
+  // ✅ جلب مجموعات التخصص الآخر المختار
+  const fetchCrossGroups = async (progId: string) => {
+    if (!progId) {
+      setCrossGroups([]);
+      return;
+    }
+    setIsFetchingCrossGroups(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('college_id', String(collegeIdNum));
+      if (crossDepartmentId) params.append('department_id', crossDepartmentId);
+      params.append('program_id', progId);
+      if (manualForm.level_id) params.append('level_id', String(manualForm.level_id));
+      if (manualForm.semester_id) params.append('semester_id', String(manualForm.semester_id));
+
+      const res = await apiJson(`/v1/student-groups?${params.toString()}`);
+      let groupsData = res?.data || res || [];
+      if (Array.isArray(groupsData) && groupsData.length === 0) {
+        const fallbackRes = await apiJson(`/v1/student-groups?college_id=${collegeIdNum}&program_id=${progId}`);
+        groupsData = fallbackRes?.data || fallbackRes || [];
+      }
+
+      const formatted = (Array.isArray(groupsData) ? groupsData : []).map((g: any) => ({
+        group_id: g.group_id,
+        name: g.group_name || g.name,
+      }));
+      setCrossGroups(formatted);
+    } catch (e) {
+      console.error("Failed to fetch cross groups", e);
+    } finally {
+      setIsFetchingCrossGroups(false);
+    }
+  };
+
+  // ✅ تبديل اختيار مجموعة من تخصص آخر
+  const toggleCrossGroup = (groupItem: Group) => {
+    const current = manualForm.group_ids && manualForm.group_ids.length > 0
+      ? manualForm.group_ids
+      : manualForm.group_id ? [Number(manualForm.group_id)] : [];
+
+    const deptName = departments.find(d => String(d.department_id) === String(crossDepartmentId))?.name || "قسم آخر";
+    const progName = crossProgramsList.find(p => String(p.program_id) === String(crossProgramId))?.program_name || "";
+
+    let next: number[];
+    if (current.includes(groupItem.group_id)) {
+      next = current.filter(id => id !== groupItem.group_id);
+      setCrossGroupsMeta(prev => {
+        const copy = { ...prev };
+        delete copy[groupItem.group_id];
+        return copy;
+      });
+    } else {
+      next = [...current, groupItem.group_id];
+      setCrossGroupsMeta(prev => ({
+        ...prev,
+        [groupItem.group_id]: {
+          group_id: groupItem.group_id,
+          name: groupItem.name,
+          departmentName: deptName,
+          programName: progName
+        }
+      }));
+    }
+
+    setManualForm({
+      ...manualForm,
+      group_id: next[0] || "",
+      group_ids: next,
+    });
+  };
+
 
   const validateManualForm = (): boolean => {
     const errors: Partial<Record<keyof ManualForm, string>> = {};
@@ -979,6 +1079,11 @@ const openCreateSessionModal = async () => {
     setGroups([]);
     setIsExternalLecturer(false);
     setExternalCollegeId("");
+    setIsCrossProgram(false);
+    setCrossDepartmentId("");
+    setCrossProgramId("");
+    setCrossGroups([]);
+    setCrossGroupsMeta({});
   };
   
   /**
@@ -1569,6 +1674,157 @@ const openCreateSessionModal = async () => {
                             </Button>
                           );
                         })}
+                      </div>
+                    )}
+
+                    {/* خيار دمج مجموعات من أقسام أو تخصصات أخرى (مخصص لنظام الفصول الدراسية) */}
+                    {!selectedProgram?.block_based && manualForm.department_id && (
+                      <div className="mt-3 pt-3 border-t border-dashed border-border/60">
+                        <div className="flex items-center space-x-2 rtl:space-x-reverse">
+                          <Checkbox
+                            id="cross-program-toggle"
+                            checked={isCrossProgram}
+                            onCheckedChange={(checked: boolean) => {
+                              setIsCrossProgram(checked);
+                              if (!checked) {
+                                const primaryIds = groups.map(g => g.group_id);
+                                setManualForm(prev => {
+                                  const kept = (prev.group_ids || []).filter(id => primaryIds.includes(id));
+                                  return {
+                                    ...prev,
+                                    group_id: kept[0] || (primaryIds[0] ?? ""),
+                                    group_ids: kept
+                                  };
+                                });
+                                setCrossDepartmentId("");
+                                setCrossProgramId("");
+                                setCrossGroups([]);
+                                setCrossGroupsMeta({});
+                              }
+                            }}
+                          />
+                          <label
+                            htmlFor="cross-program-toggle"
+                            className="text-xs sm:text-sm font-medium leading-none cursor-pointer flex items-center gap-1.5 text-foreground/90"
+                          >
+                            <span>دمج مجموعات من تخصصات أو أقسام أخرى في نفس المحاضرة (متطلب عام مشترك)</span>
+                          </label>
+                        </div>
+
+                        {isCrossProgram && (
+                          <div className="mt-3 p-3 rounded-lg bg-background/80 border space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {/* اختيار القسم الآخر */}
+                              <div className="space-y-1.5">
+                                <Label className="text-xs">القسم الآخر</Label>
+                                <Select
+                                  value={String(crossDepartmentId)}
+                                  onValueChange={(v) => {
+                                    setCrossDepartmentId(v);
+                                    setCrossProgramId("");
+                                    setCrossGroups([]);
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="اختر القسم الآخر" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {departments
+                                      .filter(d => d.department_id !== manualForm.department_id)
+                                      .map(d => (
+                                        <SelectItem key={d.department_id} value={String(d.department_id)}>
+                                          {d.name}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {/* اختيار البرنامج/التخصص الآخر */}
+                              <div className="space-y-1.5">
+                                <Label className="text-xs">البرنامج / التخصص</Label>
+                                <Select
+                                  value={String(crossProgramId)}
+                                  onValueChange={(v) => {
+                                    setCrossProgramId(v);
+                                    fetchCrossGroups(v);
+                                  }}
+                                  disabled={!crossDepartmentId || crossProgramsList.length === 0}
+                                >
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder={!crossDepartmentId ? "اختر القسم أولاً" : crossProgramsList.length === 0 ? "لا توجد برامج" : "اختر التخصص"} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {crossProgramsList.map(p => (
+                                      <SelectItem key={p.program_id} value={String(p.program_id)}>
+                                        {p.program_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+
+                            {/* المجموعات المتاحة من التخصص الآخر لإضافتها بنقرة واحدة */}
+                            {isFetchingCrossGroups ? (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>جاري جلب المجموعات...</span>
+                              </div>
+                            ) : crossGroups.length > 0 ? (
+                              <div className="space-y-1.5 pt-1 border-t border-border/40">
+                                <Label className="text-xs text-muted-foreground font-semibold">
+                                  انقر لإضافة مجموعات من ({crossProgramsList.find(p => String(p.program_id) === String(crossProgramId))?.program_name}):
+                                </Label>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {crossGroups.map(cg => {
+                                    const isSelected = (manualForm.group_ids || []).includes(cg.group_id);
+                                    return (
+                                      <Button
+                                        key={cg.group_id}
+                                        type="button"
+                                        size="sm"
+                                        variant={isSelected ? "default" : "outline"}
+                                        className={`text-xs h-7 gap-1 transition-all ${
+                                          isSelected
+                                            ? "font-bold shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            : "border-emerald-300/60 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                                        }`}
+                                        onClick={() => toggleCrossGroup(cg)}
+                                      >
+                                        <span>{isSelected ? "✓" : "+"}</span>
+                                        <span>{cg.name}</span>
+                                      </Button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : crossProgramId ? (
+                              <p className="text-xs text-muted-foreground py-1">لا توجد مجموعات متاحة لهذا التخصص.</p>
+                            ) : null}
+
+                            {/* كبسولات تلخص المجموعات المضافة من تخصصات أخرى */}
+                            {Object.keys(crossGroupsMeta).length > 0 && (
+                              <div className="pt-2 border-t border-dashed border-border/50 space-y-1">
+                                <Label className="text-[11px] text-muted-foreground font-medium">المجموعات المدمجة من تخصصات أخرى:</Label>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {Object.values(crossGroupsMeta).map(m => (
+                                    <Badge key={m.group_id} variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-300/50 text-xs gap-1.5 py-0.5">
+                                      <span>{m.departmentName} - {m.name}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleCrossGroup({ group_id: m.group_id, name: m.name })}
+                                        className="hover:text-destructive font-bold mr-1"
+                                      >
+                                        ×
+                                      </button>
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                     {manualFormErrors.group_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.group_id}</p>}
