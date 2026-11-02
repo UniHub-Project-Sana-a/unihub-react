@@ -127,6 +127,8 @@ interface RegisteredCourse {
   course_code: string;
   credit_hours: number;
   category: string;
+  lecturer_name?: string;
+  lecturers?: Array<{ lecturer_id: number; name: string; raw_name?: string; type: string }>;
 }
 
 interface Announcement {
@@ -263,6 +265,7 @@ export default function StudentPortalPage() {
   // Submit excuse dialog
   const [showExcuseDialog, setShowExcuseDialog] = useState(false);
   const [excuseCourseId, setExcuseCourseId] = useState("");
+  const [excuseLecturerId, setExcuseLecturerId] = useState("");
   const [excuseDate, setExcuseDate] = useState("");
   const [excuseReason, setExcuseReason] = useState("");
   const [excuseFile, setExcuseFile] = useState<File | null>(null);
@@ -446,6 +449,9 @@ export default function StudentPortalPage() {
     try {
       const formData = new FormData();
       formData.append("course_id", excuseCourseId);
+      if (excuseLecturerId) {
+        formData.append("lecturer_id", excuseLecturerId);
+      }
       formData.append("request_date", excuseDate);
       formData.append("reason", excuseReason.trim());
       if (excuseFile) {
@@ -463,6 +469,7 @@ export default function StudentPortalPage() {
 
       setShowExcuseDialog(false);
       setExcuseCourseId("");
+      setExcuseLecturerId("");
       setExcuseDate("");
       setExcuseReason("");
       setExcuseFile(null);
@@ -985,6 +992,12 @@ export default function StudentPortalPage() {
                       </div>
                       <h4 className="font-bold text-sm text-foreground line-clamp-2">{c.course_name}</h4>
                       <p className="text-[11px] text-muted-foreground">{c.category}</p>
+                      {c.lecturer_name && (
+                        <div className="flex items-center gap-1.5 pt-1.5 text-xs text-muted-foreground border-t border-border/40">
+                          <User className="w-3.5 h-3.5 text-primary/70 shrink-0" />
+                          <span className="truncate">{c.lecturer_name}</span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2214,18 +2227,59 @@ export default function StudentPortalPage() {
               <label className="text-xs font-semibold text-foreground block mb-1">
                 المقرر الدراسي الذي غبت عنه
               </label>
-              <Select value={excuseCourseId} onValueChange={setExcuseCourseId} required>
+              <Select value={excuseCourseId} onValueChange={(val) => { setExcuseCourseId(val); setExcuseLecturerId(""); }} required>
                 <SelectTrigger>
                   <SelectValue placeholder="اختر المقرر الدراسي" />
                 </SelectTrigger>
                 <SelectContent>
                   {registeredCourses.map((c) => (
                     <SelectItem key={c.course_id} value={c.course_id.toString()}>
-                      {c.course_name} ({c.course_code})
+                      {c.course_name} ({c.course_code}) {c.lecturer_name ? `— د. ${c.lecturer_name}` : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+
+              {/* بطاقة توضيحية ذكية تبين المحاضر المستلم للعذر */}
+              {(() => {
+                const selectedCourse = registeredCourses.find((c) => c.course_id.toString() === excuseCourseId);
+                if (!selectedCourse) return null;
+
+                return (
+                  <div className="mt-2.5 p-3 rounded-lg border bg-primary/5 border-primary/20 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 text-foreground font-medium">
+                        <User className="w-3.5 h-3.5 text-primary" />
+                        <span>أستاذ المقرر لمجموعتك:</span>
+                        <span className="font-bold text-primary">{selectedCourse.lecturer_name || "محاضر المقرر المسند"}</span>
+                      </div>
+                      <Badge variant="outline" className="text-[10px] bg-background border-primary/30 text-primary">
+                        المستلم التلقائي
+                      </Badge>
+                    </div>
+
+                    {selectedCourse.lecturers && selectedCourse.lecturers.length > 1 && (
+                      <div className="pt-2 border-t border-primary/10">
+                        <label className="text-[11px] text-muted-foreground block mb-1">
+                          تحديد المحاضر (اختياري - في حال كان الغياب بمحاضرة نظري أو معمل عملي محدد):
+                        </label>
+                        <Select value={excuseLecturerId} onValueChange={setExcuseLecturerId}>
+                          <SelectTrigger className="h-8 text-xs bg-background">
+                            <SelectValue placeholder={`افتراضي: ${selectedCourse.lecturer_name || 'أستاذ المقرر المعني'}`} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {selectedCourse.lecturers.map((l) => (
+                              <SelectItem key={l.lecturer_id} value={l.lecturer_id.toString()} className="text-xs">
+                                {l.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div>
