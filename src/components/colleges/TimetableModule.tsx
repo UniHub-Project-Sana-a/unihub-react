@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2 } from "lucide-react";
+import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2, Users } from "lucide-react";
 import SoftDeleteTrashPage from "./SoftDeleteTrashPage";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -768,11 +768,15 @@ const openCreateSessionModal = async () => {
           // 3. معالجة البيانات وإضافة خاصية `date`
           return {
               id: session.session_id,
+              timetable_id: timetable.timetable_id,
               date: session.session_date ? String(session.session_date).slice(0, 10) : null,
               day: timetable.day?.day_name,
               time: `${fmtHHMM(session.start_time)}-${fmtHHMM(session.end_time)}`,
               course: timetable.course?.course_name,
               code: timetable.course?.course_code,
+              group: timetable.group?.group_name || timetable.group?.name || session.group?.group_name || "مجموعة غير محددة",
+              group_id: timetable.group_id,
+              students_count: timetable.group?.students_count || 0,
               instructor: session.actual_lecturer?.user?.full_name || session.actualLecturer?.user?.full_name || timetable.lecturer?.user?.full_name || "محاضر غير محدد",
               room: session.actual_classroom?.classroom_name || session.actualClassroom?.classroom_name || timetable.classroom?.classroom_name || "قاعة غير محددة",
               capacity: String(session.actual_classroom?.capacity || session.actualClassroom?.capacity || timetable.classroom?.capacity || ''),
@@ -1905,6 +1909,12 @@ const openCreateSessionModal = async () => {
                                               <p className="mt-1 font-semibold leading-tight break-words text-[11px] sm:text-xs">{session.course || 'مقرر غير محدد'}</p>
                                             </div>
                                             <div className="mt-2 pt-1 border-t border-dashed border-border/50 space-y-1">
+                                              {session.group && (
+                                                <p className="text-primary/90 font-medium flex items-center justify-end gap-1 break-words text-[10px]">
+                                                  <span className="line-clamp-1">{session.group}</span>
+                                                  <Users className="w-3 h-3 shrink-0 text-primary/70" />
+                                                </p>
+                                              )}
                                               <p className="text-muted-foreground flex items-center justify-end gap-1 break-words">
                                                 <span className="line-clamp-2">{session.instructor || 'محاضر غير محدد'}</span>
                                                 <User className="w-3 h-3 shrink-0" />
@@ -1934,8 +1944,14 @@ const openCreateSessionModal = async () => {
                                           >
                                             <CardContent className="p-2">
                                               <div className="font-bold text-base sm:text-lg text-primary">{sessionsInSlot.length}</div>
-                                              <p className="text-xs sm:text-sm text-primary/80">جلسات</p>
-                                              <p className="text-[10px] sm:text-xs text-muted-foreground mt-2">انقر للعرض</p>
+                                              <p className="text-xs sm:text-sm text-primary/80">
+                                                {sessionsInSlot.some((s, idx, arr) => arr.some((other, oIdx) => idx !== oIdx && s.course === other.course))
+                                                  ? "محاضرة مشتركة"
+                                                  : "جلسات"}
+                                              </p>
+                                              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 font-medium">
+                                                {sessionsInSlot.length} مجموعات • انقر للعرض
+                                              </p>
                                             </CardContent>
                                           </Card>
                                         )}
@@ -2045,7 +2061,23 @@ const openCreateSessionModal = async () => {
                     >
                       <CardContent className="p-4 text-right">
                           <div className="flex justify-between items-start mb-2">
-                            <p className="font-bold text-lg">{session.course} <span className="text-sm font-normal text-muted-foreground">({session.code})</span></p>
+                            <div>
+                              <p className="font-bold text-base sm:text-lg">{session.course} <span className="text-sm font-normal text-muted-foreground font-mono">({session.code})</span></p>
+                              {session.group && (
+                                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 text-xs gap-1 py-0.5">
+                                    <Users className="w-3 h-3 text-primary/70" />
+                                    <span>{session.group}</span>
+                                    {session.students_count ? <span className="text-[10px] opacity-75 mr-1">({session.students_count} طالب)</span> : null}
+                                  </Badge>
+                                  {filteredSessions.length > 1 && (
+                                    <Badge variant="secondary" className="text-[10px] bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-300">
+                                      محاضرة مشتركة
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                             <Badge variant={badgeVariant}>{badgeText}</Badge>
                           </div>
                           <div className="grid grid-cols-2 gap-2 text-sm">
