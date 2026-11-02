@@ -939,24 +939,16 @@ export default function StudentPortalPage() {
                                     }}
                                   >
                                     <QrCode className="w-3.5 h-3.5" />
-                                    <span>مسح رمز الـ QR (المحاضرة جارية الآن)</span>
+                                    <span>🔴 جارية الآن • مسح رمز الـ QR للتحضير</span>
                                   </Button>
                                 ) : lec.status_code === 0 ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-xs h-8 gap-1.5 border-emerald-600/40 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-                                    onClick={() => {
-                                      setActiveScannerLecture(lec);
-                                      setShowQRScannerModal(true);
-                                    }}
-                                  >
-                                    <QrCode className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>مسح رمز الـ QR للتحضير</span>
-                                  </Button>
+                                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/60 px-3 py-1.5 rounded-lg border border-border/60 select-none cursor-not-allowed">
+                                    <Clock className="w-3.5 h-3.5 text-muted-foreground/70" />
+                                    <span>تبدأ الساعة {lec.start_time.slice(0, 5)} • لم يحن وقت التحضير بعد</span>
+                                  </div>
                                 ) : (
-                                  <Badge variant="outline" className="text-muted-foreground text-xs">
-                                    المحاضرة منتهية
+                                  <Badge variant="outline" className="text-muted-foreground text-xs bg-muted/30 py-1 px-2.5">
+                                    انتهت المحاضرة
                                   </Badge>
                                 )}
                               </div>
@@ -1550,31 +1542,60 @@ export default function StudentPortalPage() {
 
                                     {/* Card Footer: Conditional for Today vs Other Days */}
                                     <div className="pt-3 border-t mt-3">
-                                      {isToday ? (
-                                        isAttended ? (
-                                          <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold dark:bg-emerald-950/40 dark:text-emerald-300">
-                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                            <span>تم التحضير بنجاح اليوم ✓</span>
+                                      {isToday ? (() => {
+                                        const matched = todayLectures.find((t) => t.timetable_id === s.timetable_id);
+                                        const slotStatusCode = matched?.status_code ?? (() => {
+                                          const now = new Date();
+                                          const nowStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
+                                          if (nowStr < s.start_time) return 0;
+                                          if (nowStr > s.end_time) return 2;
+                                          return 1;
+                                        })();
+
+                                        if (isAttended) {
+                                          return (
+                                            <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold dark:bg-emerald-950/40 dark:text-emerald-300">
+                                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                              <span>تم التحضير بنجاح اليوم ✓</span>
+                                            </div>
+                                          );
+                                        }
+
+                                        if (slotStatusCode === 1) {
+                                          return (
+                                            <Button
+                                              size="sm"
+                                              onClick={() => {
+                                                if (matched) setActiveScannerLecture(matched);
+                                                setShowQRScannerModal(true);
+                                              }}
+                                              className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 font-semibold shadow-xs transition-all animate-pulse"
+                                            >
+                                              <QrCode className="w-3.5 h-3.5" />
+                                              <span>🔴 جارية الآن • مسح رمز الـ QR للتحضير</span>
+                                            </Button>
+                                          );
+                                        }
+
+                                        if (slotStatusCode === 0) {
+                                          return (
+                                            <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-muted text-muted-foreground border border-border/60 text-xs font-medium cursor-not-allowed select-none">
+                                              <Clock className="w-3.5 h-3.5 text-muted-foreground/70" />
+                                              <span>تبدأ {s.start_time.slice(0, 5)} • لم يحن وقت التحضير</span>
+                                            </div>
+                                          );
+                                        }
+
+                                        return (
+                                          <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-muted/40 text-muted-foreground border border-border/40 text-xs font-medium">
+                                            <span>انتهت المحاضرة</span>
                                           </div>
-                                        ) : (
-                                          <Button
-                                            size="sm"
-                                            onClick={() => {
-                                              const matched = todayLectures.find((t) => t.timetable_id === s.timetable_id);
-                                              if (matched) setActiveScannerLecture(matched);
-                                              setShowQRScannerModal(true);
-                                            }}
-                                            className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 font-semibold shadow-xs transition-all animate-pulse"
-                                          >
-                                            <QrCode className="w-3.5 h-3.5" />
-                                            <span>مسح رمز الـ QR للتحضير الآن</span>
-                                          </Button>
-                                        )
-                                      ) : (
+                                        );
+                                      })() : (
                                         <div className="flex items-center justify-between text-[11px] text-muted-foreground py-1 px-2 rounded-md bg-muted/40 border border-border/40">
                                           <span className="flex items-center gap-1">
                                             <Calendar className="w-3 h-3 text-primary/70" />
-                                            <span>مجدولة كل أسبوع (يوم {dayGroup.day})</span>
+                                            <span>مجدولة أسبوعياً (يوم {dayGroup.day})</span>
                                           </span>
                                           <span className="font-mono text-[10px] text-muted-foreground/80">ثابتة</span>
                                         </div>
@@ -2636,16 +2657,21 @@ export default function StudentPortalPage() {
             setShowQRScannerModal(false);
             setActiveScannerLecture(null);
           }}
+          activeLecture={activeScannerLecture}
           onSuccess={(scanData) => {
             fetchSummary();
             const timetableId = scanData?.data?.timetable_id || activeScannerLecture?.timetable_id;
             if (timetableId) {
               setScannedSessions((prev) => Array.from(new Set([...prev, timetableId])));
-              const targetLecture = todayLectures.find((l) => l.timetable_id === timetableId) || activeScannerLecture;
-              if (targetLecture && targetLecture.interactive_questions && targetLecture.interactive_questions.length > 0) {
-                setTimeout(() => {
-                  setSelectedLectureForQuestions(targetLecture);
-                }, 400);
+              if (scanData?.finalized) {
+                setAnsweredSessions((prev) => Array.from(new Set([...prev, timetableId])));
+              } else {
+                const targetLecture = todayLectures.find((l) => l.timetable_id === timetableId) || activeScannerLecture;
+                if (targetLecture && targetLecture.interactive_questions && targetLecture.interactive_questions.length > 0) {
+                  setTimeout(() => {
+                    setSelectedLectureForQuestions(targetLecture);
+                  }, 400);
+                }
               }
             }
           }}
