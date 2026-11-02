@@ -3050,7 +3050,7 @@ export default function StudentPortalPage() {
 
         {/* نافذة أسئلة المحاضرة التفاعلية */}
         <Dialog open={!!selectedLectureForQuestions} onOpenChange={(open) => !open && setSelectedLectureForQuestions(null)}>
-          <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto" dir="rtl">
+          <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl p-4 sm:p-6" dir="rtl">
             <DialogHeader className="border-b pb-3">
               <DialogTitle className="text-lg font-bold flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-indigo-600" />

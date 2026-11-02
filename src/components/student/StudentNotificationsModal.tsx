@@ -141,9 +141,9 @@ export default function StudentNotificationsModal({ open, onClose, announcements
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] p-0 flex flex-col overflow-hidden" dir="rtl">
+      <DialogContent className="max-w-2xl max-h-[85vh] p-0 flex flex-col overflow-hidden rounded-2xl" dir="rtl">
         {/* Header */}
-        <div className="p-5 pb-4 bg-gradient-to-br from-primary/10 via-background to-background border-b shrink-0">
+        <div className="p-3.5 sm:p-5 pb-3 sm:pb-4 bg-gradient-to-br from-primary/10 via-background to-background border-b shrink-0">
           <DialogHeader>
             <div className="flex items-center justify-between gap-3">
               <DialogTitle className="text-lg sm:text-xl font-bold flex items-center gap-2">

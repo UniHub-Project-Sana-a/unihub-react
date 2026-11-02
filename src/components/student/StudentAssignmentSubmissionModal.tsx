@@ -132,10 +132,10 @@ export default function StudentAssignmentSubmissionModal({ open, onClose, course
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg p-0 overflow-hidden" dir="rtl">
-        <div className="p-6 pb-4 bg-gradient-to-br from-primary/10 via-background to-background border-b">
+      <DialogContent className="max-w-lg p-0 overflow-hidden rounded-2xl" dir="rtl">
+        <div className="p-4 sm:p-6 pb-3 sm:pb-4 bg-gradient-to-br from-primary/10 via-background to-background border-b">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold flex items-center gap-2">
+            <DialogTitle className="text-lg sm:text-xl font-bold flex items-center gap-2">
               <FileCheck className="w-5 h-5 text-primary" />
               تسليم تكليف / واجب دراسي
             </DialogTitle>
@@ -145,7 +145,7 @@ export default function StudentAssignmentSubmissionModal({ open, onClose, course
           </DialogHeader>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-3 sm:space-y-4">
           {/* اختيار المقرر */}
           <div>
             <label className="text-xs font-semibold text-foreground block mb-1">المقرر الدراسي *</label>
