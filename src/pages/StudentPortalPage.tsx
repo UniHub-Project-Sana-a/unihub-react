@@ -61,6 +61,8 @@ import {
   HelpCircle,
   Lock,
   Layers,
+  Fingerprint,
+  Users2,
   Bell,
   Camera,
   Upload,
@@ -530,60 +532,6 @@ export default function StudentPortalPage() {
   return (
     <AdminLayout>
       <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto w-full" dir="rtl">
-        {/* Student Academic Identity Card */}
-        <Card className="p-6 bg-gradient-to-br from-primary/10 via-primary/5 to-background border-primary/20 shadow-sm">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-start sm:items-center gap-4">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-2xl shadow-md shrink-0">
-                {student?.full_name?.charAt(0) || "ط"}
-              </div>
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-xl sm:text-2xl font-bold text-foreground">{student?.full_name}</h2>
-                  <Badge variant="outline" className="text-xs font-mono">
-                    الرقم الأكاديمي: {student?.academic_number}
-                  </Badge>
-                </div>
-                <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1">
-                  <span className="flex items-center gap-1">
-                    <Building className="w-3.5 h-3.5 text-primary" />
-                    {student?.college_name}
-                  </span>
-                  <span>•</span>
-                  <span>{student?.department_name}</span>
-                  <span>•</span>
-                  <span className="font-medium text-foreground">{student?.level_name}</span>
-                  {student?.block_name && (
-                    <>
-                      <span>•</span>
-                      <span className="text-primary font-semibold flex items-center gap-1">
-                        <Layers className="w-3 h-3" />
-                        {student?.block_name}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Academic Status Pills */}
-            <div className="flex flex-col md:items-end gap-2 shrink-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <Badge className="bg-primary/10 text-primary hover:bg-primary/15 border-primary/20 text-xs px-3 py-1 font-semibold">
-                  {student?.group_name || "المجموعة الدراسية"}
-                </Badge>
-                <Badge variant="secondary" className="text-xs px-2.5 py-1">
-                  {student?.semester_name || "الفصل الدراسي الحالي"}
-                </Badge>
-              </div>
-              <span className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
-                <GraduationCap className="w-3.5 h-3.5 text-primary/70" />
-                العام الأكاديمي: 2026-2027
-              </span>
-            </div>
-          </div>
-        </Card>
-
         {/* Mobile Navigation Tabs Bar (On desktop, navigation is cleanly handled by the right Sidebar) */}
         <div className="lg:hidden flex items-center gap-2 border-b overflow-x-auto pb-2 scrollbar-none">
           <Button
@@ -713,6 +661,129 @@ export default function StudentPortalPage() {
           {/* ==================================================================== */}
           {currentTab === "overview" && (
             <div className="space-y-6 animate-in fade-in duration-300">
+              {/* البطاقة الأكاديمية التعريفية الرقمية الاحترافية (خاصة بالواجهة الرئيسية فقط) */}
+              <div className="relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-card via-card to-primary/[0.04] p-5 sm:p-7 shadow-xs backdrop-blur-sm">
+                {/* خط إضاءة جمالي علوي */}
+                <div className="absolute top-0 right-0 left-0 h-[2.5px] bg-gradient-to-r from-transparent via-primary to-transparent" />
+                
+                {/* علامة مائية أكاديمية في الخلفية */}
+                <GraduationCap className="w-44 h-44 text-primary/[0.03] select-none pointer-events-none absolute -left-8 -bottom-10 transform -rotate-12" />
+
+                <div className="relative z-10 space-y-5">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+                    {/* الجانب الأيمن: صورة الطالب والبيانات التعريفية والاسم */}
+                    <div className="flex items-start sm:items-center gap-4 sm:gap-5">
+                      <div className="relative shrink-0">
+                        <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-primary via-primary/90 to-primary/75 text-primary-foreground flex items-center justify-center font-black text-2xl sm:text-3xl shadow-md border-2 border-background ring-2 ring-primary/20">
+                          {student?.full_name?.charAt(0) || "ط"}
+                        </div>
+                        {/* مؤشر حالة الحساب الأكاديمي النشط */}
+                        <span className="absolute -bottom-1 -left-1 flex h-4 w-4" title="طالب نشط ومقيد رسمياً">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border-2 border-background"></span>
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div>
+                          <p className="text-[11px] sm:text-xs font-semibold text-primary/80 tracking-wide flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-primary" />
+                            <span>بوابة الطالب الأكاديمية الذكية</span>
+                          </p>
+                          <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-foreground tracking-tight leading-tight mt-0.5">
+                            {student?.full_name}
+                          </h1>
+                        </div>
+
+                        {/* صف الشارات التعريفية */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="outline" className="font-mono text-xs px-2.5 py-0.5 border-primary/30 text-primary bg-primary/5 font-bold gap-1 shadow-2xs">
+                            <Fingerprint className="w-3 h-3" />
+                            <span>الرقم الأكاديمي: {student?.academic_number}</span>
+                          </Badge>
+
+                          <Badge className="bg-primary/10 hover:bg-primary/15 text-primary border-primary/20 text-xs px-2.5 py-0.5 font-bold gap-1 shadow-2xs">
+                            <Users2 className="w-3 h-3" />
+                            <span>{student?.group_name || "المجموعة الدراسية"}</span>
+                          </Badge>
+
+                          <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-xs px-2.5 py-0.5 font-semibold gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                            <span>مقيد ونشط رسمياً</span>
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* الجانب الأيسر: الفصل الدراسي والعام ومعدل الحضور */}
+                    <div className="flex flex-col sm:flex-row lg:flex-col sm:items-center lg:items-end justify-center gap-2 shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-border/40">
+                      <div className="flex items-center gap-2 flex-wrap sm:justify-end">
+                        <Badge variant="secondary" className="text-xs px-3 py-1 font-medium bg-muted/80 border border-border/60 gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-primary/80" />
+                          <span>{student?.semester_name || "الفصل الدراسي الحالي"}</span>
+                        </Badge>
+                        <span className="text-[11px] font-mono text-muted-foreground flex items-center gap-1 bg-muted/40 px-2.5 py-1 rounded-md border border-border/40">
+                          <GraduationCap className="w-3.5 h-3.5 text-primary/70" />
+                          <span>2026-2027</span>
+                        </span>
+                      </div>
+
+                      {stats && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-background/80 px-3 py-1.5 rounded-lg border border-border/60 shadow-2xs">
+                          <span>نسبة الحضور التراكمية:</span>
+                          <span className={`font-bold font-mono text-sm ${(stats?.rate || 0) >= 85 ? "text-emerald-600" : (stats?.rate || 0) >= 75 ? "text-amber-600" : "text-rose-600"}`}>
+                            {stats?.rate || 0}%
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* شبكة الانتماء الأكاديمي (الكلية، القسم، المستوى، البلوك) */}
+                  <div className="pt-4 border-t border-border/50 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                    <div className="flex items-center gap-2.5 p-2 rounded-xl bg-muted/30 border border-border/40">
+                      <div className="w-7 h-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <Building className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground font-medium">الكلية</p>
+                        <p className="font-semibold text-foreground truncate" title={student?.college_name}>{student?.college_name || "جامعة صنعاء"}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 p-2 rounded-xl bg-muted/30 border border-border/40">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                        <GraduationCap className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground font-medium">القسم والتخصص</p>
+                        <p className="font-semibold text-foreground truncate" title={student?.department_name}>{student?.department_name || "الطب البشري"}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 p-2 rounded-xl bg-muted/30 border border-border/40">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                        <BookOpen className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground font-medium">المستوى الأكاديمي</p>
+                        <p className="font-semibold text-foreground truncate">{student?.level_name || "المستوى الأول"}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5 p-2 rounded-xl bg-muted/30 border border-border/40">
+                      <div className="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                        <Layers className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-muted-foreground font-medium">البلوك الأكاديمي</p>
+                        <p className="font-semibold text-foreground truncate" title={student?.block_name || "الخطة العامة"}>{student?.block_name || "الخطة العامة"}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Quick KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="p-4 shadow-2xs border-border/60">
