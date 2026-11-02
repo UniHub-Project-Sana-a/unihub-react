@@ -1150,8 +1150,8 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       await api.delete(`/v1/departments/${id}`); 
       fetchDepartments(); 
       toast({ title: "نجاح", description: "تم الحذف" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل الحذف", variant: "destructive" });
     } 
   };
 
@@ -1216,8 +1216,8 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       if (selectedProgram?.id === id) setSelectedProgram(null); 
       fetchPrograms(selectedDepartment!.department_id);
       toast({ title: "نجاح", description: "تم الحذف" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل الحذف", variant: "destructive" });
     }
   };
 
@@ -1537,8 +1537,8 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       if (selectedLevel?.id === id) setSelectedLevel(null); 
       fetchLevels(selectedProgram!.id);
       toast({ title: "نجاح", description: "تم الحذف" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل الحذف", variant: "destructive" });
     }
   };
 
@@ -1594,8 +1594,8 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       if (selectedTerm?.id === id) setSelectedTerm(null); 
       fetchTerms(selectedLevel!.id);
       toast({ title: "نجاح", description: "تم الحذف" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل الحذف", variant: "destructive" });
     }
   };
 
@@ -1727,8 +1727,8 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       }
       
       toast({ title: "نجاح", description: "تم الحذف" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل الحذف", variant: "destructive" });
     }
   };
 
@@ -2051,8 +2051,8 @@ export default function DepartmentsModule({ collegeId }: { collegeId: string }) 
       }
       
       toast({ title: "نجاح", description: "تم الحذف" });
-    } catch {
-      toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+    } catch (error: any) {
+      toast({ title: "خطأ", description: error?.response?.data?.message || "فشل الحذف", variant: "destructive" });
     }
   };
 

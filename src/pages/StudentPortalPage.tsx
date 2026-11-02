@@ -510,7 +510,9 @@ export default function StudentPortalPage() {
     }
     setAuthToken(undefined);
     localStorage.removeItem("access_token");
-    window.location.href = "/react-app/login";
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    window.location.hash = "/login";
   };
 
   if (isLoading) {
