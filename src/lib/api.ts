@@ -3,11 +3,9 @@ import axios from 'axios';
 
 // دالة تحديد عنوان الـ API بمرونة مضمونة 100%
 export const resolveApiBaseUrl = (): string => {
-  // 1. إذا كان الموقع مفتوحاً على Vercel أو دومين سحابي خارجي، الاتصال دائماً بسيرفر الباك إند السحابي
+  // 1. إذا كان الموقع مفتوحاً على نطاق Vercel السحابي، الاتصال بسيرفر الباك إند السحابي
   if (typeof window !== 'undefined') {
-    const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-    if (isRemote) {
-      // مسح أي قيم قديمة معطلة من التخزين المحلي
+    if (window.location.hostname.endsWith('vercel.app')) {
       localStorage.removeItem('unihub_api_base_url');
       return 'https://test-uni-hub-api.vercel.app/api';
     }
@@ -21,10 +19,15 @@ export const resolveApiBaseUrl = (): string => {
     }
   }
 
-  // 3. قراءة الرابط من متغيرات البيئة المحلية إن وُجدت وليست روابط أنفاق منتهية
+  // 3. قراءة الرابط من متغيرات البيئة إن وُجدت
   const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
   if (envUrl && !envUrl.includes('trycloudflare.com') && !envUrl.includes('ngrok') && !envUrl.includes('loca.lt')) {
     return envUrl.replace(/\/+$/, '');
+  }
+
+  // 4. إذا كان النظام منشوراً على سيرفر داخلي للجامعة (IP أو دومين محلي)
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return `${window.location.origin}/api`;
   }
 
   return 'http://127.0.0.1:8000/api';

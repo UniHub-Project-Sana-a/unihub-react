@@ -1044,10 +1044,11 @@ function StudentsGroupsContent() {
                   </div>
                 )}
 
-                <DialogFooter className="gap-2 sm:gap-0 pt-2">
+                <DialogFooter className="gap-2 pt-2 flex flex-col-reverse sm:flex-row">
                   <Button
                     type="button"
                     variant="outline"
+                    className="w-full sm:w-auto"
                     onClick={() => setTransferModalStudent(null)}
                     disabled={isTransferring}
                   >
@@ -1057,7 +1058,7 @@ function StudentsGroupsContent() {
                     type="button"
                     onClick={() => void handleTransferSingleStudent(Boolean(isFull))}
                     disabled={!transferModalTargetGroupId || isTransferring}
-                    className="gap-2"
+                    className="w-full sm:w-auto gap-2"
                   >
                     {isTransferring ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ArrowLeftRight className="ml-2 h-4 w-4" />}
                     تأكيد نقل الطالب
@@ -1112,10 +1113,11 @@ function StudentsGroupsContent() {
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="gap-2 pt-2 flex flex-col-reverse sm:flex-row">
             <Button
               type="button"
               variant="outline"
+              className="w-full sm:w-auto"
               onClick={() => setEditingGroupModal(null)}
               disabled={isUpdatingGroup}
             >
@@ -1123,6 +1125,7 @@ function StudentsGroupsContent() {
             </Button>
             <Button
               type="button"
+              className="w-full sm:w-auto"
               onClick={() => void handleUpdateGroup()}
               disabled={isUpdatingGroup}
             >
