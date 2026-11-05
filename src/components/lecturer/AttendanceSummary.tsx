@@ -9,7 +9,7 @@ import { AttendanceRecord } from "@/pages/LecturerPage";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { AttendanceReportSheet, ReportStudent } from "@/components/reports/AttendanceReportSheet";
+import { AttendanceReportDetails, AttendanceReportSheet, ReportStudent } from "@/components/reports/AttendanceReportSheet";
 import { useReactToPrint } from "react-to-print";
 
 interface StudentData {
@@ -82,6 +82,8 @@ export function AttendanceSummary({
   });
   
   const [isLoadingStudents, setIsLoadingStudents] = useState(true);
+  const [reportDetails, setReportDetails] = useState<AttendanceReportDetails | null>(null);
+  const [isLoadingReportDetails, setIsLoadingReportDetails] = useState(true);
   const [filter, setFilter] = useState<'present' | 'absent'>('present');
   const [searchTerm, setSearchTerm] = useState("");
   const [isFinalizing, setIsFinalizing] = useState(false);
@@ -122,6 +124,29 @@ export function AttendanceSummary({
     };
     fetchAllStudents();
   }, [groupId, toast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingReportDetails(true);
+
+    api.get<AttendanceReportDetails>(`/v1/lecture-sessions/${sessionId}/attendance-report-details`)
+      .then(({ data }) => {
+        if (!cancelled) setReportDetails(data);
+      })
+      .catch((error) => {
+        console.error("Error fetching attendance report details:", error);
+        if (!cancelled) {
+          toast({ title: "تنبيه", description: "تعذر جلب تفاصيل المحاضرة والمرفقات للتقرير.", variant: "destructive" });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingReportDetails(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, toast]);
 
   // ✅ إصلاح: تحديث القائمة عند وصول بيانات جديدة من السيرفر (تجاوز الكاش القديم)
   useEffect(() => {
@@ -175,13 +200,17 @@ export function AttendanceSummary({
   }, [filter, presentRecords, absentStudents, searchTerm]);
 
   const reportData: ReportStudent[] = useMemo(() => {
-    return printableList.map(p => ({
-      name: p.name,
-      id: String(p.id),
-      status: p.status as 'present' | 'absent',
-      method: p.method
-    }));
-  }, [printableList]);
+    return printableList.map(p => {
+      const student = allStudents.find(s => String(s.academic_number) === String(p.id));
+      return {
+        name: p.name,
+        id: String(p.id),
+        status: p.status as 'present' | 'absent',
+        method: p.method,
+        student_id: student?.student_id
+      };
+    });
+  }, [printableList, allStudents]);
 
   const handlePrint = useReactToPrint({
     contentRef: componentRef,
@@ -297,10 +326,11 @@ export function AttendanceSummary({
                   <Button 
                     variant="outline" 
                     onClick={() => handlePrint && handlePrint()} 
+                    disabled={isLoadingReportDetails}
                     className="gap-2 h-12 border-primary/20 hover:bg-primary/5 hover:text-primary"
                   >
-                    <Printer className="w-4 h-4" />
-                    <span className="hidden sm:inline">طباعة الكشف</span>
+                    {isLoadingReportDetails ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                    <span className="hidden sm:inline">{isLoadingReportDetails ? "جاري تحميل التقرير" : "طباعة الكشف"}</span>
                   </Button>
 
                   <div className="bg-muted/50 px-4 py-2 rounded-md border text-center min-w-[140px] flex flex-col justify-center shadow-sm h-12">
@@ -455,6 +485,7 @@ export function AttendanceSummary({
             presentCount={presentRecords.length}
             absentCount={absentStudents.length}
             collegeId={collegeId}
+            reportDetails={reportDetails}
         />
       </div>
 

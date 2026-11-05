@@ -14,7 +14,8 @@ import { format, startOfWeek, endOfWeek, addDays, subDays, isToday } from 'date-
 import { ar } from 'date-fns/locale';
 import { cn } from "@/lib/utils";
 import { useReactToPrint } from "react-to-print";
-import { AttendanceReportSheet, ReportStudent } from "@/components/reports/AttendanceReportSheet";
+import axios from "axios";
+import { AttendanceReportDetails, AttendanceReportSheet, ReportStudent } from "@/components/reports/AttendanceReportSheet";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { RequestMakeupDialog } from "@/components/lecturer/RequestMakeupDialog";
@@ -189,7 +190,7 @@ const handleOpenEndSession = (session: LectureSession) => {
     setIsEndSessionOpen(true);
 };
   
-  // دالة تنفيذ الإنهاء (مع GPS)
+  // دالة تنفيذ الإنهاء
   const confirmEndSession = async () => {
       if (isEarlyExit && !earlyExitReason.trim()) {
           toast({ title: "تنبيه", description: "يرجى ذكر سبب إنهاء المحاضرة قبل وقتها.", variant: "destructive" });
@@ -197,90 +198,24 @@ const handleOpenEndSession = (session: LectureSession) => {
       }
   
       setIsEnding(true);
-
-      // 1. التحقق من حالة صلاحية الموقع قبل طلبه
-      if (!navigator.geolocation) {
-          toast({ title: "خطأ", description: "المتصفح لا يدعم تحديد الموقع.", variant: "destructive" });
-          setIsEnding(false);
-          return;
-      }
-
       try {
-          if (navigator.permissions && navigator.permissions.query) {
-              const status = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
-
-              if (status.state === 'denied') {
-                  toast({
-                      title: "تم رفض الوصول للموقع",
-                      description: "المتصفح منع طلب الموقع. افتح إعدادات الموقع في المتصفح ثم أعد المحاولة.",
-                      variant: "destructive"
-                  });
-                  setIsEnding(false);
-                  return;
-              }
-
-              if (status.state === 'prompt') {
-                  toast({
-                      title: "السماح للوصول للموقع",
-                      description: "يرجى الموافقة على الوصول إلى الموقع لتأكيد إتمام المحاضرة.",
-                      variant: "default"
-                  });
-              }
-          } else {
-              toast({
-                  title: "السماح للوصول للموقع",
-                  description: "يرجى الموافقة على الوصول إلى الموقع لتأكيد إتمام المحاضرة.",
-                  variant: "default"
-              });
-          }
-      } catch (permissionError) {
-          console.warn("Permission query failed, falling back to geolocation request", permissionError);
-          toast({
-              title: "السماح للوصول للموقع",
-              description: "يرجى الموافقة على الوصول إلى الموقع لتأكيد إتمام المحاضرة.",
-              variant: "default"
+          await api.post(`/v1/sessions/${selectedSessionToEnd?.id}/finish`, {
+              early_exit_reason: isEarlyExit ? earlyExitReason : null
           });
+
+          toast({ title: "تم الإنهاء", description: "تم إنهاء المحاضرة واعتماد حضور المحاضر." });
+          setIsEndSessionOpen(false);
+          onRefresh();
+      } catch (error: unknown) {
+          const errorMessage = axios.isAxiosError(error) ? error.response?.data?.message : undefined;
+          toast({
+              title: "فشل الإنهاء",
+              description: errorMessage || "حدث خطأ أثناء الاتصال بالسيرفر.",
+              variant: "destructive"
+          });
+      } finally {
+          setIsEnding(false);
       }
-  
-      navigator.geolocation.getCurrentPosition(
-          async (position) => {
-              try {
-                  // 2. إرسال الطلب للسيرفر
-                  await api.post(`/v1/sessions/${selectedSessionToEnd?.id}/finish`, {
-                      latitude: position.coords.latitude,
-                      longitude: position.coords.longitude,
-                      early_exit_reason: isEarlyExit ? earlyExitReason : null
-                  });
-  
-                  toast({ title: "تم الإنهاء", description: "تم تسجيل وقت وموقع الانتهاء بنجاح." });
-                  setIsEndSessionOpen(false);
-                  onRefresh(); // تحديث الجدول لتختفي الأزرار وتتغير الحالة
-              } catch (error) {
-                  toast({ title: "فشل الإنهاء", description: "حدث خطأ أثناء الاتصال بالسيرفر.", variant: "destructive" });
-              } finally {
-                  setIsEnding(false);
-              }
-          },
-          (error) => {
-              console.error(error);
-
-              if (error.code === error.PERMISSION_DENIED) {
-                  toast({
-                      title: "تم رفض الوصول للموقع",
-                      description: "تم رفض الوصول إلى الموقع من المتصفح. افتح إعدادات الموقع في المتصفح ثم أعد المحاولة.",
-                      variant: "destructive"
-                  });
-              } else {
-                  toast({ title: "فشل تحديد الموقع", description: "يرجى السماح للموقع بالعمل.", variant: "destructive" });
-              }
-
-              setIsEnding(false);
-          },
-          { enableHighAccuracy: true,
-            timeout: 20000,
-            maximumAge: 0 
-           } // دقة عالية
-      );
   };
   // ✅ 2. دالة جلب المرفقات عند فتح النافذة
   const fetchAttachments = async (sessionId: number) => {
@@ -366,12 +301,14 @@ const handleOpenEndSession = (session: LectureSession) => {
     presentCount: number;
     absentCount: number;
     printTime: string;   // وقت الطباعة
+    reportDetails: AttendanceReportDetails | null;
   }>({
     session: null,
     students: [],
     presentCount: 0,
     absentCount: 0,
-    printTime: ""
+    printTime: "",
+    reportDetails: null
   });
 
   const handlePrint = useReactToPrint({
@@ -381,7 +318,7 @@ const handleOpenEndSession = (session: LectureSession) => {
         : "Attendance_Report",
     onAfterPrint: () => {
         setIsPrintingId(null);
-        setPrintData(prev => ({ ...prev, session: null }));
+        setPrintData(prev => ({ ...prev, session: null, reportDetails: null }));
     }
   });
 
@@ -393,8 +330,12 @@ const handleOpenEndSession = (session: LectureSession) => {
         // ------------------------------------------------------------------
         // الخطوة 1: جلب قائمة جميع طلاب المجموعة
         // ------------------------------------------------------------------
-        const groupRes = await api.get(`/v1/student-groups/${session.groupId}/students`);
+        const [groupRes, reportDetailsRes] = await Promise.all([
+            api.get(`/v1/student-groups/${session.groupId}/students`),
+            api.get<AttendanceReportDetails>(`/v1/lecture-sessions/${session.id}/attendance-report-details`)
+        ]);
         const allStudents = groupRes.data.data || groupRes.data || [];
+        const reportDetails = reportDetailsRes.data;
 
         // ------------------------------------------------------------------
         // الخطوة 2: تجهيز باراميترات البحث عن سجلات الحضور
@@ -431,7 +372,8 @@ const handleOpenEndSession = (session: LectureSession) => {
                 name: student.user?.full_name || student.name || "طالب",
                 id: String(student.user?.academic_number || student.academic_number),
                 status: isPresent ? 'present' : 'absent',
-                method: isPresent ? (record.method || 'QR') : '-', 
+                method: isPresent ? (record.method || 'QR') : '-',
+                student_id: Number(student.student_id)
             };
         });
 
@@ -462,6 +404,7 @@ const handleOpenEndSession = (session: LectureSession) => {
             students: sortedStudents,
             presentCount,
             absentCount,
+            reportDetails,
             // وقت الطباعة الحالي بصيغة (08:30 ص)
             printTime: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
         });
@@ -636,18 +579,22 @@ const handleOpenEndSession = (session: LectureSession) => {
                   
                     let cardClass = "";
                     let badgeText = "مجدولة";
-                    
-                    // تحديد النصوص والألوان
-                    if (session.isCurrent || isWithinBuffer) badgeText = "جارية الآن";
-                  
-                    if (isPast) {
-                        if (session.status !== 0) {
-                            cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
-                            badgeText = "مكتملة";
+
+                    if (session.status === 1) {
+                        cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
+                        badgeText = "مكتملة";
+                    } else if (session.status === 2) {
+                        if (isPast) {
+                            cardClass = "bg-amber-100/50 dark:bg-amber-900/20 border-amber-500/50";
+                            badgeText = "بانتظار إنهاء المحاضرة";
                         } else {
-                            cardClass = "bg-red-100/50 dark:bg-red-900/30 border-red-500/50";
-                            badgeText = "فاتت";
+                            badgeText = "جارية الآن";
                         }
+                    } else if (isPast) {
+                        cardClass = "bg-red-100/50 dark:bg-red-900/30 border-red-500/50";
+                        badgeText = "فاتت";
+                    } else if (session.isCurrent || isWithinBuffer) {
+                        badgeText = "جارية الآن";
                     }
                   
                     return (
@@ -668,11 +615,11 @@ const handleOpenEndSession = (session: LectureSession) => {
                               <h4 className="text-lg font-semibold">{session.title}</h4>
                               
                               {/* الشارة (Badge) */}
-                              {(session.isCurrent || isWithinBuffer) && <Badge className="animate-pulse">{badgeText}</Badge>}
+                              {(session.isCurrent || isWithinBuffer) && session.status !== 1 && <Badge className="animate-pulse">{badgeText}</Badge>}
                               
                               {/* شارة الحالة العادية */}
-                              {session.isAttended && !session.isCurrent && !isWithinBuffer && (
-                                  <Badge variant={isPast && session.status !== 0 ? 'secondary' : 'outline'}>{badgeText}</Badge>
+                              {(session.status === 1 || (session.isAttended && !session.isCurrent && !isWithinBuffer)) && (
+                                  <Badge variant={session.status === 1 ? 'secondary' : 'outline'}>{badgeText}</Badge>
                               )}
                       
                               {/* ✅ شارة "تعويضية" جديدة ومميزة */}
@@ -908,7 +855,7 @@ const handleOpenEndSession = (session: LectureSession) => {
                                                 {isEarlyExit ? "إنهاء مبكر للمحاضرة" : "اكتمال وقت المحاضرة"}
                                             </DialogTitle>
                                             <DialogDescription className="text-muted-foreground text-sm max-w-sm mx-auto">
-                                                سيتم إغلاق الجلسة وتوثيق التوقيت والموقع الجغرافي.
+                                                سيتم إغلاق الجلسة وتوثيق وقت انتهائها.
                                             </DialogDescription>
                                         </div>
                                     </div>
@@ -1065,6 +1012,7 @@ const handleOpenEndSession = (session: LectureSession) => {
                 presentCount={printData.presentCount}
                 absentCount={printData.absentCount}
                 collegeId={collegeId}
+                reportDetails={printData.reportDetails}
             />
         )}
       </div>

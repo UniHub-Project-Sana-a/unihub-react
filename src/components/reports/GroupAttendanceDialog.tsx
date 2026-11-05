@@ -30,6 +30,7 @@ interface StudentStats {
   present_count: number;
   absent_count: number;
   attendance_percentage: number;
+  correct_answers_count: number;
 }
 
 export function GroupAttendanceDialog({
@@ -100,7 +101,7 @@ export function GroupAttendanceDialog({
                 كشف تفصيلي للمجموعة: {groupName}
               </DialogTitle>
               <DialogDescription>
-                تقرير تفصيلي لحضور وغياب الطلاب في المقرر المحدد.
+                تقرير حضور وغياب الطلاب ومجموع إجاباتهم الصحيحة في المقرر المحدد.
               </DialogDescription>
             </div>
             <div className="flex gap-2">
@@ -181,19 +182,19 @@ export function GroupAttendanceDialog({
                     
                     <thead className="hidden print:table-header-group">
                       <tr>
-                        <td style={{ height: '15px' }} colSpan={8}>&nbsp;</td>
+                        <td style={{ height: '15px' }} colSpan={9}>&nbsp;</td>
                       </tr>
                     </thead>
 
                     <tfoot className="hidden print:table-footer-group">
                       <tr>
-                        <td className="footer-space" colSpan={8}>&nbsp;</td>
+                        <td className="footer-space" colSpan={9}>&nbsp;</td>
                       </tr>
                     </tfoot>
 
                     <tbody>
                       <tr>
-                        <td colSpan={8}>
+                        <td colSpan={9}>
                           
                           {/* ======================= HEADER ======================= */}
                           <div className="hidden print:flex justify-between items-start mb-2 border-b-2 border-black pb-2 pt-0 mt-0">
@@ -264,6 +265,7 @@ export function GroupAttendanceDialog({
                                   <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[70px]">المنفذة</TableHead>
                                   <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[60px]">حضور</TableHead>
                                   <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[60px]">غياب</TableHead>
+                                  <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[90px]">إجابات صحيحة</TableHead>
                                   <TableHead className="text-center border-black/30 font-extrabold text-black w-[70px]">النسبة</TableHead>
                                 </TableRow>
                               </TableHeader>
@@ -277,6 +279,7 @@ export function GroupAttendanceDialog({
                                     <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.total_sessions_executed}</TableCell>
                                     <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.present_count}</TableCell>
                                     <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.absent_count}</TableCell>
+                                    <TableCell className="text-center border-l border-black/30 py-1 font-bold">{student.correct_answers_count}</TableCell>
                                     <TableCell className="text-center py-1">
                                       <span className="font-bold text-black">
                                         {student.attendance_percentage}%
