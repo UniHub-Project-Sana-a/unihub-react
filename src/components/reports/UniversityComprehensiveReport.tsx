@@ -63,8 +63,8 @@ export default function UniversityComprehensiveReport() {
                 <td>
                     <div className="flex justify-between items-start border-b-4 border-double border-black pb-4 mb-8 pt-4">
                         <div className="w-1/4 text-center">
-                            <img src={logoSanaa} alt="جامعة صنعاء" className="h-28 w-auto mx-auto object-contain" />
-                            <p className="text-sm font-bold mt-2">الجمهورية اليمنية<br/>جامعة صنعاء</p>
+                            <img src={logoSanaa} alt="جامعة العلوم والتكنولوجيا" className="h-28 w-auto mx-auto object-contain" />
+                            <p className="text-sm font-bold mt-2">الجمهورية اليمنية<br/>جامعة العلوم والتكنولوجيا</p>
                         </div>
                         
                         <div className="w-2/4 text-center pt-2">

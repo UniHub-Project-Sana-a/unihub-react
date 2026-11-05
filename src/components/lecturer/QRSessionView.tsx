@@ -14,6 +14,7 @@ interface QRSessionViewProps {
   lectureTitle: string;
   groupName: string;
   lectureId: string;
+  sessionStorageKey: string;
   initialQR: ActiveQRInfo;
   expectedStudents?: number;
   groupsDetail?: Array<{ groupId: string; groupName: string; studentsCount: number }>;
@@ -25,6 +26,7 @@ export function QRSessionView({
   lectureTitle,
   groupName,
   lectureId,
+  sessionStorageKey,
   initialQR,
   expectedStudents,
   groupsDetail,

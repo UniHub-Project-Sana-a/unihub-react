@@ -10,6 +10,24 @@ export interface ReportStudent {
   id: string;
   status: 'present' | 'absent';
   method: string;
+  student_id?: number;
+}
+
+export interface AttendanceReportDetails {
+  start_time: string | null;
+  end_time: string | null;
+  lecturer_title: string | null;
+  topics: string[];
+  question_count: number;
+  student_answers: { student_id: number; correct_answers: number }[];
+  early_exit_reason: string | null;
+  attachments: {
+    attachment_id: number;
+    type: string;
+    title: string;
+    url: string;
+    file_size: string | null;
+  }[];
 }
 
 interface AttendanceReportSheetProps {
@@ -26,6 +44,7 @@ interface AttendanceReportSheetProps {
   absentCount: number;
   // ✅ collegeId لتحديد رابط الشعار
   collegeId?: string | number;
+  reportDetails?: AttendanceReportDetails | null;
 }
 
 export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, AttendanceReportSheetProps>(
@@ -41,7 +60,8 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
     studentsList, 
     presentCount, 
     absentCount,
-    collegeId
+    collegeId,
+    reportDetails
   }, ref) => {
     
     // ✅ 2. بناء رابط الشعار الديناميكي
@@ -50,6 +70,9 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
     const currentCollegeLogo = collegeId 
         ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
         : null;
+    const correctAnswersByStudent = new Map(
+      reportDetails?.student_answers.map((answer) => [answer.student_id, answer.correct_answers]) ?? []
+    );
 
     return (
       <div 
@@ -100,16 +123,16 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
             <table style={{ width: '100%', border: 'none' }}>
               
               <thead className="hidden print:table-header-group">
-                <tr><td style={{ height: '15px' }} colSpan={5}>&nbsp;</td></tr>
+                <tr><td style={{ height: '15px' }} colSpan={6}>&nbsp;</td></tr>
               </thead>
               
               <tfoot className="hidden print:table-footer-group">
-                <tr><td className="footer-space" colSpan={5}>&nbsp;</td></tr>
+                <tr><td className="footer-space" colSpan={6}>&nbsp;</td></tr>
               </tfoot>
               
               <tbody>
                 <tr>
-                  <td colSpan={5}>
+                  <td colSpan={6}>
                     
                     {/* ======================= HEADER ======================= */}
                     <div className="hidden print:flex justify-between items-start mb-2 border-b-2 border-black pb-2 pt-0 mt-0">
@@ -122,7 +145,7 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
                         {/* المنتصف */}
                         <div className="w-2/4 text-center pt-1">
                             <h2 className="text-lg font-bold leading-tight">الجمهورية اليمنية</h2>
-                            <h2 className="text-lg font-bold leading-tight mb-2"> جامعة صنعاء </h2>
+                            <h2 className="text-lg font-bold leading-tight mb-2"> جامعة العلوم والتكنولوجيا </h2>
                             
                             <h1 className="text-xl font-black mb-2 inline-block px-6 py-1 bg-gray-100 border border-black/10 rounded-md">
                                 كشف حضور وغياب الطلاب
@@ -171,10 +194,37 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
                             <p className="mb-0 text-sm font-bold whitespace-nowrap">المجموعة: <span className="font-normal">{groupName}</span></p>
                          </div>
                          <div className="text-left w-1/2 pr-4">
-                            <p className="mb-1 text-sm font-bold whitespace-nowrap">المحاضر: <span className="font-normal">{lecturerName}</span></p>
+                            <p className="mb-1 text-sm font-bold whitespace-nowrap">المحاضر: <span className="font-normal">{reportDetails?.lecturer_title ? `${reportDetails.lecturer_title} / ` : ""}{lecturerName}</span></p>
                             <p className="mb-0 text-sm font-bold whitespace-nowrap">القاعة: <span className="font-normal">{classroomName} ({buildingName})</span></p>
                          </div>
                     </div>
+
+                    {reportDetails && (
+                      <div className="hidden print:block text-sm border border-gray-200 rounded-md px-4 py-2 mb-3">
+                        <div className="flex flex-wrap gap-x-8 gap-y-1">
+                          <span><strong>موضوع المحاضرة:</strong> {reportDetails.topics.length ? reportDetails.topics.join("، ") : "غير مسجل"}</span>
+                          <span><strong>الأسئلة التي أُجيب عنها:</strong> {reportDetails.question_count}</span>
+                          <span><strong>مدة المحاضرة:</strong> {reportDetails.start_time?.slice(0, 5) || "--:--"} - {reportDetails.end_time?.slice(0, 5) || "--:--"}</span>
+                        </div>
+                        {reportDetails.early_exit_reason && (
+                          <p className="mt-1"><strong>ملاحظات المحاضر (سبب الإنهاء المبكر):</strong> {reportDetails.early_exit_reason}</p>
+                        )}
+                        {reportDetails.attachments.length > 0 && (
+                          <div className="mt-1">
+                            <strong>مرفقات المحاضرة:</strong>
+                            <ul className="list-disc list-inside">
+                              {reportDetails.attachments.map((attachment) => (
+                                <li key={attachment.attachment_id}>
+                                  <a href={storageUrl(attachment.url) || undefined} target="_blank" rel="noreferrer" className="underline">
+                                    {attachment.title}
+                                  </a>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="mt-2 flex justify-center gap-8 text-sm font-bold mb-4">
                       <span>إجمالي الطلاب: {studentsList.length}</span>
@@ -191,7 +241,8 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
                             <TableHead className="text-right border-l border-black/30 font-extrabold text-black">اسم الطالب</TableHead>
                             <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[150px]">الرقم الجامعي</TableHead>
                             <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[100px]">الحالة</TableHead>
-                            <TableHead className="text-center border-black/30 font-extrabold text-black w-[100px]">الطريقة</TableHead>
+                            <TableHead className="text-center border-l border-black/30 font-extrabold text-black w-[100px]">الطريقة</TableHead>
+                            <TableHead className="text-center border-black/30 font-extrabold text-black w-[100px]">إجابات صحيحة</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -203,8 +254,11 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
                                 <TableCell className="text-center border-l border-black/30 font-extrabold">
                                     {student.status === 'present' ? <span className="text-green-700">حاضر</span> : <span className="text-red-700">غائب</span>}
                                 </TableCell>
-                                <TableCell className="text-center border-black/30 text-xs font-bold">
+                                <TableCell className="text-center border-l border-black/30 text-xs font-bold">
                                      {student.status === 'present' ? (student.method === 'QR' ? 'QR Code' : 'يدوي') : '-'}
+                                </TableCell>
+                                <TableCell className="text-center border-black/30 text-xs font-bold">
+                                  {student.student_id ? correctAnswersByStudent.get(student.student_id) ?? 0 : 0}
                                 </TableCell>
                             </TableRow>
                           ))}

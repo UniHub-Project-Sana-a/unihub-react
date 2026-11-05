@@ -19,6 +19,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { usePermission } from "@/hooks/usePermission";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import TimetableTrashPage from "@/components/colleges/TimetableTrashPage";
+import TimetableEntriesPanel from "@/components/colleges/TimetableEntriesPanel";
 
 // --- Types ---
 type ImportLog = { id: number; created_at: string; source: string; items: number; status: string; notes?: string; };
@@ -49,6 +51,11 @@ interface TimetableModuleProps {
 export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   // ========================= الإعدادات العامة =========================
   const { can } = usePermission();
+
+  // --- حالة صفحة سلة المحذوفات ---
+  const [showTrash, setShowTrash] = useState(false);
+  // --- مفتاح تحديث قائمة الجداول المعروضة ---
+  const [timetableEntriesRefreshToken, setTimetableEntriesRefreshToken] = useState(0);
   
   // --- ✅ حالات ودوال خاصة بمودال عرض الجلسات المتعددة ---
   const [isSlotModalOpen, setIsSlotModalOpen] = useState(false);
@@ -244,7 +251,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
       try {
           setIsSavingEdit(true);
           await api.delete(`/v1/lecture-sessions/${editingSession.session_id}`);
-          toast({ title: "تم الحذف", description: "تم حذف الجلسة بنجاح" });
+          toast({ title: "تم الحذف", description: "تم نقل الجلسة إلى سلة المحذوفات" });
           setIsEditModalOpen(false);
           fetchSessionsGrid(viewDate); // تحديث الشبكة
           void fetchSchedulableLectures();
@@ -1118,6 +1125,7 @@ const openCreateSessionModal = async () => {
         className: "bg-green-500 text-white",
       });
       setImportStatus("success");
+      setTimetableEntriesRefreshToken((prev) => prev + 1);
       resetManualForm();
       
     } catch (error: any) {
@@ -2031,7 +2039,21 @@ const openCreateSessionModal = async () => {
           )}
 
           {/* Success Banner, Conflicts Panel, and Import Log can be added here */}
-  
+
+          {/* ======================================================== */}
+          {/* ========= TIMETABLE ENTRIES LIST (SEARCH + FILTERS) ==== */}
+          {/* ======================================================== */}
+          <TimetableEntriesPanel
+            collegeId={collegeId}
+            departments={departments}
+            days={days}
+            periods={periods}
+            classrooms={classrooms}
+            lecturers={lecturers}
+            refreshToken={timetableEntriesRefreshToken}
+            onChanged={() => void fetchSessionsGrid(viewDate)}
+          />
+
         </TabsContent>
   
           {/* ======================================= */}

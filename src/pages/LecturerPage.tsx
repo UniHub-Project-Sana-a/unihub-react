@@ -84,6 +84,21 @@ export interface AttendanceRecord {
   method: "QR" | "يدوي";
 }
 
+interface PersistedLecturerSession {
+  userId: number | string;
+  phase: "qr" | "summary";
+  session: LectureSession;
+  settings?: QRFormSettings;
+  activeQR?: ActiveQRInfo;
+  records?: AttendanceRecord[];
+}
+
+const getActiveSessionStorageKey = (userId: number | string) =>
+  `lecturer_active_session_${userId}`;
+
+const getQRProgressStorageKey = (sessionId: string) =>
+  `lecturer_qr_progress_${sessionId}`;
+
 // --- المكون الرئيسي ---
 export default function LecturerPage() {
   // --- 1. Hooks والحالات (مُعدّلة) ---
@@ -106,8 +121,73 @@ export default function LecturerPage() {
   const [isStartingSession, setIsStartingSession] = useState(false);
   const [lecturerTitle, setLecturerTitle] = useState<string | undefined>(undefined);
   const [viewDate, setViewDate] = useState(new Date());
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
 
   const lecturerName = user?.full_name || "محاضر";
+
+  useEffect(() => {
+    if (!user?.user_id) return;
+
+    const storageKey = getActiveSessionStorageKey(user.user_id);
+    try {
+      const savedValue = localStorage.getItem(storageKey);
+      if (savedValue) {
+        const saved = JSON.parse(savedValue) as PersistedLecturerSession;
+        const isValid =
+          String(saved.userId) === String(user.user_id) &&
+          (saved.phase === "qr" || saved.phase === "summary") &&
+          Boolean(saved.session?.id);
+
+        if (isValid) {
+          setSelectedSession(saved.session);
+
+          if (saved.phase === "qr" && saved.settings && saved.activeQR?.qr_code_value) {
+            setQrSettings(saved.settings);
+            setActiveQR(saved.activeQR);
+            setQrSessionActive(true);
+          } else if (saved.phase === "summary" && Array.isArray(saved.records)) {
+            setAttendanceRecords(saved.records);
+            setSessionEnded(true);
+          } else {
+            localStorage.removeItem(storageKey);
+          }
+        } else {
+          localStorage.removeItem(storageKey);
+        }
+      }
+    } catch (error) {
+      console.error("تعذر استعادة جلسة المحاضرة المحفوظة.", error);
+      localStorage.removeItem(storageKey);
+    } finally {
+      setIsRestoringSession(false);
+    }
+  }, [user?.user_id]);
+
+  const saveActiveSession = useCallback((saved: PersistedLecturerSession) => {
+    if (!user?.user_id) return;
+
+    try {
+      localStorage.setItem(
+        getActiveSessionStorageKey(user.user_id),
+        JSON.stringify(saved)
+      );
+    } catch (error) {
+      console.error("تعذر حفظ حالة جلسة المحاضرة في هذا المتصفح.", error);
+    }
+  }, [user?.user_id]);
+
+  const handleActiveQRChange = useCallback((updatedQR: ActiveQRInfo) => {
+    setActiveQR(updatedQR);
+    if (selectedSession && qrSettings) {
+      saveActiveSession({
+        userId: user?.user_id ?? "",
+        phase: "qr",
+        session: selectedSession,
+        settings: qrSettings,
+        activeQR: updatedQR,
+      });
+    }
+  }, [selectedSession, qrSettings, saveActiveSession, user?.user_id]);
 
   // --- 2. الدوال الرئيسية (مُعدّلة) ---
   const fetchLecturerInfoAndSchedule = useCallback(async (date: Date) => {
@@ -284,6 +364,13 @@ export default function LecturerPage() {
       setQrSessionActive(true);
       setSessionEnded(false);
       setAttendanceRecords([]);
+      saveActiveSession({
+        userId: user?.user_id ?? "",
+        phase: "qr",
+        session: selectedSession,
+        settings,
+        activeQR: firstQrCode,
+      });
       fetchLecturerInfoAndSchedule(viewDate);
     } catch (error: any) {
       toast({ title: "فشل بدء الجلسة", description: error?.response?.data?.message || "حدث خطأ غير متوقع.", variant: "destructive" });
@@ -298,9 +385,23 @@ export default function LecturerPage() {
     setSessionEnded(true);
     setActiveQR(null);
     setQrSettings(null);
+    if (selectedSession) {
+      saveActiveSession({
+        userId: user?.user_id ?? "",
+        phase: "summary",
+        session: selectedSession,
+        records,
+      });
+    }
   };
   
   const handleBackToSchedule = () => {
+    if (user?.user_id) {
+      localStorage.removeItem(getActiveSessionStorageKey(user.user_id));
+    }
+    if (selectedSession) {
+      localStorage.removeItem(getQRProgressStorageKey(selectedSession.id));
+    }
     setSessionEnded(false);
     setSelectedSession(null);
     setAttendanceRecords([]);
@@ -326,7 +427,12 @@ export default function LecturerPage() {
         {currentView === 'attendance' && (
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
             {/* الحالة الافتراضية: عرض الجدول */}
-            {!qrSessionActive && !sessionEnded && (
+            {isRestoringSession ? (
+              <div className="flex flex-col items-center justify-center p-10">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                <p className="mt-2 text-muted-foreground">جاري استعادة جلسة المحاضرة...</p>
+              </div>
+            ) : !qrSessionActive && !sessionEnded && (
               <>
                 <LectureSchedule
                     sessions={sessions}
@@ -351,10 +457,12 @@ export default function LecturerPage() {
             {/* الحالة الثانية: جلسة QR نشطة */}
             {qrSessionActive && qrSettings && selectedSession && activeQR && (
               <QRSessionView
+                key={selectedSession.id}
                 settings={qrSettings}
                 lectureTitle={selectedSession.title}
                 groupName={selectedSession.groupName}
                 lectureId={selectedSession.timetableId} 
+                sessionStorageKey={getQRProgressStorageKey(selectedSession.id)}
                 initialQR={activeQR}
                 expectedStudents={selectedSession.expectedStudents}
                 groupsDetail={selectedSession.groupsDetail}

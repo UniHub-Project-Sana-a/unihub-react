@@ -1,9 +1,10 @@
 // src/components/lecturer/QRFallbackView.tsx
 
-import { useState, useEffect, useCallback } from "react"; 
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import QRCode from "react-qr-code";
+import axios from "axios";
 import { api } from "@/lib/api";
 import { Loader2, Timer, Clock, Plus, Users } from "lucide-react"; // ✅ تمت إضافة أيقونة Users
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +23,48 @@ interface QRFallbackViewProps {
   onEndSession: (records: AttendanceRecord[]) => void;
 }
 
+interface QrProgress {
+  activeQR: ActiveQRInfo;
+  qrRefreshTimeLeft: number;
+  sessionTimeLeft: number;
+  extensionsCount: number;
+}
+
+const loadQrProgress = (
+  storageKey: string,
+  initialQR: ActiveQRInfo,
+  settings: QRSettings
+): QrProgress => {
+  try {
+    const savedValue = localStorage.getItem(storageKey);
+    if (savedValue) {
+      const saved = JSON.parse(savedValue) as Partial<QrProgress>;
+      if (
+        saved.activeQR?.qr_code_value &&
+        typeof saved.qrRefreshTimeLeft === "number" &&
+        typeof saved.sessionTimeLeft === "number" &&
+        typeof saved.extensionsCount === "number"
+      ) {
+        return {
+          activeQR: saved.activeQR,
+          qrRefreshTimeLeft: Math.max(1, saved.qrRefreshTimeLeft),
+          sessionTimeLeft: Math.max(0, saved.sessionTimeLeft),
+          extensionsCount: Math.max(0, saved.extensionsCount),
+        };
+      }
+    }
+  } catch (error) {
+    console.error("تعذر استعادة مؤقت جلسة QR المحفوظ.", error);
+  }
+
+  return {
+    activeQR: initialQR,
+    qrRefreshTimeLeft: settings.intervalSeconds,
+    sessionTimeLeft: settings.validMinutes * 60,
+    extensionsCount: 0,
+  };
+};
+
 const formatTime = (totalSeconds: number) => {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
@@ -38,12 +81,15 @@ export function QRFallbackView({
 }: QRFallbackViewProps) {
   const { toast } = useToast();
 
-  const [activeQR, setActiveQR] = useState<ActiveQRInfo>(initialQR);
-  const [qrRefreshTimeLeft, setQrRefreshTimeLeft] = useState(settings.intervalSeconds);
-  const [sessionTimeLeft, setSessionTimeLeft] = useState(settings.validMinutes * 60);
+  const [initialProgress] = useState(() =>
+    loadQrProgress(sessionStorageKey, initialQR, settings)
+  );
+  const [activeQR, setActiveQR] = useState<ActiveQRInfo>(initialProgress.activeQR);
+  const [qrRefreshTimeLeft, setQrRefreshTimeLeft] = useState(initialProgress.qrRefreshTimeLeft);
+  const [sessionTimeLeft, setSessionTimeLeft] = useState(initialProgress.sessionTimeLeft);
 
   // ✅ --- إضافة حالة لتتبع عدد مرات التمديد ---
-  const [extensionsCount, setExtensionsCount] = useState(0);
+  const [extensionsCount, setExtensionsCount] = useState(initialProgress.extensionsCount);
   const MAX_EXTENSIONS = 3;
 
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -90,6 +136,7 @@ export function QRFallbackView({
       
       const newQR: ActiveQRInfo = res.data.data;
       setActiveQR(newQR);
+      onActiveQRChange(newQR);
       console.log("QR Code refreshed successfully:", newQR);
       
     } catch (error) {
@@ -97,9 +144,9 @@ export function QRFallbackView({
     } finally {
       setIsRefreshing(false);
     }
-  }, [activeQR.qr_id, isRefreshing, isEnding, settings.validMinutes]); 
+  }, [activeQR.qr_id, isRefreshing, isEnding, settings.validMinutes, onActiveQRChange]);
 
-    const handleEndSession = async (isAutoEnd: boolean = false) => {
+  const handleEndSession = useCallback(async (isAutoEnd: boolean = false) => {
     if (isEnding) return;
     setIsEnding(true);
     
@@ -124,6 +171,7 @@ export function QRFallbackView({
 
       const records: AttendanceRecord[] = attendanceRes.data?.data || [];
 
+      localStorage.removeItem(sessionStorageKey);
       if (!isAutoEnd) {
         toast({
           title: "انتهت الجلسة",
@@ -133,12 +181,15 @@ export function QRFallbackView({
 
       onEndSession(records);
 
-    } catch (error: any) {
-      console.error("Failed to end session:", error.response?.data || error);
+    } catch (error: unknown) {
+      const errorData = axios.isAxiosError<{ error?: string; message?: string }>(error)
+        ? error.response?.data
+        : undefined;
+      console.error("Failed to end session:", errorData || error);
 
       const errorMessage = 
-        error.response?.data?.error ||   
-        error.response?.data?.message || 
+        errorData?.error ||
+        errorData?.message ||
         "فشل إنهاء الجلسة. يرجى المحاولة مرة أخرى."; 
 
       toast({
@@ -148,7 +199,7 @@ export function QRFallbackView({
       });
       setIsEnding(false); 
     }
-  };
+  }, [activeQR.qr_id, isEnding, lectureId, onEndSession, sessionStorageKey, toast]);
 
   // ✅ --- دالة تمديد الوقت ---
   const handleExtendSession = async () => {
@@ -179,6 +230,19 @@ export function QRFallbackView({
   };
 
   useEffect(() => {
+    try {
+      localStorage.setItem(sessionStorageKey, JSON.stringify({
+        activeQR,
+        qrRefreshTimeLeft,
+        sessionTimeLeft,
+        extensionsCount,
+      } satisfies QrProgress));
+    } catch (error) {
+      console.error("تعذر حفظ حالة جلسة QR في هذا المتصفح.", error);
+    }
+  }, [activeQR, extensionsCount, qrRefreshTimeLeft, sessionStorageKey, sessionTimeLeft]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setQrRefreshTimeLeft(prev => {
         if (prev <= 1) {
@@ -190,7 +254,10 @@ export function QRFallbackView({
 
       setSessionTimeLeft(prev => {
         if (prev <= 1) {
-          handleEndSession(true); 
+          if (!autoEndAttempted.current) {
+            autoEndAttempted.current = true;
+            handleEndSession(true);
+          }
           clearInterval(timer);
           return 0;
         }
