@@ -16,7 +16,6 @@ const COLLEGE_PERMISSION_ROUTES = [
   { permission: "timetable.view_lectures", path: "/timetable" },
   { permission: "groups.view", path: "/enrollment" },
   { permission: "requests.view_makeup", path: "/excuses" },
-  { permission: "staff.view", path: "/academic-staff" },
 ];
 
 export function canAccessCollegePath(

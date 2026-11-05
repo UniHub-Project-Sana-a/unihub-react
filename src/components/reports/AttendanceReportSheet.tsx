@@ -68,7 +68,7 @@ export const AttendanceReportSheet = React.forwardRef<HTMLDivElement, Attendance
     // نستخدم collegeId لجلب الصورة من مجلد التخزين العام في لارافيل
     // نضيف timestamp لمنع الكاش عند تحديث الشعار
     const currentCollegeLogo = collegeId 
-        ? `${storageUrl(`colleges/${collegeId}.png`)}?t=${new Date().toDateString()}` 
+        ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
         : null;
     const correctAnswersByStudent = new Map(
       reportDetails?.student_answers.map((answer) => [answer.student_id, answer.correct_answers]) ?? []

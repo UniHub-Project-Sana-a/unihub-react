@@ -27,12 +27,7 @@ export function QAReportDialog({
   
   const printRef = useRef<HTMLDivElement>(null);
 
-  // ✅ تعريف رابط الصور الديناميكي
-  // نستخدم رابط السيرفر + storage + colleges + id.png
-  // أضفنا Date.now() لمنع الكاش (عشان لو غيرت الصورة تتحدث فوراً)
-  const collegeLogoUrl = collegeId 
-    ? `${storageUrl(`colleges/${collegeId}.png`)}?t=${new Date().toDateString()}` 
-    : null;
+  const collegeLogoUrl = storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`);
 
   const handlePrint = useReactToPrint({
     // @ts-ignore

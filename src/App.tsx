@@ -16,7 +16,6 @@ import ExcusesPage from "./pages/ExcusesPage";
 import IntegrationPage from "./pages/IntegrationPage";
 import SettingsPage from "./pages/SettingsPage";
 import AuditLogPage from "./pages/AuditLogPage";
-import AcademicStaffPage from "./pages/AcademicStaffPage";
 import CourseManagementPage from "./pages/CourseManagementPage";
 import CollegesPage from "./pages/CollegesPage";
 import LoginPage from "./components/auth/LoginPage";
@@ -27,8 +26,12 @@ import LecturerPage from "./pages/LecturerPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import CertInstructionPage from "@/pages/CertInstructionPage";
 import StudentQaPage from "@/components/student/qa/StudentQaPage";
+import StudentPortalPage from "@/pages/StudentPortalPage";
+import StudentQRScannerPage from "@/pages/StudentQRScannerPage";
 import LocationsPage from "@/pages/LocationsPage";
+import { PwaInstallPrompt } from "@/components/common/PwaInstallPrompt";
 import StudentsGroupsPage from "@/pages/StudentsGroupsPage";
+import PrivacyPolicyPage from "@/pages/PrivacyPolicyPage";
 
 // استيراد مكونات الحماية
 import { AuthProvider } from "@/context/AuthContext";
@@ -63,6 +66,8 @@ const App = () => (
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/change-password" element={<ChangePasswordPage />} />
               <Route path="/install-cert" element={<CertInstructionPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
               {/* <Route path="/logout" element={<ForceLogout />} /> */}
               
               {/* صفحة "غير مصرح لك" يجب أن تكون متاحة للجميع لتجنب الحلقات المفرغة */}
@@ -91,31 +96,33 @@ const App = () => (
                   <Route path="/users/access-control" element={<AccessControlPage />} />
                 </Route>
 
-                <Route element={<RequireRole allowedRoles={['presidency', 'admin']} />}>
+                <Route element={<RequireRole allowedRoles={['presidency', 'admin', 'dean', 'academic_affairs', 'dept_head', 'control']} />}>
                   <Route path="/students/groups" element={<StudentsGroupsPage />} />
                 </Route>
   
                 {/* 🔒 ب) منطقة الكليات (إدارة الكلية) */}
-                <Route element={<RequireRole allowedRoles={['presidency', 'admin', 'dean', 'head_of_department', 'secretary']} />}>
+                <Route element={<RequireRole allowedRoles={['presidency', 'admin', 'dean', 'academic_affairs', 'dept_head', 'control', 'classroom_manager', 'head_of_department', 'secretary']} />}>
                   <Route path="/colleges" element={<CollegesPage />} /> 
                   <Route path="/colleges/:id/dashboard" element={<CollegesPage />} /> 
                   <Route path="/timetable/*" element={<TimetablePage />} />
                   <Route path="/enrollment/*" element={<EnrollmentPage />} />
                   <Route path="/excuses/*" element={<ExcusesPage />} />
                   <Route path="/course-management/*" element={<CourseManagementPage />} />
-                  <Route path="/academic-staff" element={<AcademicStaffPage />} />
                   <Route path="/locations" element={<LocationsPage />} />
                 </Route>
   
-                {/* 🔒 ج) منطقة المحاضر فقط */}
-                <Route element={<RequireRole allowedRoles={['lecturer']} />}>
+                {/* 🔒 ج) منطقة المحاضر (متاحة للمحاضرين، وللعمداء ورؤساء الأقسام والمشرفين الممارسين للتدريس) */}
+                <Route element={<RequireRole allowedRoles={['lecturer', 'dean', 'dept_head', 'head_of_department', 'admin', 'presidency']} />}>
                   <Route path="/lecturer" element={<LecturerPage />} />
                 </Route>
 
-                {/* 🔒 د) منطقة الطالب فقط (جديد) */}
+                {/* 🔒 د) منطقة الطالب فقط (بوابة الطالب الأكاديمية الشاملة) */}
                 {/* يسمح فقط لمن نوعهم student */}
                 <Route element={<RequireRole allowedRoles={['student']} />}>
+                  <Route path="/student/portal" element={<StudentPortalPage />} />
+                  <Route path="/student" element={<StudentPortalPage />} />
                   <Route path="/student/qa" element={<StudentQaPage />} />
+                  <Route path="/student/scan-qr" element={<StudentQRScannerPage />} />
                 </Route>
   
               </Route>
@@ -123,6 +130,7 @@ const App = () => (
               {/* 3. مسار احتياطي لـ 404 */}
               <Route path="*" element={<NotFound />} />
             </Routes>
+            <PwaInstallPrompt />
           </AuthProvider>
         </HashRouter>
       </TooltipProvider>

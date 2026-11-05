@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2  } from "lucide-react";
+import { Upload, Info, Link, FileText, CheckCircle2, AlertCircle, Download, ZoomIn, ZoomOut, Clock, MapPin, User, Loader2, PlusCircle, Search, RefreshCw, Trash2, Users, Sparkles } from "lucide-react";
+import SoftDeleteTrashPage from "./SoftDeleteTrashPage";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -88,11 +89,21 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const [availableLecturers, setAvailableLecturers] = useState<Lecturer[]>([]);
   // --- ⬆️ نهاية الإضافة ⬆️ ---
 
+  // --- حالات دمج مجموعات من أقسام وتخصصات أخرى (المقررات المشتركة لنظام الفصول) ---
+  const [isCrossProgram, setIsCrossProgram] = useState(false);
+  const [crossDepartmentId, setCrossDepartmentId] = useState<string>("");
+  const [crossProgramId, setCrossProgramId] = useState<string>("");
+  const [crossProgramsList, setCrossProgramsList] = useState<Program[]>([]);
+  const [crossGroups, setCrossGroups] = useState<Group[]>([]);
+  const [isFetchingCrossGroups, setIsFetchingCrossGroups] = useState(false);
+  const [crossGroupsMeta, setCrossGroupsMeta] = useState<Record<number, { group_id: number; name: string; departmentName?: string; programName?: string }>>({});
+
   const { toast } = useToast();
   const { confirm, confirmDialog } = useConfirmDialog();
   const collegeIdNum = Number(collegeId);
   const [importSource, setImportSource] = useState<"manual" | null>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "conflict">("idle");
+  const [showTrash, setShowTrash] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
   
   // قائمة قاعات مخصصة لمودال التعويض (تحتوي على خاصية is_busy)
@@ -175,17 +186,34 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
             session_date: editingSession.session_date,
             status: Number(editingSession.status),
             actual_classroom_id: Number(editingSession.actual_classroom_id),
-            // يمكن إضافة start_time و end_time إذا كان الباك-إند يسمح بتعديل وقت الجلسة الفردية
-            lecturer_id: Number(editingSession.actual_lecturer_id), // تحديث المحاضر الفعلي
+            lecturer_id: Number(editingSession.actual_lecturer_id),
             start_time: editingSession.start_time,
             end_time: editingSession.end_time,
         };
 
         await api.put(`/v1/lecture-sessions/${editingSession.session_id}`, payload);
+
+        // ✅ مزامنة وتحديث جدول المحاضرة الرئيسي (Timetable) أيضاً
+        if (editingSession.timetable_id) {
+            try {
+                const selectedPeriod = periods.find(p => 
+                    p.start_time?.slice(0,5) === editingSession.start_time?.slice(0,5) && 
+                    p.end_time?.slice(0,5) === editingSession.end_time?.slice(0,5)
+                );
+                await api.put(`/v1/timetable/${editingSession.timetable_id}`, {
+                    classroom_id: Number(editingSession.actual_classroom_id),
+                    lecturer_id: Number(editingSession.actual_lecturer_id),
+                    ...(selectedPeriod ? { period_id: selectedPeriod.period_id } : {}),
+                });
+            } catch (syncErr: any) {
+                console.warn("Timetable parent sync notice:", syncErr?.response?.data || syncErr);
+            }
+        }
         
-        toast({ title: "نجاح", description: "تم تحديث بيانات الجلسة" });
+        toast({ title: "نجاح", description: "تم تحديث بيانات المحاضرة والجلسة بنجاح" });
         setIsEditModalOpen(false);
         fetchSessionsGrid(viewDate); // تحديث الشبكة
+        void fetchSchedulableLectures();
 
     } catch (error: any) {
         toast({ title: "خطأ", description: error.response?.data?.message || "فشل التحديث", variant: "destructive" });
@@ -194,17 +222,43 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     }
   };
 
-  // --- ✅ دالة حذف الجلسة ---
+  // --- ✅ دالة حذف المحاضرة بالكامل ونقلها لسلة المحذوفات ---
+  const handleDeleteTimetable = async () => {
+      if (!editingSession?.timetable_id) return;
+      if (!(await confirm({ 
+          title: "حذف المحاضرة (نقل إلى سلة المحذوفات)", 
+          description: "هل أنت متأكد من حذف هذه المحاضرة وجميع جلساتها ونقلها إلى سلة المحذوفات؟ يمكنك استعادتها لاحقاً من سلة المحذوفات." 
+      }))) return;
+
+      try {
+          setIsSavingEdit(true);
+          await api.delete(`/v1/timetable/${editingSession.timetable_id}`);
+          toast({ title: "تم النقل إلى سلة المحذوفات", description: "تم نقل المحاضرة وجلساتها إلى سلة المحذوفات بنجاح" });
+          setIsEditModalOpen(false);
+          fetchSessionsGrid(viewDate);
+          void fetchSchedulableLectures();
+      } catch (error: any) {
+          toast({ title: "خطأ", description: error?.response?.data?.message || "فشل حذف المحاضرة", variant: "destructive" });
+      } finally {
+          setIsSavingEdit(false);
+      }
+  };
+
+  // --- ✅ دالة حذف الجلسة الفردية فقط ---
   const handleDeleteSession = async () => {
-      if (!(await confirm({ title: "حذف جلسة", description: "هل أنت متأكد من حذف هذه الجلسة؟ سيتم نقلها إلى سلة المحذوفات ويمكن استعادتها منها." }))) return;
+      if (!(await confirm({ title: "حذف جلسة واحدة", description: "هل أنت متأكد من حذف هذه الجلسة المحددة فقط ونقلها لسلة المحذوفات؟" }))) return;
       
       try {
+          setIsSavingEdit(true);
           await api.delete(`/v1/lecture-sessions/${editingSession.session_id}`);
           toast({ title: "تم الحذف", description: "تم نقل الجلسة إلى سلة المحذوفات" });
           setIsEditModalOpen(false);
           fetchSessionsGrid(viewDate); // تحديث الشبكة
+          void fetchSchedulableLectures();
       } catch (error) {
           toast({ title: "خطأ", description: "فشل الحذف", variant: "destructive" });
+      } finally {
+          setIsSavingEdit(false);
       }
   };
   // ===================== الجزاء الخاص بالتعديل الجلسات والجدول نهاية =====================
@@ -233,7 +287,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
       setLookupsLoading(true);
       setLookupsError(null);
       try {
-        const [colRes, depRes, daysRes, periodsRes, roomsRes, lecturersRes] = await Promise.all([
+        const results = await Promise.allSettled([
           apiJson(`/v1/colleges`),
           apiJson(`/v1/departments?college_id=${collegeIdNum}`),
           apiJson(`/v1/days`),
@@ -242,18 +296,30 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
           apiJson(`/v1/lecturers?college_id=${collegeIdNum}`),
         ]);
 
-        const mapData = (res: any) => res?.data || res || [];
-        setColleges(mapData(colRes).map((c: any) => ({ college_id: c.college_id, name: c.college_name || c.name })));
-        setDepartments(mapData(depRes).map((d: any) => ({ department_id: d.department_id, name: d.department_name || d.name, college_id: d.college_id })));
-        setDays(mapData(daysRes).map((d: any) => ({ day_id: d.day_id, name: d.day_name || d.name, name_ar: d.day_name || d.name_ar })));
-        setPeriods(mapData(periodsRes));
-        setClassrooms(mapData(roomsRes));
-        setLecturers(mapData(lecturersRes).map((l: any) => ({
+        const getData = (r: PromiseSettledResult<any>) => (r.status === 'fulfilled' ? (r.value?.data || r.value || []) : []);
+        const colData = getData(results[0]);
+        const depData = getData(results[1]);
+        const daysData = getData(results[2]);
+        const periodsData = getData(results[3]);
+        const roomsData = getData(results[4]);
+        const lecturersData = getData(results[5]);
+
+        setColleges(colData.map((c: any) => ({ college_id: c.college_id, name: c.college_name || c.name })));
+        setDepartments(depData.map((d: any) => ({ department_id: d.department_id, name: d.department_name || d.name, college_id: d.college_id })));
+        setDays(daysData.map((d: any) => ({ day_id: d.day_id, name: d.day_name || d.name, name_ar: d.day_name || d.name_ar })));
+        setPeriods(periodsData);
+        setClassrooms(roomsData);
+
+        const mappedLecturers = lecturersData.map((l: any) => ({
             lecturer_id: l.lecturer_id,
             name: l.user?.full_name || l.full_name || l.name,
             department_id: l.department_id,
             college_id: l.college_id,
-        })));
+        }));
+        setLecturers(mappedLecturers);
+        if (!isExternalLecturer && mappedLecturers.length > 0) {
+            setAvailableLecturers(mappedLecturers);
+        }
       } catch (e: any) {
         setLookupsError(e?.message || "فشل تحميل البيانات المرجعية");
       } finally {
@@ -310,9 +376,12 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
             }));
             setAvailableLecturers(lecturersData);
         } catch (error) {
-            console.error("Failed to fetch lecturers:", error);
-            toast({ title: "خطأ", description: "فشل جلب قائمة المحاضرين.", variant: "destructive" });
-            setAvailableLecturers([]);
+            console.warn("Failed to fetch lecturers:", error);
+            if (lecturers.length > 0) {
+                setAvailableLecturers(lecturers);
+            } else {
+                setAvailableLecturers([]);
+            }
         }
     };
 
@@ -364,6 +433,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     course_id: number | "";
     lecturer_id: number | "";
     group_id: number | "";
+    group_ids?: number[];
     classroom_id: number | "";
     day_id: number | "";
     period_id: number | "";
@@ -384,7 +454,7 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   }
 
   const [manualForm, setManualForm] = useState<ManualForm>({
-    course_id: "", lecturer_id: "", group_id: "", classroom_id: "",
+    course_id: "", lecturer_id: "", group_id: "", group_ids: [], classroom_id: "",
     day_id: "", period_id: "", lecture_type: 0, status: 1, start_date: "",
     end_date: "", academic_year: "", college_id: collegeIdNum || "", department_id: "",
     program_id: "", level_id: "", semester_id: "", block_id: "", gender_type: 0, lecture_hours: 2, allowance_minutes: 15,
@@ -557,6 +627,97 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
     })();
   }, [manualForm.level_id, manualForm.semester_id, manualForm.block_id, manualForm.department_id, manualForm.program_id, collegeIdNum, programs]);
 
+  // ✅ جلب برامج وتخصصات القسم الآخر عند اختياره
+  useEffect(() => {
+    if (!crossDepartmentId) {
+      setCrossProgramsList([]);
+      setCrossProgramId("");
+      setCrossGroups([]);
+      return;
+    }
+    apiJson(`/v1/programs?department_id=${crossDepartmentId}`).then((res) => {
+      const data = res?.data || res || [];
+      setCrossProgramsList(data.map((p: any) => ({
+        ...p,
+        academic_system: p.academic_system,
+        block_based: Boolean(p.block_based),
+      })));
+    }).catch(err => {
+      console.error("Failed to fetch cross programs", err);
+    });
+  }, [crossDepartmentId]);
+
+  // ✅ جلب مجموعات التخصص الآخر المختار
+  const fetchCrossGroups = async (progId: string) => {
+    if (!progId) {
+      setCrossGroups([]);
+      return;
+    }
+    setIsFetchingCrossGroups(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('college_id', String(collegeIdNum));
+      if (crossDepartmentId) params.append('department_id', crossDepartmentId);
+      params.append('program_id', progId);
+      if (manualForm.level_id) params.append('level_id', String(manualForm.level_id));
+      if (manualForm.semester_id) params.append('semester_id', String(manualForm.semester_id));
+
+      const res = await apiJson(`/v1/student-groups?${params.toString()}`);
+      let groupsData = res?.data || res || [];
+      if (Array.isArray(groupsData) && groupsData.length === 0) {
+        const fallbackRes = await apiJson(`/v1/student-groups?college_id=${collegeIdNum}&program_id=${progId}`);
+        groupsData = fallbackRes?.data || fallbackRes || [];
+      }
+
+      const formatted = (Array.isArray(groupsData) ? groupsData : []).map((g: any) => ({
+        group_id: g.group_id,
+        name: g.group_name || g.name,
+      }));
+      setCrossGroups(formatted);
+    } catch (e) {
+      console.error("Failed to fetch cross groups", e);
+    } finally {
+      setIsFetchingCrossGroups(false);
+    }
+  };
+
+  // ✅ تبديل اختيار مجموعة من تخصص آخر
+  const toggleCrossGroup = (groupItem: Group) => {
+    const current = manualForm.group_ids && manualForm.group_ids.length > 0
+      ? manualForm.group_ids
+      : manualForm.group_id ? [Number(manualForm.group_id)] : [];
+
+    const deptName = departments.find(d => String(d.department_id) === String(crossDepartmentId))?.name || "قسم آخر";
+    const progName = crossProgramsList.find(p => String(p.program_id) === String(crossProgramId))?.program_name || "";
+
+    let next: number[];
+    if (current.includes(groupItem.group_id)) {
+      next = current.filter(id => id !== groupItem.group_id);
+      setCrossGroupsMeta(prev => {
+        const copy = { ...prev };
+        delete copy[groupItem.group_id];
+        return copy;
+      });
+    } else {
+      next = [...current, groupItem.group_id];
+      setCrossGroupsMeta(prev => ({
+        ...prev,
+        [groupItem.group_id]: {
+          group_id: groupItem.group_id,
+          name: groupItem.name,
+          departmentName: deptName,
+          programName: progName
+        }
+      }));
+    }
+
+    setManualForm({
+      ...manualForm,
+      group_id: next[0] || "",
+      group_ids: next,
+    });
+  };
+
 
   const validateManualForm = (): boolean => {
     const errors: Partial<Record<keyof ManualForm, string>> = {};
@@ -714,14 +875,18 @@ const openCreateSessionModal = async () => {
           // 3. معالجة البيانات وإضافة خاصية `date`
           return {
               id: session.session_id,
+              timetable_id: timetable.timetable_id,
               date: session.session_date ? String(session.session_date).slice(0, 10) : null,
               day: timetable.day?.day_name,
               time: `${fmtHHMM(session.start_time)}-${fmtHHMM(session.end_time)}`,
               course: timetable.course?.course_name,
               code: timetable.course?.course_code,
-              instructor: timetable.lecturer?.user?.full_name,
-              room: timetable.classroom?.classroom_name,
-              capacity: String(timetable.classroom?.capacity ?? ''),
+              group: timetable.group?.group_name || timetable.group?.name || session.group?.group_name || "مجموعة غير محددة",
+              group_id: timetable.group_id,
+              students_count: timetable.group?.students_count || 0,
+              instructor: session.actual_lecturer?.user?.full_name || session.actualLecturer?.user?.full_name || timetable.lecturer?.user?.full_name || "محاضر غير محدد",
+              room: session.actual_classroom?.classroom_name || session.actualClassroom?.classroom_name || timetable.classroom?.classroom_name || "قاعة غير محددة",
+              capacity: String(session.actual_classroom?.capacity || session.actualClassroom?.capacity || timetable.classroom?.capacity || ''),
               status: session.status,
               isMakeup: session.is_makeup,
               color: "bg-blue-500/10 border-blue-500/30",
@@ -899,6 +1064,7 @@ const openCreateSessionModal = async () => {
       course_id: "",
       lecturer_id: "",
       group_id: "",
+      group_ids: [],
       classroom_id: "",
       day_id: "",
       period_id: "",
@@ -920,6 +1086,11 @@ const openCreateSessionModal = async () => {
     setGroups([]);
     setIsExternalLecturer(false);
     setExternalCollegeId("");
+    setIsCrossProgram(false);
+    setCrossDepartmentId("");
+    setCrossProgramId("");
+    setCrossGroups([]);
+    setCrossGroupsMeta({});
   };
   
   /**
@@ -963,17 +1134,22 @@ const openCreateSessionModal = async () => {
       
       const errorData = error.response?.data;
 
-      // ✅ --- التعديل هنا: منطق عرض رسالة التعارض --- ✅
-      if (errorData && Array.isArray(errorData.conflicts) && errorData.conflicts.length > 0) {
-        // إذا أرسل الخادم مصفوفة تعارضات
-        setMockConflicts(errorData.conflicts); // استخدم setMockConflicts
+      // ✅ --- منطق عرض رسالة التعارض وتنبيه سلة المحذوفات --- ✅
+      if (errorData && (errorData.has_trash_conflict || errorData.conflicts?.some((c: any) => c.in_trash))) {
+        setMockConflicts(errorData.conflicts || []);
+        toast({
+          title: "تعارض مع محاضرة في سلة المحذوفات",
+          description: errorData.message || errorData.conflicts?.[0]?.message || "يوجد تعارض مع محاضرة في سلة المحذوفات لنفس القاعة والموعد. يرجى تأكيد الحذف النهائي من سلة المحذوفات.",
+          variant: "destructive",
+        });
+      } else if (errorData && Array.isArray(errorData.conflicts) && errorData.conflicts.length > 0) {
+        setMockConflicts(errorData.conflicts);
         toast({
           title: "تم اكتشاف تعارض",
-          description: errorData.conflicts[0].message, // اعرض رسالة أول تعارض
+          description: errorData.conflicts[0].message,
           variant: "destructive",
         });
       } else {
-        // إذا كان هناك خطأ آخر
         setMockConflicts([{ type: 'غير معروف', message: errorData?.message || 'حدث خطأ غير متوقع' }]);
         toast({
           title: "خطأ",
@@ -1090,28 +1266,41 @@ const openCreateSessionModal = async () => {
         setProcessingMakeupId(null);
     }
   };
+
   if (showTrash) {
     return (
-      <TimetableTrashPage
-        collegeId={collegeId}
+      <SoftDeleteTrashPage
+        collegeId={collegeId ? String(collegeId) : undefined}
         onBack={() => {
           setShowTrash(false);
-          setTimetableEntriesRefreshToken((prev) => prev + 1);
           void fetchSessionsGrid(viewDate);
+          void fetchSchedulableLectures();
         }}
+        endpoint="/v1/timetable/trash"
+        permission={["timetable.delete_lecture", "timetable.update_lecture", "timetable.view_lectures"]}
+        title="سلة محذوفات الجدول الدراسي"
+        subtitle="المحاضرات وجلسات المحاضرات المحذوفة حذفاً ناعماً في هذه الكلية"
+        backLabel="العودة للجدول الدراسي"
       />
     );
   }
 
-   return (
+  return (
     <div className="space-y-6" >
       <Tabs defaultValue="import" className="w-full" dir="rtl">
-         {/* ✅ --- قسم الشرح والإرشادات --- ✅ */}
-        <div className="flex justify-between items-center mb-2">
-          <Button variant="destructive" onClick={() => setShowTrash(true)}>
-            <Trash2 className="w-4 h-4 mr-2" />
-            سلة المحذوفات
-          </Button>
+         {/* ✅ --- قسم الشرح والإرشادات وسلة المحذوفات --- ✅ */}
+        <div className="flex justify-between items-center mb-2 gap-2">
+          {can('timetable.delete_lecture') ? (
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
+              onClick={() => setShowTrash(true)}
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>سلة محذوفات المحاضرات</span>
+            </Button>
+          ) : <div />}
           {/* الزر الذي يحتوي على الأيقونة */}
           <Button variant="ghost" size="icon" onClick={() => setIsInfoModalOpen(true)}>
             <Info className="h-5 w-5 text-muted-foreground hover:text-primary" />
@@ -1174,6 +1363,7 @@ const openCreateSessionModal = async () => {
           </DialogContent>
         </Dialog>
         {/* ✅ --- نهاية قسم الشرح --- ✅ */}
+
 
         <TabsList className="grid w-full grid-cols-2 bg-card/50 backdrop-blur-sm">
           <TabsTrigger value="import" className="data-[state=active]:bg-primary/10">إضافة للجدول الرئيسي</TabsTrigger>
@@ -1441,18 +1631,210 @@ const openCreateSessionModal = async () => {
                     {manualFormErrors.course_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.course_id}</p>}
                   </div>
                   {/* Group */}
-                  <div className="space-y-2">
-                    <Label>المجموعة الطلابية</Label>
-                    <Select
-                      value={String(manualForm.group_id)}
-                      onValueChange={(v) => setManualForm({ ...manualForm, group_id: v ? Number(v) : "" })}
-                      disabled={groups.length === 0}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder={groups.length === 0 ? "اختر المسار أولاً" : "اختر المجموعة"} />
-                      </SelectTrigger>
-                      <SelectContent>{groups.map(g => <SelectItem key={g.group_id} value={String(g.group_id)}>{g.name}</SelectItem>)}</SelectContent>
-                    </Select>
+                  <div className="space-y-2 col-span-1 sm:col-span-2 lg:col-span-3 bg-muted/20 p-3 rounded-lg border">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <Label className="font-semibold text-sm">
+                        المجموعات الطلابية (يمكنك اختيار أكثر من مجموعة لمحاضرة مشتركة)
+                      </Label>
+                      {manualForm.group_ids && manualForm.group_ids.length > 1 && (
+                        <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                          محاضرة مشتركة: {manualForm.group_ids.length} مجموعات مختارة
+                        </Badge>
+                      )}
+                    </div>
+
+                    {groups.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">اختر المسار/المستوى أولاً لعرض المجموعات المتاحة</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {groups.map((g) => {
+                          const isSelected = (manualForm.group_ids || []).includes(g.group_id) || manualForm.group_id === g.group_id;
+                          return (
+                            <Button
+                              key={g.group_id}
+                              type="button"
+                              size="sm"
+                              variant={isSelected ? "default" : "outline"}
+                              className={`text-xs h-8 gap-1.5 transition-all ${
+                                isSelected ? "font-bold shadow-xs" : "text-muted-foreground hover:text-foreground"
+                              }`}
+                              onClick={() => {
+                                const currentSelected = manualForm.group_ids && manualForm.group_ids.length > 0
+                                  ? manualForm.group_ids
+                                  : manualForm.group_id ? [Number(manualForm.group_id)] : [];
+                                
+                                let nextSelected: number[];
+                                if (currentSelected.includes(g.group_id)) {
+                                  nextSelected = currentSelected.filter(id => id !== g.group_id);
+                                } else {
+                                  nextSelected = [...currentSelected, g.group_id];
+                                }
+
+                                setManualForm({
+                                  ...manualForm,
+                                  group_id: nextSelected[0] || "",
+                                  group_ids: nextSelected,
+                                });
+                              }}
+                            >
+                              <span>{isSelected ? "✓" : "+"}</span>
+                              <span>{g.name}</span>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* خيار دمج مجموعات من أقسام أو تخصصات أخرى (مخصص لنظام الفصول الدراسية) */}
+                    {!selectedProgram?.block_based && manualForm.department_id && (
+                      <div className="mt-3 pt-3 border-t border-dashed border-border/60">
+                        <div className="flex items-center space-x-2 rtl:space-x-reverse">
+                          <Checkbox
+                            id="cross-program-toggle"
+                            checked={isCrossProgram}
+                            onCheckedChange={(checked: boolean) => {
+                              setIsCrossProgram(checked);
+                              if (!checked) {
+                                const primaryIds = groups.map(g => g.group_id);
+                                setManualForm(prev => {
+                                  const kept = (prev.group_ids || []).filter(id => primaryIds.includes(id));
+                                  return {
+                                    ...prev,
+                                    group_id: kept[0] || (primaryIds[0] ?? ""),
+                                    group_ids: kept
+                                  };
+                                });
+                                setCrossDepartmentId("");
+                                setCrossProgramId("");
+                                setCrossGroups([]);
+                                setCrossGroupsMeta({});
+                              }
+                            }}
+                          />
+                          <label
+                            htmlFor="cross-program-toggle"
+                            className="text-xs sm:text-sm font-medium leading-none cursor-pointer flex items-center gap-1.5 text-foreground/90"
+                          >
+                            <span>دمج مجموعات من تخصصات أو أقسام أخرى في نفس المحاضرة (متطلب عام مشترك)</span>
+                          </label>
+                        </div>
+
+                        {isCrossProgram && (
+                          <div className="mt-3 p-3 rounded-lg bg-background/80 border space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {/* اختيار القسم الآخر */}
+                              <div className="space-y-1.5">
+                                <Label className="text-xs">القسم الآخر</Label>
+                                <Select
+                                  value={String(crossDepartmentId)}
+                                  onValueChange={(v) => {
+                                    setCrossDepartmentId(v);
+                                    setCrossProgramId("");
+                                    setCrossGroups([]);
+                                  }}
+                                >
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder="اختر القسم الآخر" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {departments
+                                      .filter(d => d.department_id !== manualForm.department_id)
+                                      .map(d => (
+                                        <SelectItem key={d.department_id} value={String(d.department_id)}>
+                                          {d.name}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              {/* اختيار البرنامج/التخصص الآخر */}
+                              <div className="space-y-1.5">
+                                <Label className="text-xs">البرنامج / التخصص</Label>
+                                <Select
+                                  value={String(crossProgramId)}
+                                  onValueChange={(v) => {
+                                    setCrossProgramId(v);
+                                    fetchCrossGroups(v);
+                                  }}
+                                  disabled={!crossDepartmentId || crossProgramsList.length === 0}
+                                >
+                                  <SelectTrigger className="h-8 text-xs">
+                                    <SelectValue placeholder={!crossDepartmentId ? "اختر القسم أولاً" : crossProgramsList.length === 0 ? "لا توجد برامج" : "اختر التخصص"} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {crossProgramsList.map(p => (
+                                      <SelectItem key={p.program_id} value={String(p.program_id)}>
+                                        {p.program_name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+
+                            {/* المجموعات المتاحة من التخصص الآخر لإضافتها بنقرة واحدة */}
+                            {isFetchingCrossGroups ? (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground py-1">
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>جاري جلب المجموعات...</span>
+                              </div>
+                            ) : crossGroups.length > 0 ? (
+                              <div className="space-y-1.5 pt-1 border-t border-border/40">
+                                <Label className="text-xs text-muted-foreground font-semibold">
+                                  انقر لإضافة مجموعات من ({crossProgramsList.find(p => String(p.program_id) === String(crossProgramId))?.program_name}):
+                                </Label>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {crossGroups.map(cg => {
+                                    const isSelected = (manualForm.group_ids || []).includes(cg.group_id);
+                                    return (
+                                      <Button
+                                        key={cg.group_id}
+                                        type="button"
+                                        size="sm"
+                                        variant={isSelected ? "default" : "outline"}
+                                        className={`text-xs h-7 gap-1 transition-all ${
+                                          isSelected
+                                            ? "font-bold shadow-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            : "border-emerald-300/60 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
+                                        }`}
+                                        onClick={() => toggleCrossGroup(cg)}
+                                      >
+                                        <span>{isSelected ? "✓" : "+"}</span>
+                                        <span>{cg.name}</span>
+                                      </Button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ) : crossProgramId ? (
+                              <p className="text-xs text-muted-foreground py-1">لا توجد مجموعات متاحة لهذا التخصص.</p>
+                            ) : null}
+
+                            {/* كبسولات تلخص المجموعات المضافة من تخصصات أخرى */}
+                            {Object.keys(crossGroupsMeta).length > 0 && (
+                              <div className="pt-2 border-t border-dashed border-border/50 space-y-1">
+                                <Label className="text-[11px] text-muted-foreground font-medium">المجموعات المدمجة من تخصصات أخرى:</Label>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {Object.values(crossGroupsMeta).map(m => (
+                                    <Badge key={m.group_id} variant="secondary" className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-300/50 text-xs gap-1.5 py-0.5">
+                                      <span>{m.departmentName} - {m.name}</span>
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleCrossGroup({ group_id: m.group_id, name: m.name })}
+                                        className="hover:text-destructive font-bold mr-1"
+                                      >
+                                        ×
+                                      </button>
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {manualFormErrors.group_id && <p className="text-xs text-destructive mt-1">{manualFormErrors.group_id}</p>}
                   </div>
                   
@@ -1796,6 +2178,9 @@ const openCreateSessionModal = async () => {
                                                   {session.code || 'N/A'}
                                                 </span>
                                                 <div className="flex gap-1 flex-wrap justify-end">
+                                                  {session.isShared && (
+                                                    <Badge className="bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-300/60 text-[9px] sm:text-[10px] px-1 h-5">مشتركة</Badge>
+                                                  )}
                                                   {isMakeup && (
                                                     <Badge className="bg-amber-500 hover:bg-amber-600 border-0 text-[9px] sm:text-[10px] px-1 h-5">تعويضية</Badge>
                                                   )}
@@ -1805,6 +2190,15 @@ const openCreateSessionModal = async () => {
                                               <p className="mt-1 font-semibold leading-tight break-words text-[11px] sm:text-xs">{session.course || 'مقرر غير محدد'}</p>
                                             </div>
                                             <div className="mt-2 pt-1 border-t border-dashed border-border/50 space-y-1">
+                                              {session.group && (
+                                                <p className="text-primary/90 font-medium flex items-center justify-end gap-1 break-words text-[10px]">
+                                                  <span className="line-clamp-1">
+                                                    {session.group}
+                                                    {session.students_count ? ` (${session.students_count} طالب)` : ''}
+                                                  </span>
+                                                  <Users className="w-3 h-3 shrink-0 text-primary/70" />
+                                                </p>
+                                              )}
                                               <p className="text-muted-foreground flex items-center justify-end gap-1 break-words">
                                                 <span className="line-clamp-2">{session.instructor || 'محاضر غير محدد'}</span>
                                                 <User className="w-3 h-3 shrink-0" />
@@ -1828,16 +2222,48 @@ const openCreateSessionModal = async () => {
                                         ) : sessionsInSlot.length === 1 ? (
                                           <SessionCard session={sessionsInSlot[0]} />
                                         ) : (
-                                          <Card
-                                            className="h-full min-h-[110px] border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
-                                            onClick={() => openSlotModal(sessionsInSlot, format(currentDay, 'eeee', { locale: ar }), timeLabel)}
-                                          >
-                                            <CardContent className="p-2">
-                                              <div className="font-bold text-base sm:text-lg text-primary">{sessionsInSlot.length}</div>
-                                              <p className="text-xs sm:text-sm text-primary/80">جلسات</p>
-                                              <p className="text-[10px] sm:text-xs text-muted-foreground mt-2">انقر للعرض</p>
-                                            </CardContent>
-                                          </Card>
+                                          (() => {
+                                            // التحقق هل جميع الجلسات في هذه الخلية تتبع نفس المحاضرة المشتركة
+                                            const isUnifiedSharedLecture = sessionsInSlot.length > 1 && 
+                                              sessionsInSlot.every(s => 
+                                                s.course === sessionsInSlot[0].course && 
+                                                s.instructor === sessionsInSlot[0].instructor && 
+                                                s.room === sessionsInSlot[0].room
+                                              );
+                                            
+                                            if (isUnifiedSharedLecture) {
+                                              // دمج المجموعات برمجياً في بطاقة موحدة لعرض الجدول
+                                              const allGroups = Array.from(new Set(sessionsInSlot.map(s => s.group).filter(Boolean)));
+                                              const totalStudents = sessionsInSlot.reduce((sum, s) => sum + Number(s.students_count || 0), 0);
+                                              const unifiedSession = {
+                                                ...sessionsInSlot[0],
+                                                group: allGroups.join(' + '),
+                                                students_count: totalStudents,
+                                                isShared: true,
+                                                sharedCount: sessionsInSlot.length
+                                              };
+                                              return <SessionCard session={unifiedSession} />;
+                                            }
+
+                                            return (
+                                              <Card
+                                                className="h-full min-h-[110px] border-2 border-primary/50 bg-primary/5 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-primary/10 transition-all"
+                                                onClick={() => openSlotModal(sessionsInSlot, format(currentDay, 'eeee', { locale: ar }), timeLabel)}
+                                              >
+                                                <CardContent className="p-2">
+                                                  <div className="font-bold text-base sm:text-lg text-primary">{sessionsInSlot.length}</div>
+                                                  <p className="text-xs sm:text-sm text-primary/80">
+                                                    {sessionsInSlot.some((s, idx, arr) => arr.some((other, oIdx) => idx !== oIdx && s.course === other.course))
+                                                      ? "محاضرة مشتركة"
+                                                      : "جلسات"}
+                                                  </p>
+                                                  <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 font-medium">
+                                                    {sessionsInSlot.length} مجموعات • انقر للعرض
+                                                  </p>
+                                                </CardContent>
+                                              </Card>
+                                            );
+                                          })()
                                         )}
                                       </div>
                                     );
@@ -1893,7 +2319,7 @@ const openCreateSessionModal = async () => {
                 />
             </div>
         
-            {/* --- عرض الجلسات المفلترة مع التلوين --- */}
+            {/* --- عرض الجلسات المفلترة مع التلوين والدمج الذكي للمحاضرات المشتركة --- */}
             <div className="max-h-[50vh] overflow-y-auto p-1 -m-1 space-y-4">
               {(() => {
                 // فلترة الجلسات بناءً على نص البحث
@@ -1903,7 +2329,8 @@ const openCreateSessionModal = async () => {
                     return (
                       session.course?.toLowerCase().includes(searchTerm) ||
                       session.instructor?.toLowerCase().includes(searchTerm) ||
-                      session.room?.toLowerCase().includes(searchTerm)
+                      session.room?.toLowerCase().includes(searchTerm) ||
+                      session.group?.toLowerCase().includes(searchTerm)
                     );
                 });
         
@@ -1915,17 +2342,62 @@ const openCreateSessionModal = async () => {
                         </div>
                     );
                 }
+
+                // ✅ تجميع الجلسات المشتركة لنفس المقرر والمحاضر والقاعة والتوقيت
+                const sessionGroupsMap = new Map<string, {
+                  key: string;
+                  primarySession: any;
+                  sessions: any[];
+                  course: string;
+                  code: string;
+                  instructor: string;
+                  room: string;
+                  date: string;
+                  status: number;
+                  groupsDetail: Array<{ name: string; count?: number; id: number }>;
+                  totalStudents: number;
+                }>();
+
+                filteredSessions.forEach(session => {
+                  const key = `${session.course || ''}___${session.instructor || ''}___${session.room || ''}___${session.date || ''}___${session.time || ''}`;
+                  if (!sessionGroupsMap.has(key)) {
+                    sessionGroupsMap.set(key, {
+                      key,
+                      primarySession: session,
+                      sessions: [session],
+                      course: session.course,
+                      code: session.code,
+                      instructor: session.instructor,
+                      room: session.room,
+                      date: session.date,
+                      status: session.status,
+                      groupsDetail: session.group ? [{ name: session.group, count: session.students_count, id: session.id }] : [],
+                      totalStudents: Number(session.students_count || 0)
+                    });
+                  } else {
+                    const existing = sessionGroupsMap.get(key)!;
+                    existing.sessions.push(session);
+                    if (session.group && !existing.groupsDetail.some(g => g.name === session.group)) {
+                      existing.groupsDetail.push({ name: session.group, count: session.students_count, id: session.id });
+                    }
+                    existing.totalStudents += Number(session.students_count || 0);
+                    // إذا كانت إحدى الجلسات مكتملة نعتبرها مكتملة
+                    if (session.status === 1) existing.status = 1;
+                  }
+                });
+
+                const unifiedList = Array.from(sessionGroupsMap.values());
         
-                return filteredSessions.map(session => {
-                  // --- منطق تحديد الألوان (نفس منطق الجدول الرئيسي) ---
-                  const isPast = new Date(session.date) < new Date() && !isToday(new Date(session.date));
+                return unifiedList.map(item => {
+                  const isShared = item.sessions.length > 1;
+                  const isPast = new Date(item.date) < new Date() && !isToday(new Date(item.date));
                   
                   let cardClass = "bg-background";
                   let badgeText = "مجدولة";
                   let badgeVariant: "outline" | "secondary" | "destructive" | "default" = "outline";
         
                   if (isPast) {
-                      if (session.status === 1) { // تم التحضير
+                      if (item.status === 1) { // تم التحضير
                           cardClass = "bg-green-100/50 dark:bg-green-900/30 border-green-500/50";
                           badgeText = "مكتملة";
                           badgeVariant = "secondary";
@@ -1938,19 +2410,50 @@ const openCreateSessionModal = async () => {
         
                   return (
                     <Card 
-                        key={session.id} 
+                        key={item.key} 
                         // ✅ إضافة حدث النقر وتغيير شكل المؤشر
-                        onClick={() => handleSessionClick(session.id)}
+                        onClick={() => handleSessionClick(item.primarySession.id)}
                         className={cn("border transition-colors cursor-pointer hover:shadow-md", cardClass)}
                     >
-                      <CardContent className="p-4 text-right">
-                          <div className="flex justify-between items-start mb-2">
-                            <p className="font-bold text-lg">{session.course} <span className="text-sm font-normal text-muted-foreground">({session.code})</span></p>
+                      <CardContent className="p-4 text-right space-y-3">
+                          <div className="flex justify-between items-start gap-2">
+                            <div>
+                              <p className="font-bold text-base sm:text-lg">
+                                {item.course} <span className="text-sm font-normal text-muted-foreground font-mono">({item.code})</span>
+                              </p>
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                {isShared && (
+                                  <Badge className="bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-300/70 text-xs font-semibold gap-1 py-0.5">
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    محاضرة مشتركة ({item.groupsDetail.length} مجموعات)
+                                  </Badge>
+                                )}
+                                {item.totalStudents > 0 && (
+                                  <Badge variant="secondary" className="bg-primary/10 text-primary border-primary/20 text-xs py-0.5">
+                                    إجمالي الطلاب: {item.totalStudents} طالب
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
                             <Badge variant={badgeVariant}>{badgeText}</Badge>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 text-sm">
-                              <p className="flex items-center justify-end gap-2"><span>{session.instructor}</span><User className="w-4 h-4 text-muted-foreground" /></p>
-                              <p className="flex items-center justify-end gap-2"><span>{session.room}</span><MapPin className="w-4 h-4 text-muted-foreground" /></p>
+
+                          {/* عرض تفاصيل المجموعات المشاركة في الجلسة المشتركة */}
+                          {item.groupsDetail.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 pt-1 border-t border-border/40">
+                              {item.groupsDetail.map(g => (
+                                <Badge key={g.name} variant="outline" className="bg-muted/50 text-foreground border-border text-xs gap-1 py-1 font-normal">
+                                  <Users className="w-3 h-3 text-primary" />
+                                  <span>{g.name}</span>
+                                  {g.count ? <span className="text-[11px] font-semibold text-primary mr-1">({g.count} طالب)</span> : null}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2 text-sm pt-1 border-t border-dashed border-border/50">
+                              <p className="flex items-center justify-end gap-2"><span>{item.instructor}</span><User className="w-4 h-4 text-muted-foreground" /></p>
+                              <p className="flex items-center justify-end gap-2"><span>{item.room}</span><MapPin className="w-4 h-4 text-muted-foreground" /></p>
                           </div>
                       </CardContent>
                     </Card>
@@ -2442,21 +2945,28 @@ const openCreateSessionModal = async () => {
                </div>
             ) : null}
         
-            <DialogFooter className="flex justify-between sm:justify-between gap-2">
-              {can('timetable.delete_lecture') && (
-                <Button variant="destructive" onClick={handleDeleteSession} disabled={isSavingEdit || isEditLoading}>
-                    <span className="sr-only">حذف</span> حذف الجلسة
-                </Button>
-              )}
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>إلغاء</Button>
-                    {can('timetable.update_lecture') && (
-                      <Button onClick={handleSaveChanges} disabled={isSavingEdit || isEditLoading}>
-                          {isSavingEdit && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
-                          حفظ التعديلات
-                      </Button>
-                    )}
-                </div>
+            <DialogFooter className="flex flex-col sm:flex-row justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                {can('timetable.delete_lecture') && editingSession?.timetable_id && (
+                  <Button variant="destructive" onClick={handleDeleteTimetable} disabled={isSavingEdit || isEditLoading}>
+                    حذف المحاضرة (سلة المحذوفات)
+                  </Button>
+                )}
+                {can('timetable.delete_lecture') && (
+                  <Button variant="outline" className="text-destructive hover:bg-destructive/10" onClick={handleDeleteSession} disabled={isSavingEdit || isEditLoading}>
+                    حذف هذه الجلسة فقط
+                  </Button>
+                )}
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setIsEditModalOpen(false)}>إلغاء</Button>
+                {can('timetable.update_lecture') && (
+                  <Button onClick={handleSaveChanges} disabled={isSavingEdit || isEditLoading}>
+                    {isSavingEdit && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                    حفظ التعديلات
+                  </Button>
+                )}
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

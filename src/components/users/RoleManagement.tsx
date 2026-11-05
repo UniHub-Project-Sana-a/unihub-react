@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Shield, Settings, Edit, Trash2, Plus, UserPlus, Loader2, Lock, FolderKey, CheckSquare, Search } from "lucide-react";
+import { Shield, Settings, Edit, Trash2, Plus, UserPlus, Loader2, Lock, FolderKey, CheckSquare, Search, Check, X, UserCheck, User } from "lucide-react";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -85,6 +85,7 @@ export function RoleManagement() {
   const editRoleForm = useForm<RoleFormData>({ resolver: zodResolver(roleSchema), defaultValues: { name: "", code: "" } });
   const assignRoleForm = useForm<AssignRoleFormData>({ resolver: zodResolver(assignRoleSchema), defaultValues: { userId: "", roleId: "", collegeId: "" } });
   const [permissionSearch, setPermissionSearch] = useState("");
+  const [userSearchQuery, setUserSearchQuery] = useState("");
 
   // --- Helpers ---
   const myUserType = useMemo(() => {
@@ -102,6 +103,16 @@ export function RoleManagement() {
     if (code === "dean") return users.filter(u => u.college_id === me.college_id);
     return [];
   }, [users, me, myUserType]);
+
+  const searchedUsers = useMemo(() => {
+    const q = userSearchQuery.trim().toLowerCase();
+    if (!q) return filteredUsers.slice(0, 50);
+    return filteredUsers.filter(u =>
+      (u.full_name && u.full_name.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q)) ||
+      ((u as any).academic_number && String((u as any).academic_number).toLowerCase().includes(q))
+    );
+  }, [filteredUsers, userSearchQuery]);
 
   useEffect(() => {
     if (myUserType?.user_type_code === 'dean' && me?.college_id) {
@@ -329,18 +340,93 @@ export function RoleManagement() {
               </DialogHeader>
               <Form {...assignRoleForm}>
                 <form onSubmit={assignRoleForm.handleSubmit(onAssignRole)} className="space-y-4 pt-4">
-                    <FormField control={assignRoleForm.control} name="userId" render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>المستخدم</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl><SelectTrigger><SelectValue placeholder="اختر المستخدم" /></SelectTrigger></FormControl>
-                                <SelectContent>
-                                    {filteredUsers.map(u => <SelectItem key={u.user_id} value={String(u.user_id)}>{u.full_name}</SelectItem>)}
-                                </SelectContent>
-                            </Select>
-                            <FormMessage />
-                        </FormItem>
-                    )} />
+                    <FormField control={assignRoleForm.control} name="userId" render={({ field }) => {
+                        const selectedUser = users.find(u => String(u.user_id) === String(field.value));
+                        return (
+                          <FormItem className="space-y-2">
+                              <FormLabel>المستخدم</FormLabel>
+                              {selectedUser ? (
+                                <div className="flex items-center justify-between p-3 border rounded-lg bg-primary/5 border-primary/30">
+                                  <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs">
+                                      {selectedUser.full_name?.slice(0, 2) || "U"}
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-semibold">{selectedUser.full_name}</p>
+                                      <p className="text-xs text-muted-foreground">{selectedUser.email}</p>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                                    onClick={() => {
+                                      field.onChange("");
+                                      setUserSearchQuery("");
+                                    }}
+                                  >
+                                    <X className="w-3.5 h-3.5 mr-1" />
+                                    تغيير
+                                  </Button>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  <div className="relative">
+                                    <Search className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                      placeholder="ابحث باسم المستخدم أو البريد (مثلاً: محمد)..."
+                                      value={userSearchQuery}
+                                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                                      className="pe-9 ps-8 text-sm"
+                                    />
+                                    {userSearchQuery && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setUserSearchQuery("")}
+                                        className="absolute left-3 top-2.5 text-muted-foreground hover:text-foreground"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                  
+                                  <div className="border rounded-md max-h-48 overflow-y-auto divide-y bg-background text-sm">
+                                    {searchedUsers.length > 0 ? (
+                                      searchedUsers.map((u) => (
+                                        <div
+                                          key={u.user_id}
+                                          onClick={() => {
+                                            field.onChange(String(u.user_id));
+                                          }}
+                                          className="p-2.5 flex items-center justify-between cursor-pointer hover:bg-muted/60 transition-colors"
+                                        >
+                                          <div className="flex items-center gap-2">
+                                            <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center text-xs font-medium text-foreground">
+                                              {u.full_name?.slice(0, 1) || "U"}
+                                            </div>
+                                            <div>
+                                              <p className="font-medium text-xs leading-none">{u.full_name}</p>
+                                              <p className="text-[11px] text-muted-foreground mt-0.5">{u.email}</p>
+                                            </div>
+                                          </div>
+                                          <Badge variant="outline" className="text-[10px] py-0 px-1.5 font-normal">
+                                            اختيار
+                                          </Badge>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <div className="p-4 text-center text-xs text-muted-foreground">
+                                        لا يوجد مستخدم مطابق لـ "{userSearchQuery}"
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              <FormMessage />
+                          </FormItem>
+                        );
+                    }} />
                     <FormField control={assignRoleForm.control} name="roleId" render={({ field }) => (
                         <FormItem>
                             <FormLabel>الدور الجديد</FormLabel>

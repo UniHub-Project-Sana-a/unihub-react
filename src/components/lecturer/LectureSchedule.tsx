@@ -7,7 +7,7 @@ import {
   BatteryCharging, Loader2, MapPin, Building, 
   HeartHandshake, RefreshCw, Printer, CalendarPlus, CheckCircle2, XCircle, Info,
    Paperclip, Youtube, FileText, UploadCloud ,  Link as LinkIcon , Trash2, X , Plus,
-   LogOut, Pencil, PlayCircle 
+   LogOut, Pencil, PlayCircle, Sparkles 
 } from "lucide-react";
 import { LectureSession } from "@/pages/LecturerPage";
 import { format, startOfWeek, endOfWeek, addDays, subDays, isToday } from 'date-fns';
@@ -622,6 +622,21 @@ const handleOpenEndSession = (session: LectureSession) => {
                                   <Badge variant={session.status === 1 ? 'secondary' : 'outline'}>{badgeText}</Badge>
                               )}
                       
+                              {/* ✅ شارة "محاضرة مشتركة" */}
+                              {session.isShared && (
+                                  <Badge className="bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-300/70 font-semibold gap-1 py-0.5">
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      محاضرة مشتركة
+                                  </Badge>
+                              )}
+
+                              {/* شارة إجمالي الطلاب المتوقعين */}
+                              {session.expectedStudents ? (
+                                  <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
+                                      {session.expectedStudents} طالب
+                                  </Badge>
+                              ) : null}
+
                               {/* ✅ شارة "تعويضية" جديدة ومميزة */}
                               {session.isMakeup && (
                                   <Badge className="bg-amber-500 hover:bg-amber-600 border-0 text-white">
@@ -632,6 +647,20 @@ const handleOpenEndSession = (session: LectureSession) => {
                             
                             <div className="flex flex-col gap-1 text-sm text-muted-foreground">
                                <span className="flex items-center gap-1.5"><Users className="w-4 h-4" /> {session.groupName}</span>
+
+                               {/* عرض تفاصيل المجموعات المشتركة */}
+                               {session.groupsDetail && session.groupsDetail.length > 1 && (
+                                 <div className="flex flex-wrap gap-1.5 py-1">
+                                   {session.groupsDetail.map(g => (
+                                     <span key={g.groupId} className="inline-flex items-center gap-1 text-xs px-2.5 py-0.5 rounded-md bg-muted/60 border text-foreground/80 font-medium">
+                                       <Users className="w-3 h-3 text-primary" />
+                                       <span>{g.groupName}</span>
+                                       {g.studentsCount ? <span className="text-primary font-bold mr-0.5">({g.studentsCount} طالب)</span> : null}
+                                     </span>
+                                   ))}
+                                 </div>
+                               )}
+
                                <span className="flex items-center gap-1.5"><Clock className="w-4 h-4" /> {session.time}</span>
                                <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {session.classroomName} ({session.buildingName})</span>
                                <span className="flex items-center gap-1.5"><Building className="w-4 h-4" /> {session.departmentName}</span>

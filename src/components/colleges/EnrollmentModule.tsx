@@ -592,55 +592,16 @@ export default function EnrollmentModule({ collegeId, collegeName }: EnrollmentM
     }
   };
 
-  // --- رابط وتوكّن الـ API موحّدان مع بقية التطبيق ---
-  const apiBase = String(
-    import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || ""
-  );
-  const readToken = () =>
-    sessionStorage.getItem("access_token") ||
-    localStorage.getItem("access_token") ||
-    localStorage.getItem("token") ||
-    "";
-
   /**
-   * رفع ملف CSV إلى مسار استيراد الطلاب.
-   * نستخدم fetch عمدًا مع عدم تحديد Content-Type ليضيف المتصفح الحد (boundary)
-   * تلقائيًا، مع استخدام نفس رابط الـ API والتوكن الموجودين في بقية التطبيق.
-   * يرمي خطأً يحمل `response.data` (قد يكون HTML) تفهمه getApiErrorMessage.
+   * رفع ملف CSV إلى مسار استيراد الطلاب عبر عميل الـ API المركزي (api).
    */
   const postStudentsCsv = async (formData: FormData): Promise<any> => {
-    const token = readToken();
-
-    const response = await fetch(`${apiBase}/v1/student-groups/import-csv`, {
-      method: "POST",
+    const response = await api.post("/v1/student-groups/import-csv", formData, {
       headers: {
-        Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        "Content-Type": "multipart/form-data",
       },
-      body: formData,
     });
-
-    const text = await response.text();
-    const contentType = response.headers.get("content-type") || "";
-
-    // نحوّل إلى JSON إن أمكن، وإلا نحتفظ بالنص (مثل صفحة HTML عند خطأ 500)
-    let payload: any = text;
-    if (contentType.includes("json")) {
-      try {
-        payload = JSON.parse(text);
-      } catch {
-        payload = text;
-      }
-    }
-
-    // فشل، أو استجابة ناجحة لكنها ليست JSON (مثل صفحة خطأ HTML)
-    if (!response.ok || typeof payload === "string") {
-      const error: any = new Error(`HTTP ${response.status}`);
-      error.response = { status: response.status, data: payload };
-      throw error;
-    }
-
-    return payload;
+    return response.data;
   };
 
   const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1183,10 +1144,10 @@ export default function EnrollmentModule({ collegeId, collegeName }: EnrollmentM
                   {can('students.add') && (
                     <Button variant="outline" onClick={() => csvInputRef.current?.click()} disabled={isImporting}>
                       {isImporting && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
-                      <Upload className="w-4 h-4 ml-2" /> استيراد CSV
+                      <Upload className="w-4 h-4 ml-2" /> استيراد ملف (Excel / CSV)
                     </Button>
                   )}
-                  <input ref={csvInputRef} type="file" className="hidden" accept=".csv" onChange={handleCsvChange} />
+                  <input ref={csvInputRef} type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={handleCsvChange} />
                 </div>
                 <div className="rounded-lg border bg-muted/20 p-4 space-y-4">
                   <div className="flex flex-wrap items-center gap-3">
@@ -1296,10 +1257,11 @@ export default function EnrollmentModule({ collegeId, collegeName }: EnrollmentM
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" 
+                              className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10" 
+                              title="حذف الطالب ونقله إلى سلة المحذوفات"
                               onClick={(e) => {
                                 e.stopPropagation(); 
-                                handleRemoveStudentFromGroup(student.studentDbId);
+                                void handleDeleteStudent(student.studentDbId);
                               }}
                             >
                               <Trash2 className="w-4 h-4 text-destructive" />

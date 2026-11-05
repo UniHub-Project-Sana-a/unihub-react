@@ -1,16 +1,19 @@
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { User, LogOut, GraduationCap, ClipboardList } from "lucide-react"; // ✅ إضافة أيقونات جديدة
+import { useNavigate } from "react-router-dom";
+import { User, LogOut, GraduationCap, ClipboardList, Megaphone, FileCheck, Building2 } from "lucide-react"; // ✅ إضافة أيقونات جديدة
 import { useAuth } from "@/context/AuthContext";
 import { setAuthToken, api } from "@/lib/api";
 import { useState } from "react";
 
 // ✅ تحديث الواجهة لتستقبل دوال التحكم في العرض
+export type LecturerViewType = 'attendance' | 'grades' | 'announcements' | 'excuses';
+
 interface LecturerWelcomeProps {
   name: string;
   academicTitle?: string;
-  currentView: 'attendance' | 'grades'; // الصفحة الحالية
-  onViewChange: (view: 'attendance' | 'grades') => void; // دالة التغيير
+  currentView: LecturerViewType; // الصفحة الحالية
+  onViewChange: (view: LecturerViewType) => void; // دالة التغيير
 }
 
 export function LecturerWelcome({ 
@@ -20,8 +23,15 @@ export function LecturerWelcome({
   onViewChange 
 }: LecturerWelcomeProps) {
   
-  const { logout } = useAuth(); // استخدام دالة الخروج من الكونتكست (اختياري، أو الطريقة اليدوية أدناه)
+  const navigate = useNavigate();
+  const { user, logout } = useAuth(); // استخدام دالة الخروج من الكونتكست (اختياري، أو الطريقة اليدوية أدناه)
   const [loggingOut, setLoggingOut] = useState(false);
+
+  const userRole = (user as any)?.user_type?.user_type_code || (user as any)?.user_type_code;
+  const collegeId = (user as any)?.college_id;
+  const isSuperUser = userRole === 'presidency' || userRole === 'admin';
+  const hasAdminRole = isSuperUser || userRole === 'dean' || userRole === 'dept_head' || userRole === 'head_of_department' || !!collegeId;
+  const adminLandingPath = isSuperUser ? '/' : (collegeId ? `/colleges/${collegeId}/dashboard` : '/colleges');
 
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -35,8 +45,10 @@ export function LecturerWelcome({
     // تنظيف التوكن والبيانات
     setAuthToken(undefined);
     localStorage.removeItem("access_token");
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
     // توجيه المستخدم لصفحة الدخول
-    window.location.href = "/react-app/login";
+    window.location.hash = "/login";
   };
 
   return (
@@ -80,6 +92,40 @@ export function LecturerWelcome({
             <GraduationCap className="w-4 h-4" />
             <span>أعمال الفصل</span>
           </Button>
+
+          {/* زر إعلانات وتنبيهات الطلاب */}
+          <Button
+            variant={currentView === 'announcements' ? "default" : "outline"}
+            onClick={() => onViewChange('announcements')}
+            className={`gap-2 transition-all ${currentView === 'announcements' ? 'shadow-md' : 'bg-background/50'}`}
+          >
+            <Megaphone className="w-4 h-4" />
+            <span>إعلانات الطلاب</span>
+          </Button>
+
+          {/* زر أعذار الطلاب */}
+          <Button
+            variant={currentView === 'excuses' ? "default" : "outline"}
+            onClick={() => onViewChange('excuses')}
+            className={`gap-2 transition-all ${currentView === 'excuses' ? 'shadow-md' : 'bg-background/50'}`}
+          >
+            <FileCheck className="w-4 h-4" />
+            <span>أعذار الغياب</span>
+          </Button>
+
+          {/* زر العودة للوحة تحكم الإدارة الأكاديمية / الكلية */}
+          {hasAdminRole && (
+            <Button
+              variant="outline"
+              onClick={() => navigate(adminLandingPath)}
+              className="gap-2 border-primary/30 bg-primary/10 hover:bg-primary/20 text-primary font-semibold shadow-xs transition-all"
+              title="العودة إلى لوحة تحكم إدارة الكلية / النظام"
+            >
+              <Building2 className="w-4 h-4" />
+              <span className="hidden sm:inline">لوحة إدارة الكلية 🏛️</span>
+              <span className="sm:hidden">الإدارة</span>
+            </Button>
+          )}
 
           {/* فاصل عمودي يظهر فقط في الشاشات الكبيرة */}
           <div className="h-8 w-[1px] bg-border mx-2 hidden md:block"></div>

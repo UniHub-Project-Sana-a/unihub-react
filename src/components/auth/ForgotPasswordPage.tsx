@@ -13,6 +13,7 @@ const ForgotPasswordPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [resetToken, setResetToken] = useState<string | null>(null);
 
   const navigate = useNavigate(); // 2. تعريف الهوك
 
@@ -24,18 +25,11 @@ const ForgotPasswordPage = () => {
     setIsLoading(true);
 
     try {
-     const res = await api.post("/v1/auth/forgot-password", { email });
-      
+      const res = await api.post("/v1/auth/forgot-password", { email });
       setIsSubmitted(true);
-
-      // ✅ الآن الباك إند سيرسل التوكن، فسيتحقق الشرط ويتم التوجيه
-      // if (res.data?.token) {
-      //   // توجيه مباشر وسريع
-      //   navigate(`/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(res.data.token)}`);
-      // } else {
-      //   // في حالة لم يرجع التوكن (مثلاً إيميل غير موجود)
-      //   setError("لم يتم إرجاع رمز التحقق، تأكد من صحة البريد الإلكتروني.");
-      // }
+      if (res.data?.token) {
+        setResetToken(res.data.token);
+      }
 
     } catch (err: any) {
       const msg = err?.response?.data?.message || "حدث خطأ أثناء إرسال طلب الاسترجاع.";
@@ -105,7 +99,14 @@ const ForgotPasswordPage = () => {
                 لم يصلك البريد؟ تأكد من مجلد الرسائل غير المرغوب فيها (Spam) أو حاول مرة أخرى لاحقاً.
               </div>
 
-              
+              {resetToken && (
+                <Button
+                  onClick={() => navigate(`/reset-password?email=${encodeURIComponent(email)}&token=${encodeURIComponent(resetToken)}`)}
+                  className="w-full shadow-md"
+                >
+                  المتابعة لإعادة تعيين كلمة المرور مباشرة
+                </Button>
+              )}
             </div>
           )}
 

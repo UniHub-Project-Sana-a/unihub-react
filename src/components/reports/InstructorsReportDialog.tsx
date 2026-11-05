@@ -53,7 +53,7 @@ export function InstructorsReportDialog({
 
   // ✅ 2. رابط الشعار الديناميكي (مع منع الكاش)
   const currentCollegeLogo = collegeId 
-    ? `${storageUrl(`colleges/${collegeId}.png`)}?t=${new Date().toDateString()}` 
+    ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
     : null;
 
   // مراقبة للكونسول للتأكد (اختياري)

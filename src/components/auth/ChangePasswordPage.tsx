@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Eye, EyeOff, CheckCircle, XCircle, ShieldAlert } from "lucide-react";
+import { Eye, EyeOff, CheckCircle, ShieldAlert, KeyRound, ArrowRight } from "lucide-react";
 import logoFull from "@/assets/logo-full.png";
 import { api } from "@/lib/api";
 
@@ -29,6 +29,8 @@ const ChangePasswordPage = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
+  const isEnforced = location.state?.mustChange ?? false;
 
   useEffect(() => {
     const fetchPolicy = async () => {
@@ -76,7 +78,7 @@ const ChangePasswordPage = () => {
       });
 
       setSuccess('تم تحديث كلمة المرور بنجاح! جاري تحويلك...');
-      setTimeout(() => navigate('/'), 2000);
+      setTimeout(() => navigate('/'), 1800);
 
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'حدث خطأ أثناء تحديث كلمة المرور.';
@@ -87,19 +89,29 @@ const ChangePasswordPage = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/10 p-4">
-      {/* 👇 هنا التعديل: إطار علوي عريض باللون الرئيسي */}
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/10 p-4" dir="rtl">
       <Card className="w-full max-w-md shadow-2xl border-t-4 border-t-primary bg-card backdrop-blur-sm">
         <CardHeader className="text-center space-y-2">
           <div className="mx-auto mb-2">
             <img src={logoFull} alt="UniHub" className="h-16 w-auto mx-auto" />
           </div>
           <CardTitle className="text-2xl font-bold text-foreground flex items-center justify-center gap-2">
-            <ShieldAlert className="w-6 h-6 text-primary" />
-            تغيير كلمة المرور إلزامي
+            {isEnforced ? (
+              <>
+                <ShieldAlert className="w-6 h-6 text-primary" />
+                تغيير كلمة المرور إلزامي
+              </>
+            ) : (
+              <>
+                <KeyRound className="w-6 h-6 text-primary" />
+                تغيير كلمة المرور
+              </>
+            )}
           </CardTitle>
           <CardDescription>
-            لأسباب أمنية، يجب عليك تغيير كلمة المرور الافتراضية قبل المتابعة.
+            {isEnforced 
+              ? "لأسباب أمنية، يجب عليك تغيير كلمة المرور الافتراضية قبل المتابعة."
+              : "يمكنك تعيين كلمة مرور جديدة لحسابك الشخصي في أي وقت."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -108,27 +120,51 @@ const ChangePasswordPage = () => {
           
           <form onSubmit={handleSubmit} className="space-y-4">
             
-            <div className="space-y-2">
+            <div className="space-y-2 text-right">
               <Label htmlFor="newPassword">كلمة المرور الجديدة</Label>
               <div className="relative">
-                <Input id="newPassword" type={showPassword ? "text" : "password"} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required className="pr-10" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                <Input 
+                  id="newPassword" 
+                  type={showPassword ? "text" : "password"} 
+                  value={newPassword} 
+                  onChange={(e) => setNewPassword(e.target.value)} 
+                  required 
+                  className="pl-10 text-right" 
+                  dir="ltr"
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowPassword(!showPassword)} 
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-2 text-right">
               <Label htmlFor="confirmPassword">تأكيد كلمة المرور</Label>
               <div className="relative">
-                <Input id="confirmPassword" type={showConfirmPassword ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required className="pr-10" />
-                <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                <Input 
+                  id="confirmPassword" 
+                  type={showConfirmPassword ? "text" : "password"} 
+                  value={confirmPassword} 
+                  onChange={(e) => setConfirmPassword(e.target.value)} 
+                  required 
+                  className="pl-10 text-right" 
+                  dir="ltr"
+                />
+                <button 
+                  type="button" 
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)} 
+                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
 
-            <div className="space-y-2 bg-muted/50 p-4 rounded-lg border border-border/50">
+            <div className="space-y-2 bg-muted/50 p-4 rounded-lg border border-border/50 text-right">
               <p className="text-sm font-medium text-foreground mb-3">متطلبات الأمان:</p>
               <div className="grid grid-cols-1 gap-2">
                 {passwordValidations.map((v, i) => (
@@ -140,9 +176,21 @@ const ChangePasswordPage = () => {
               </div>
             </div>
 
-            <Button type="submit" className="w-full" disabled={isSubmitting || !isPasswordValid}>
-              {isSubmitting ? 'جارٍ التحديث...' : 'حفظ ومتابعة'}
-            </Button>
+            <div className="space-y-2 pt-2">
+              <Button type="submit" className="w-full" disabled={isSubmitting || !isPasswordValid}>
+                {isSubmitting ? 'جارٍ التحديث...' : 'حفظ كلمة المرور'}
+              </Button>
+              {!isEnforced && (
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="w-full flex items-center justify-center gap-1.5"
+                  onClick={() => navigate(-1)}
+                >
+                  <ArrowRight className="w-4 h-4 ml-1" /> إلغاء والعودة
+                </Button>
+              )}
+            </div>
           </form>
         </CardContent>
       </Card>

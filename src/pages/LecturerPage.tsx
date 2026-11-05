@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { format, startOfWeek, endOfWeek, isToday } from "date-fns";
 
 // استيراد المكونات الفرعية
-import { LecturerWelcome } from "@/components/lecturer/LecturerWelcome";
+import { LecturerWelcome, LecturerViewType } from "@/components/lecturer/LecturerWelcome";
 import { LectureSchedule } from "@/components/lecturer/LectureSchedule";
 import { StartQRModal, QRFormSettings } from "@/components/lecturer/StartQRModal";
 import { QRSessionView } from "@/components/lecturer/QRSessionView";
@@ -17,6 +17,8 @@ import { AttendanceSummary } from "@/components/lecturer/AttendanceSummary";
 
 // ✅ استيراد مكون الدرجات الجديد
 import { GradesManager } from "@/components/lecturer/GradesManager";
+import { LecturerAnnouncements } from "@/components/lecturer/LecturerAnnouncements";
+import { LecturerExcusesManager } from "@/components/lecturer/LecturerExcusesManager";
 
 // --- واجهات الأنواع (Types) ---
 export interface ActiveQRInfo {
@@ -63,6 +65,17 @@ export interface LectureSession {
     status: number;
     requestedDate: string;
   } | null;
+
+  // ✅ خصائص المحاضرة المشتركة
+  isShared?: boolean;
+  allGroupIds?: string[];
+  allSessionIds?: string[];
+  allTimetableIds?: string[];
+  groupsDetail?: Array<{
+    groupId: string;
+    groupName: string;
+    studentsCount: number;
+  }>;
 }
 export interface AttendanceRecord {
   studentName: string;
@@ -92,8 +105,8 @@ export default function LecturerPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   
-  // ✅ حالة جديدة للتحكم في الصفحة المعروضة (حضور أم درجات)
-  const [currentView, setCurrentView] = useState<'attendance' | 'grades'>('attendance');
+  // ✅ حالة جديدة للتحكم في الصفحة المعروضة
+  const [currentView, setCurrentView] = useState<LecturerViewType>('attendance');
 
   const [currentLecturer, setCurrentLecturer] = useState<any>(null);
   const [sessions, setSessions] = useState<LectureSession[]>([]);
@@ -215,7 +228,26 @@ export default function LecturerPage() {
       const now = new Date();
       const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
 
-      const formattedSessions = sessionsData.map((session: any): LectureSession => {
+      // ✅ تجميع الجلسات المشتركة لنفس المقرر والمحاضر والقاعة والتوقيت
+      const sessionGroupsMap = new Map<string, any[]>();
+      sessionsData.forEach((s: any) => {
+        const dateKey = s.session_date?.slice(0, 10) || '';
+        const startKey = s.start_time?.slice(0, 5) || '';
+        const endKey = s.end_time?.slice(0, 5) || '';
+        const courseKey = s.timetable?.course_id || '';
+        const roomKey = s.actual_classroom?.classroom_name || s.timetable?.classroom?.classroom_name || '';
+        const key = `${dateKey}_${startKey}_${endKey}_${courseKey}_${roomKey}`;
+        if (!sessionGroupsMap.has(key)) {
+          sessionGroupsMap.set(key, [s]);
+        } else {
+          sessionGroupsMap.get(key)!.push(s);
+        }
+      });
+
+      const formattedSessions: LectureSession[] = Array.from(sessionGroupsMap.values()).map(rawSessions => {
+        const session = rawSessions[0];
+        const isShared = rawSessions.length > 1;
+
         const startTimeStr = session.start_time?.slice(0, 5) || '00:00';
         const endTimeStr = session.end_time?.slice(0, 5) || '00:00';
         const [startH, startM] = startTimeStr.split(':').map(Number);
@@ -226,15 +258,27 @@ export default function LecturerPage() {
         const isSessionToday = isToday(new Date(session.session_date));
         const isCurrentTime = currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes;
         
-        const groupStudentCount = session.timetable?.group?.students_count;
-        const capacity = groupStudentCount || session.actual_classroom?.capacity || session.timetable?.classroom?.capacity || 50;
+        const groupsDetail = rawSessions.map(s => ({
+          groupId: String(s.timetable?.group?.group_id || ''),
+          groupName: s.timetable?.group?.group_name || 'مجموعة غير محددة',
+          studentsCount: Number(s.timetable?.group?.students_count || 0)
+        }));
+
+        const totalStudentsFromGroups = groupsDetail.reduce((sum, g) => sum + g.studentsCount, 0);
+        const capacity = totalStudentsFromGroups > 0 ? totalStudentsFromGroups : (session.actual_classroom?.capacity || session.timetable?.classroom?.capacity || 50);
+
+        const groupNamesCombined = groupsDetail.map(g => g.groupName).join(' + ');
+        const finalGroupName = isShared ? `محاضرة مشتركة (${groupNamesCombined})` : (session.timetable?.group?.group_name || 'مجموعة غير محددة');
+
+        const maxStatus = Math.max(...rawSessions.map(s => Number(s.status || 0)));
+        const activeStartTime = rawSessions.find(s => s.actual_start_time)?.actual_start_time || session.actual_start_time;
 
         return {
           id: String(session.session_id), 
           timetableId: String(session.timetable_id),
           sessionCode: session.session_code,
           title: session.timetable?.course?.course_name || 'مادة غير محددة',
-          groupName: session.timetable?.group?.group_name || 'مجموعة غير محددة',
+          groupName: finalGroupName,
           courseId: session.timetable?.course_id,
           lectureType: Number(session.timetable?.lecture_type ?? session.lecture_type ?? 0),
           groupId: String(session.timetable?.group?.group_id),
@@ -245,17 +289,17 @@ export default function LecturerPage() {
           
           time: `${startTimeStr} - ${endTimeStr}`,
           isCurrent: isSessionToday && isCurrentTime,
-          isAttended: session.status !== 0,
-          status: session.status,
+          isAttended: maxStatus !== 0,
+          status: maxStatus,
           classroomName: session.actual_classroom?.classroom_name || session.timetable?.classroom?.classroom_name || 'قاعة غير محددة',
           buildingName: session.actual_classroom?.building?.building_name || session.timetable?.classroom?.building?.building_name || 'مبنى غير محدد',
           departmentName: session.timetable?.department?.department_name || 'قسم غير محدد',
           isMakeup: Boolean(session.is_makeup),
 
-          actual_start_time: session.actual_start_time, 
+          actual_start_time: activeStartTime, 
           lecture_hours: session.timetable?.lecture_hours,
           timetable: {
-              allowance_minutes: session.timetable?.allowance_minutes ?? 15, // قيمة افتراضية إذا لم توجد
+              allowance_minutes: session.timetable?.allowance_minutes ?? 15,
               lecture_type: Number(session.timetable?.lecture_type ?? 0)
           },
           
@@ -264,6 +308,12 @@ export default function LecturerPage() {
             longitude: session.actual_classroom?.longitude ?? session.timetable?.classroom?.longitude ?? null,
             allowed_distance: session.actual_classroom?.allowed_distance ?? session.timetable?.classroom?.allowed_distance ?? null,
           },
+
+          isShared,
+          allSessionIds: rawSessions.map(s => String(s.session_id)),
+          allTimetableIds: rawSessions.map(s => String(s.timetable_id)),
+          allGroupIds: groupsDetail.map(g => g.groupId).filter(Boolean),
+          groupsDetail,
         };
       });
       setSessions(formattedSessions); 
@@ -414,7 +464,8 @@ export default function LecturerPage() {
                 lectureId={selectedSession.timetableId} 
                 sessionStorageKey={getQRProgressStorageKey(selectedSession.id)}
                 initialQR={activeQR}
-                onActiveQRChange={handleActiveQRChange}
+                expectedStudents={selectedSession.expectedStudents}
+                groupsDetail={selectedSession.groupsDetail}
                 onEndSession={handleEndSession}
               />
             )}
@@ -429,6 +480,7 @@ export default function LecturerPage() {
                 classroomName={selectedSession.classroomName}
                 buildingName={selectedSession.buildingName}
                 groupId={selectedSession.groupId} 
+                allGroupIds={selectedSession.allGroupIds}
                 timetableId={selectedSession.timetableId}
                 sessionId={selectedSession.id}
                 onFinalized={handleBackToSchedule}
@@ -443,6 +495,20 @@ export default function LecturerPage() {
         {/* ========================================================= */}
         {currentView === 'grades' && (
            <GradesManager />
+        )}
+
+        {/* ========================================================= */}
+        {/* العرض الثالث: قسم إعلانات وتوجيهات الطلاب */}
+        {/* ========================================================= */}
+        {currentView === 'announcements' && (
+          <LecturerAnnouncements />
+        )}
+
+        {/* ========================================================= */}
+        {/* العرض الرابع: قسم مراجعة واعتماد أعذار الطلاب */}
+        {/* ========================================================= */}
+        {currentView === 'excuses' && (
+          <LecturerExcusesManager />
         )}
 
 

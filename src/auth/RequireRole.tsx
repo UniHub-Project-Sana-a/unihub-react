@@ -22,20 +22,27 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
   }
 
   const role = user?.user_type?.user_type_code || user?.user_type_code;
+  const isLecturer = Boolean(user?.is_lecturer || user?.lecturer_id || user?.lecturer || role === 'lecturer');
   const collegeId = user?.college_id;
   const permissions = user?.permissions ?? [];
   const currentPath = location.pathname.replace(/\/$/, "");
+  
   const canAccessCollegePage =
     !!user &&
     !!collegeId &&
     allowedRoles.includes("dean") &&
     canAccessCollegePath(currentPath, collegeId, permissions);
 
+  const canAccessLecturerPage =
+    !!user &&
+    allowedRoles.includes("lecturer") &&
+    isLecturer;
+
   // College-scoped permissions are returned for the user's role and college by the API.
   if (
     user &&
     role &&
-    (allowedRoles.includes(role) || canAccessCollegePage)
+    (allowedRoles.includes(role) || canAccessCollegePage || canAccessLecturerPage)
   ) {
     return <Outlet />;
   }
@@ -51,7 +58,7 @@ export default function RequireRole({ allowedRoles }: RequireRoleProps) {
         homePath = "/lecturer";
     }
     else if (role === 'student') {
-        homePath = "/student/qa";
+        homePath = "/student";
     }
     else if (collegeId) { 
         homePath = getCollegeLandingPath(collegeId, permissions);

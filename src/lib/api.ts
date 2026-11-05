@@ -1,8 +1,57 @@
 // src/lib/api.ts
 import axios from 'axios';
 
-// قراءة الـ API URL من Environment Variables مع fallback
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL;
+// دالة تحديد عنوان الـ API بمرونة مضمونة 100%
+export const resolveApiBaseUrl = (): string => {
+  // 1. إذا كان الموقع مفتوحاً على نطاق Vercel السحابي، الاتصال بسيرفر الباك إند السحابي
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname.endsWith('vercel.app')) {
+      localStorage.removeItem('unihub_api_base_url');
+      return 'https://test-uni-hub-api.vercel.app/api';
+    }
+  }
+
+  // 2. فحص إذا كان المطور حدد عنواناً مخصصاً محلياً
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('unihub_api_base_url');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  }
+
+  // 3. قراءة الرابط من متغيرات البيئة إن وُجدت
+  const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || '').trim();
+  if (envUrl && !envUrl.includes('trycloudflare.com') && !envUrl.includes('ngrok') && !envUrl.includes('loca.lt')) {
+    return envUrl.replace(/\/+$/, '');
+  }
+
+  // 4. إذا كان النظام منشوراً على سيرفر داخلي للجامعة (IP أو دومين محلي)
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return `${window.location.origin}/api`;
+  }
+
+  return 'http://127.0.0.1:8000/api';
+};
+
+export const API_BASE_URL = resolveApiBaseUrl();
+
+export function setCustomApiBaseUrl(url: string) {
+  if (typeof window !== 'undefined') {
+    let clean = url.trim().replace(/\/+$/, '');
+    if (!clean.endsWith('/api') && !clean.includes('/api/')) {
+      clean += '/api';
+    }
+    localStorage.setItem('unihub_api_base_url', clean);
+    window.location.reload();
+  }
+}
+
+export function clearCustomApiBaseUrl() {
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('unihub_api_base_url');
+    window.location.reload();
+  }
+}
 
 // Log للتأكد (فقط في Development)
 if (import.meta.env.DEV) {
@@ -50,7 +99,8 @@ export const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { 
     Accept: 'application/json',
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true'
   },
   timeout: 30000, // 30 seconds timeout
 });

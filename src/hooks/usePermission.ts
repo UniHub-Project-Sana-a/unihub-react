@@ -6,7 +6,8 @@ export function usePermission() {
   // التحقق من صلاحية واحدة
   const can = (permissionKey: string) => {
     // 1. المشرف العام ورئاسة الجامعة يملكون كل شيء (Super Admin)
-    if (user?.user_type_code === 'admin' || user?.user_type_code === 'presidency') {
+    const roleCode = (user as any)?.user_type?.user_type_code || (user as any)?.user_type_code;
+    if (roleCode === 'admin' || roleCode === 'presidency') {
       return true;
     }
 

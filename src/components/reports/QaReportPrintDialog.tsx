@@ -53,7 +53,7 @@ export function QaReportPrintDialog({
 
   // رابط الشعار الديناميكي للكلية
   const currentCollegeLogo = collegeId 
-    ? `${storageUrl(`colleges/${collegeId}.png`)}?t=${new Date().toDateString()}` 
+    ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
     : null;
 
   const currentDateTime = new Date().toLocaleString('ar-EG', {

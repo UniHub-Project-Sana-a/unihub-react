@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, ArrowRight, Loader2, RotateCcw, Trash2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, getApiErrorMessage } from "@/lib/api";
 import { usePermission } from "@/hooks/usePermission";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
@@ -51,7 +51,7 @@ export default function SoftDeleteTrashPage({
   subtitle = "العناصر المحذوفة حذفاً ناعماً في هذه الكلية",
   backLabel = "العودة",
 }: {
-  collegeId?: string;
+  collegeId?: string | number;
   onBack: () => void;
   endpoint?: string;
   permission?: string | string[];
@@ -70,7 +70,7 @@ export default function SoftDeleteTrashPage({
     : can(permission);
 
   // بعض الوحدات (مثل الكليات) غير مرتبطة بكلية أب، لذا نرسل college_id فقط عند توفره.
-  const collegeScope = collegeId ? { college_id: collegeId } : {};
+  const collegeScope = collegeId !== undefined && collegeId !== null && collegeId !== "" ? { college_id: collegeId } : {};
 
   const loadTrash = useCallback(async () => {
     setIsLoading(true);
@@ -80,10 +80,10 @@ export default function SoftDeleteTrashPage({
         ...collegeScope,
       });
       setGroups(response.data?.groups ?? []);
-    } catch {
+    } catch (error: any) {
       toast({
-        title: "خطأ",
-        description: "تعذر تحميل سلة المحذوفات",
+        title: "تنبيه",
+        description: getApiErrorMessage(error, "تعذر تحميل سلة المحذوفات"),
         variant: "destructive",
       });
     } finally {

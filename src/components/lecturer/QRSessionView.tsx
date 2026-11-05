@@ -16,7 +16,8 @@ interface QRSessionViewProps {
   lectureId: string;
   sessionStorageKey: string;
   initialQR: ActiveQRInfo;
-  onActiveQRChange: (qr: ActiveQRInfo) => void;
+  expectedStudents?: number;
+  groupsDetail?: Array<{ groupId: string; groupName: string; studentsCount: number }>;
   onEndSession: (records: AttendanceRecord[]) => void;
 }
 
@@ -27,7 +28,8 @@ export function QRSessionView({
   lectureId,
   sessionStorageKey,
   initialQR,
-  onActiveQRChange,
+  expectedStudents,
+  groupsDetail,
   onEndSession,
 }: QRSessionViewProps) {
 
@@ -44,8 +46,8 @@ export function QRSessionView({
           settings={settings}
           initialQR={initialQR}
           lectureId={lectureId}
-          sessionStorageKey={sessionStorageKey}
-          onActiveQRChange={onActiveQRChange}
+          expectedStudents={expectedStudents}
+          groupsDetail={groupsDetail}
           onEndSession={onEndSession}
         />
       </div>

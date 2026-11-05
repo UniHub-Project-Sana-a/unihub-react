@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2, Upload, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Upload, Loader2, Search, X, Users, Filter, RefreshCw, Check, AlertCircle, Sparkles, UserCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
@@ -15,6 +15,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { usePermission } from "@/hooks/usePermission";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import SoftDeleteTrashPage from "@/components/colleges/SoftDeleteTrashPage";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 
 interface AcademicStaff {
   id: string;               // lecturer_id
@@ -56,6 +63,8 @@ interface UserOption {
   email?: string;
   phone?: string;
   academicNumber?: string;
+  role?: string;
+  roleName?: string;
 }
 
 type StaffFormData = {
@@ -104,6 +113,262 @@ interface EntitlementPayout {
   status: string;
 }
 
+interface UserSearchComboboxProps {
+  users: UserOption[];
+  selectedUserId: string;
+  onSelectUser: (user: UserOption | null) => void;
+  existingStaffUserIds: Set<string>;
+  editingUserId?: string;
+  disabled?: boolean;
+}
+
+function UserSearchCombobox({
+  users,
+  selectedUserId,
+  onSelectUser,
+  existingStaffUserIds,
+  editingUserId,
+  disabled = false,
+}: UserSearchComboboxProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selectedUser = useMemo(() => {
+    return users.find((u) => u.id === selectedUserId) || null;
+  }, [users, selectedUserId]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // فلترة فورية بحسب الاسم أو الرقم الوظيفي أو البريد أو الهاتف
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter((u) => {
+      const nameMatch = (u.name || "").toLowerCase().includes(q);
+      const emailMatch = (u.email || "").toLowerCase().includes(q);
+      const numMatch = (u.academicNumber || "").toLowerCase().includes(q);
+      const phoneMatch = (u.phone || "").toLowerCase().includes(q);
+      return nameMatch || emailMatch || numMatch || phoneMatch;
+    });
+  }, [users, searchQuery]);
+
+  const handleSelect = (user: UserOption) => {
+    onSelectUser(user);
+    setSearchQuery("");
+    setIsOpen(false);
+  };
+
+  const handleClear = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    onSelectUser(null);
+    setSearchQuery("");
+    setIsOpen(false);
+  };
+
+  return (
+    <div ref={containerRef} className="relative w-full text-right" dir="rtl">
+      {/* في حال تم اختيار مستخدم بالفعل ولم تفتح القائمة للبحث */}
+      {selectedUser && !isOpen ? (
+        <div
+          onClick={() => {
+            if (!disabled) {
+              setIsOpen(true);
+              setSearchQuery("");
+              setTimeout(() => inputRef.current?.focus(), 50);
+            }
+          }}
+          className={cn(
+            "flex items-center justify-between p-2.5 bg-accent/40 border border-primary/30 rounded-md cursor-pointer transition hover:bg-accent/60",
+            disabled && "opacity-60 cursor-not-allowed"
+          )}
+        >
+          <div className="flex items-center gap-2.5 overflow-hidden">
+            <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0">
+              {selectedUser.name ? selectedUser.name.charAt(0) : "م"}
+            </div>
+            <div className="text-right truncate">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-foreground truncate">{selectedUser.name}</span>
+                {selectedUser.roleName && (
+                  <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium shrink-0">
+                    {selectedUser.roleName}
+                  </span>
+                )}
+                <span className="text-[11px] bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 px-1.5 py-0.5 rounded font-medium shrink-0 flex items-center gap-0.5">
+                  <Check className="w-3 h-3" /> تم الاختيار
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground truncate flex items-center gap-2 mt-0.5">
+                {selectedUser.academicNumber ? (
+                  <span className="font-mono">الرقم الوظيفي: {selectedUser.academicNumber}</span>
+                ) : (
+                  <span>الرقم الوظيفي: غير محدد</span>
+                )}
+                {selectedUser.email && <span>• {selectedUser.email}</span>}
+                {selectedUser.phone && <span>• {selectedUser.phone}</span>}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0 mr-2">
+            {!disabled && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleClear}
+                className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                title="إلغاء التحديد للبحث عن شخص آخر"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* حقل الكتابة والبحث الحي */
+        <div className="relative">
+          <Input
+            ref={inputRef}
+            type="text"
+            value={searchQuery}
+            disabled={disabled}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              if (!isOpen) setIsOpen(true);
+            }}
+            onFocus={() => setIsOpen(true)}
+            placeholder="ابحث بالاسم (مثال: أ.د. عبدالكريم أو د. محمد) أو الرقم الوظيفي..."
+            className="pr-9 pl-9 text-sm text-right"
+            dir="rtl"
+          />
+          <Search className="w-4 h-4 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* نتائج البحث المنسدلة */}
+      {isOpen && (
+        <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-xl max-h-64 overflow-y-auto text-right animate-in fade-in-0 zoom-in-95">
+          {users.length === 0 ? (
+            <div className="p-4 text-center space-y-1.5 text-xs">
+              <AlertCircle className="w-5 h-5 text-amber-600 mx-auto" />
+              <p className="font-semibold text-amber-700 dark:text-amber-400">
+                لا يوجد مستخدمون متاحون للربط حالياً
+              </p>
+              <p className="text-muted-foreground leading-relaxed">
+                ملاحظة: يمكنك اختيار أي مستخدم مسجل في النظام (عميد، رئيس قسم، أو محاضر) لربطه كعضو هيئة تدريس.
+              </p>
+            </div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="p-4 text-center space-y-1.5 text-xs">
+              <p className="font-medium text-foreground">
+                لم يتم العثور على أي مستخدم يطابق "{searchQuery}"
+              </p>
+              <p className="text-muted-foreground leading-relaxed">
+                تأكد من كتابة الاسم أو الرقم الوظيفي بشكل صحيح.
+              </p>
+            </div>
+          ) : (
+            <div className="py-1 divide-y divide-border/40">
+              <div className="px-3 py-1.5 text-[11px] text-muted-foreground bg-muted/30 font-medium flex items-center justify-between">
+                <span>اختر مستخدماً للربط كعضو هيئة تدريس:</span>
+                <span>{filteredUsers.length} من {users.length} مستخدم</span>
+              </div>
+              {filteredUsers.map((u) => {
+                const isAlreadyInCollege = existingStaffUserIds.has(u.id) && u.id !== editingUserId;
+                const isCurrent = u.id === selectedUserId;
+
+                return (
+                  <div
+                    key={u.id}
+                    onClick={() => {
+                      if (!isAlreadyInCollege) {
+                        handleSelect(u);
+                      }
+                    }}
+                    className={cn(
+                      "p-2.5 flex items-center justify-between text-sm transition-colors",
+                      isAlreadyInCollege
+                        ? "opacity-50 cursor-not-allowed bg-muted/20"
+                        : "cursor-pointer hover:bg-accent/70",
+                      isCurrent && "bg-primary/10 font-medium"
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                      <div
+                        className={cn(
+                          "w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0",
+                          isCurrent
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        )}
+                      >
+                        {u.name ? u.name.charAt(0) : "م"}
+                      </div>
+                      <div className="truncate">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground truncate">{u.name}</span>
+                          {u.roleName && (
+                            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.2 rounded font-medium shrink-0">
+                              {u.roleName}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                          {u.academicNumber && (
+                            <span className="bg-muted px-1.5 py-0.2 rounded font-mono text-[11px]">
+                              #{u.academicNumber}
+                            </span>
+                          )}
+                          {u.email && <span className="truncate">{u.email}</span>}
+                          {u.phone && <span>{u.phone}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 mr-2">
+                      {isAlreadyInCollege ? (
+                        <span className="text-[10px] bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 px-2 py-0.5 rounded-full font-medium">
+                          مضاف مسبقاً
+                        </span>
+                      ) : isCurrent ? (
+                        <Check className="w-4 h-4 text-primary" />
+                      ) : (
+                        <span className="text-xs text-primary font-medium">
+                          اختيار ←
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   collegeId: string;
 }
@@ -132,6 +397,12 @@ export default function AcademicStaffModule({ collegeId }: Props) {
   const [entitlementReviews, setEntitlementReviews] = useState<EntitlementReview[]>([]);
   const [entitlementApprovals, setEntitlementApprovals] = useState<EntitlementApproval[]>([]);
   const [entitlementPayouts, setEntitlementPayouts] = useState<EntitlementPayout[]>([]);
+
+  // Search & Filters state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [titleFilter, setTitleFilter] = useState("all");
+  const [employmentFilter, setEmploymentFilter] = useState("all");
 
   // Form state
   const [isStaffFormOpen, setIsStaffFormOpen] = useState(false);
@@ -167,9 +438,9 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
   const file = e.target.files?.[0];
   if (!file) return;
 
-  const isCsv = file.name.toLowerCase().endsWith(".csv");
-  if (!isCsv) {
-    toast({ title: "تنبيه", description: "الرجاء اختيار ملف CSV", variant: "destructive" });
+  const isExcelOrCsv = /\.(csv|xlsx|xls)$/i.test(file.name);
+  if (!isExcelOrCsv) {
+    toast({ title: "تنبيه", description: "الرجاء اختيار ملف Excel (.xlsx) أو CSV صالح", variant: "destructive" });
     e.target.value = "";
     return;
   }
@@ -270,12 +541,43 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     }
   };
 
+  const existingStaffUserIds = useMemo(() => {
+    return new Set(collegeStaff.map((s) => String(s.userId)));
+  }, [collegeStaff]);
+
+  const editingStaff = useMemo(() => {
+    return editingStaffId ? collegeStaff.find((s) => s.id === editingStaffId) : null;
+  }, [editingStaffId, collegeStaff]);
+
+  const handleSelectUser = (u: UserOption | null) => {
+    if (!u) {
+      setStaffFormData((prev) => ({
+        ...prev,
+        userId: "",
+        fullName: "",
+        staffNumber: "",
+        email: "",
+        phone: "",
+      }));
+      return;
+    }
+
+    setStaffFormData((prev) => ({
+      ...prev,
+      userId: u.id,
+      fullName: u.name,
+      staffNumber: u.academicNumber || "",
+      email: u.email || "",
+      phone: u.phone || "",
+    }));
+  };
+
   const fetchUsers = async () => {
     try {
       const res = await api.get("/v1/users", {
         params: {
-          college_id: collegeId,
-          user_type_code: "lecturer", // ← طلب المحاضرين فقط
+          user_type_code: "lecturer,dean,dept_head,admin,academic_affairs", // جلب المحاضرين والعمداء ورؤساء الأقسام
+          all: "true",
         },
       });
       const raw: any[] = res.data?.data ?? res.data;
@@ -285,9 +587,11 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         email: u.email || "",
         phone: u.phone || "",
         academicNumber: u.academic_number || "",
+        role: u.user_type?.user_type_code || u.role || "",
+        roleName: u.user_type?.name || u.user_type?.user_type_name || u.role_name || "",
       })));
     } catch {
-      toast({ title: "خطأ", description: "فشل تحميل المستخدمين (المحاضرين)", variant: "destructive" });
+      toast({ title: "خطأ", description: "فشل تحميل المستخدمين (المحاضرين والهيئة الأكاديمية)", variant: "destructive" });
     }
   };
 
@@ -338,21 +642,44 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     }
   };
 
+  const departmentsMap = useMemo(() => {
+    const map = new Map<string, string>();
+    departments.forEach(d => map.set(d.id, d.name));
+    return map;
+  }, [departments]);
+
+  const filteredStaff = useMemo(() => {
+    return collegeStaff.filter((staff) => {
+      if (searchQuery.trim()) {
+        const q = searchQuery.trim().toLowerCase();
+        const matchName = (staff.fullName || "").toLowerCase().includes(q);
+        const matchNum = (staff.staffNumber || "").toLowerCase().includes(q);
+        const matchPhone = (staff.phone || "").toLowerCase().includes(q);
+        const matchEmail = (staff.email || "").toLowerCase().includes(q);
+        const matchRank = (staff.academicRank || "").toLowerCase().includes(q);
+        const matchDept = (departmentsMap.get(staff.departmentId || "") || "").toLowerCase().includes(q);
+        if (!matchName && !matchNum && !matchPhone && !matchEmail && !matchRank && !matchDept) {
+          return false;
+        }
+      }
+      if (departmentFilter !== "all" && staff.departmentId !== departmentFilter) {
+        return false;
+      }
+      if (titleFilter !== "all" && staff.academicTitleId !== titleFilter) {
+        return false;
+      }
+      if (employmentFilter !== "all" && staff.employmentType !== employmentFilter) {
+        return false;
+      }
+      return true;
+    });
+  }, [collegeStaff, searchQuery, departmentFilter, titleFilter, employmentFilter, departmentsMap]);
+
   useEffect(() => {
     if (!collegeId) return;
-    (async () => {
-      await Promise.all([fetchDepartments(), fetchTitles(), fetchUsers()]);
-      await fetchStaff();
-    })();
+    // تنفيذ جميع الاستدعاءات بالتوازي لتسريع تحميل الصفحة بشكل فوري
+    Promise.all([fetchDepartments(), fetchTitles(), fetchUsers(), fetchStaff()]);
   }, [collegeId]);
-
-  // When titles or users change, refetch staff to improve mapping (اختياري)
-  useEffect(() => {
-    if (collegeId && (users.length || titles.length)) {
-      fetchStaff();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users.length, titles.length]);
 
   const toggleApprovalStatus = (staffId: string) => {
     setEntitlementApprovals((prev) =>
@@ -381,7 +708,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       phone: "",
       email: "",
       notes: "",
-      hireDate: "",
+      hireDate: new Date().toISOString().slice(0, 10),
       canTeachExternally: false,
     });
     setIsStaffFormOpen(true);
@@ -403,8 +730,8 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       phone: staff.phone || "",
       email: staff.email || "",
       notes: staff.notes || "",
-      hireDate: staff.hireDate || "",
-       canTeachExternally: staff.canTeachExternally || false,
+      hireDate: staff.hireDate || new Date().toISOString().slice(0, 10),
+      canTeachExternally: staff.canTeachExternally || false,
     });
     setIsStaffFormOpen(true);
   };
@@ -429,6 +756,14 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         toast({ title: "تنبيه", description: "يرجى اختيار المستخدم المرتبط بالعضو", variant: "destructive" });
         return;
       }
+      if (!staffFormData.departmentId) {
+        toast({ title: "تنبيه", description: "يرجى اختيار القسم الأكاديمي للعضو", variant: "destructive" });
+        return;
+      }
+      if (!staffFormData.hireDate) {
+        toast({ title: "تنبيه", description: "يرجى تحديد تاريخ التعيين", variant: "destructive" });
+        return;
+      }
       // تحديد العنوان الأكاديمي (title)
       const titleId = staffFormData.academicTitleId || titles.find((t) => t.name === staffFormData.academicRank)?.id || "";
 
@@ -444,10 +779,10 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
 
       if (editingStaffId) {
         await api.put(`/v1/lecturers/${editingStaffId}`, payload);
-        toast({ title: "نجاح", description: "تم تعديل العضو" });
+        toast({ title: "نجاح", description: "تم تعديل بيانات عضو هيئة التدريس" });
       } else {
         await api.post(`/v1/lecturers`, payload);
-        toast({ title: "نجاح", description: "تم إنشاء العضو" });
+        toast({ title: "نجاح", description: "تم ربط وإضافة عضو هيئة التدريس بنجاح" });
       }
       setIsStaffFormOpen(false);
       setEditingStaffId(null);
@@ -487,9 +822,6 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     }
   }, [staffFormData.userId, users]);
 
-  // عرض الاسم للقسم/الدرجة
-  const departmentsMap = useMemo(() => new Map(departments.map((d) => [d.id, d.name])), [departments]);
-
   if (showTrash) {
     return (
       <SoftDeleteTrashPage
@@ -516,7 +848,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
             <Button variant="outline" onClick={handleClickImportCsv} disabled={isImportingCsv}>
               {isImportingCsv && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
               <Upload className="w-4 h-4 mr-2" />
-              استيراد CSV
+              استيراد ملف (Excel / CSV)
             </Button>
           )}
           {can('staff.create') && (
@@ -534,52 +866,77 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".csv"
+        accept=".csv,.xlsx,.xls"
         className="hidden"
         onChange={handleCsvChange}
       />
 
-      {/* Staff form */}
-      {isStaffFormOpen && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{editingStaffId ? "تعديل عضو هيئة تدريس" : "إضافة عضو هيئة تدريس جديد"}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmitStaff} className="space-y-4">
+      {/* Staff modal dialog */}
+      <Dialog open={isStaffFormOpen} onOpenChange={setIsStaffFormOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" dir="rtl">
+          <DialogHeader className="text-right sm:text-right">
+            <DialogTitle className="text-xl font-bold text-right">
+              {editingStaffId ? "تعديل عضو هيئة تدريس" : "إضافة عضو هيئة تدريس جديد"}
+            </DialogTitle>
+            <DialogDescription className="text-right text-xs text-muted-foreground">
+              {editingStaffId
+                ? "تعديل بيانات ورتبة عضو هيئة التدريس الحالي وقسمه الأكاديمي."
+                : "إدخال بيانات ورتبة عضو هيئة تدريس جديد وربطه بالمستخدم المناسب."}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmitStaff} className="space-y-4 mt-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* اختيار المستخدم (مطلوب للربط مع lecturers.user_id) */}
-                <div>
-                  <Label>المستخدم (مطلوب)</Label>
-                  <Select
-                    value={staffFormData.userId}
-                    onValueChange={(value) => setStaffFormData({ ...staffFormData, userId: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="اختر مستخدم" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((u) => (
-                        <SelectItem key={u.id} value={u.id}>
-                          {u.name} {u.email ? `- ${u.email}` : ""} {u.academicNumber ? `- ${u.academicNumber}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* اختيار المستخدم بالبحث والكتابة والفلترة السريعة والتعبئة التلقائية */}
+                <div className="md:col-span-2 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Label className="font-semibold text-sm flex items-center gap-1.5">
+                      <Users className="w-4 h-4 text-primary" />
+                      المستخدم المرتبط بالعضو (مطلوب) *
+                    </Label>
+                    <span className="text-xs text-muted-foreground flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      اكتب حرفاً أو اسماً للفلترة السريعة
+                    </span>
+                  </div>
+                  <UserSearchCombobox
+                    users={users}
+                    selectedUserId={staffFormData.userId}
+                    onSelectUser={handleSelectUser}
+                    existingStaffUserIds={existingStaffUserIds}
+                    editingUserId={editingStaff?.userId}
+                  />
+                  {!staffFormData.userId && (
+                    <p className="text-[11px] text-muted-foreground">
+                      💡 ملاحظة: يمكنك اختيار أي مستخدم مسجل في النظام (عميد، رئيس قسم، أو محاضر) لربطه كعضو هيئة تدريس بالكلية لإسناد المحاضرات إليه.
+                    </p>
+                  )}
                 </div>
+
                 <div>
-                  <Label>الرقم الوظيفي</Label>
+                  <div className="flex items-center justify-between mb-1">
+                    <Label>الرقم الوظيفي</Label>
+                    {staffFormData.staffNumber ? (
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                        <Check className="w-3 h-3" /> تم الجلب تلقائياً
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground">من حساب المستخدم</span>
+                    )}
+                  </div>
                   <Input
                     value={staffFormData.staffNumber}
                     onChange={(e) => setStaffFormData({ ...staffFormData, staffNumber: e.target.value })}
-                    placeholder="يتم تعبئته من المستخدم (academic_number)"
+                    placeholder="يتم تعبئته تلقائياً عند اختيار المستخدم"
+                    className={staffFormData.staffNumber ? "bg-muted/30 font-mono" : ""}
                   />
                 </div>
+
                 <div>
                   <Label>رقم الشؤون الأكاديمية</Label>
                   <Input
                     value={staffFormData.academicAffairsNumber}
                     onChange={(e) => setStaffFormData({ ...staffFormData, academicAffairsNumber: e.target.value })}
+                    placeholder="اختياري - رقم خاص بالشؤون الأكاديمية"
                   />
                 </div>
 
@@ -590,7 +947,7 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                     onValueChange={(value) => setStaffFormData({ ...staffFormData, academicTitleId: value })}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="اختر الدرجة" />
+                      <SelectValue placeholder="اختر الدرجة الأكاديمية" />
                     </SelectTrigger>
                     <SelectContent>
                       {titles.map((t) => (
@@ -603,13 +960,13 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                 </div>
 
                 <div>
-                  <Label>القسم</Label>
+                  <Label>القسم *</Label>
                   <Select
                     value={staffFormData.departmentId}
                     onValueChange={(value) => setStaffFormData({ ...staffFormData, departmentId: value })}
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="اختر قسم" />
+                      <SelectValue placeholder="اختر القسم التابع له" />
                     </SelectTrigger>
                     <SelectContent>
                       {departments.map((dept) => (
@@ -649,67 +1006,176 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
                       setStaffFormData({ ...staffFormData, lectureRate: parseInt(e.target.value || "0") })
                     }
                     disabled
+                    className="bg-muted/40 font-mono"
                   />
                 </div>
 
                 <div>
-                  <Label>تاريخ التعيين</Label>
+                  <Label>تاريخ التعيين *</Label>
                   <Input
                     type="date"
                     value={staffFormData.hireDate}
                     onChange={(e) => setStaffFormData({ ...staffFormData, hireDate: e.target.value })}
                   />
                 </div>
-                {/* ⬇️ أضف هذا الجزء الجديد ⬇️ */}
-                <div className="md:col-span-2 flex items-center space-x-2 rtl:space-x-reverse pt-4 border-t mt-2">
-                    <Checkbox
-                        id="can-teach-externally"
-                        checked={staffFormData.canTeachExternally}
-                        onCheckedChange={(checked: boolean) =>
-                            setStaffFormData({ ...staffFormData, canTeachExternally: checked })
-                        }
-                    />
-                    <label
-                        htmlFor="can-teach-externally"
-                        className="text-sm font-medium leading-none"
-                    >
-                        مخول بالتدريس في كليات أخرى
-                    </label>
+
+                {/* تخويل بالتدريس في كليات أخرى */}
+                <div className="md:col-span-2 flex items-center space-x-2 rtl:space-x-reverse pt-3 border-t mt-1">
+                  <Checkbox
+                    id="can-teach-externally"
+                    checked={staffFormData.canTeachExternally}
+                    onCheckedChange={(checked: boolean) =>
+                      setStaffFormData({ ...staffFormData, canTeachExternally: checked })
+                    }
+                  />
+                  <label
+                    htmlFor="can-teach-externally"
+                    className="text-sm font-medium leading-none cursor-pointer"
+                  >
+                    مخول بالتدريس في كليات أخرى
+                  </label>
                 </div>
-                {/* ⬆️ نهاية الإضافة ⬆️ */}
 
                 <div>
-                  <Label>رقم الجوال</Label>
+                  <div className="flex items-center justify-between mb-1">
+                    <Label>رقم الجوال</Label>
+                    {staffFormData.phone && (
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                        <Check className="w-3 h-3" /> تم الجلب تلقائياً
+                      </span>
+                    )}
+                  </div>
                   <Input
                     value={staffFormData.phone}
                     onChange={(e) => setStaffFormData({ ...staffFormData, phone: e.target.value })}
-                    placeholder="من بيانات المستخدم"
+                    placeholder="يتم تعبئته تلقائياً من المستخدم"
+                    className={staffFormData.phone ? "bg-muted/30" : ""}
                   />
                 </div>
+
                 <div>
-                  <Label>البريد الإلكتروني</Label>
+                  <div className="flex items-center justify-between mb-1">
+                    <Label>البريد الإلكتروني</Label>
+                    {staffFormData.email && (
+                      <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                        <Check className="w-3 h-3" /> تم الجلب تلقائياً
+                      </span>
+                    )}
+                  </div>
                   <Input
                     type="email"
                     value={staffFormData.email}
                     onChange={(e) => setStaffFormData({ ...staffFormData, email: e.target.value })}
-                    placeholder="من بيانات المستخدم"
+                    placeholder="يتم تعبئته تلقائياً من المستخدم"
+                    className={staffFormData.email ? "bg-muted/30" : ""}
                   />
                 </div>
               </div>
-              <div className="flex gap-2">
-                <Button type="submit">حفظ</Button>
+              <div className="flex justify-end gap-2 pt-2 border-t mt-4">
                 <Button type="button" variant="outline" onClick={() => setIsStaffFormOpen(false)}>
                   إلغاء
                 </Button>
+                <Button type="submit">
+                  {editingStaffId ? "حفظ التعديلات" : "إضافة العضو"}
+                </Button>
               </div>
             </form>
-          </CardContent>
-        </Card>
-      )}
+          </DialogContent>
+        </Dialog>
 
-      {/* Staff table */}
+      {/* Staff table with advanced search & filter bar */}
       <Card>
-        <CardContent className="pt-6">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-primary" />
+              <CardTitle className="text-lg">قائمة أعضاء هيئة التدريس</CardTitle>
+              <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                {filteredStaff.length} من {collegeStaff.length}
+              </span>
+            </div>
+
+            {/* محرك البحث السريع */}
+            <div className="relative w-full md:w-72">
+              <Search className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث بالاسم، الرقم، الهاتف، البريد..."
+                className="pr-9 pl-8 h-9 text-sm"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* فلاتر إضافية سريعة */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t mt-3">
+            <div>
+              <Select value={departmentFilter} onValueChange={setDepartmentFilter}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="تصفية حسب القسم" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الأقسام</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Select value={titleFilter} onValueChange={setTitleFilter}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="تصفية حسب الدرجة العلمية" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الدرجات</SelectItem>
+                  {titles.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex gap-2">
+              <Select value={employmentFilter} onValueChange={setEmploymentFilter}>
+                <SelectTrigger className="h-8 text-xs flex-1">
+                  <SelectValue placeholder="الحالة الوظيفية" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">كل الحالات</SelectItem>
+                  <SelectItem value="متفرغ">متفرغ</SelectItem>
+                  <SelectItem value="غير متفرغ">غير متفرغ</SelectItem>
+                </SelectContent>
+              </Select>
+              {(searchQuery || departmentFilter !== "all" || titleFilter !== "all" || employmentFilter !== "all") && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground gap-1"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setDepartmentFilter("all");
+                    setTitleFilter("all");
+                    setEmploymentFilter("all");
+                  }}
+                  title="إلغاء الفلاتر"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> مسح
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-2">
           <Table>
             <TableHeader>
               <TableRow>
@@ -724,14 +1190,16 @@ const handleCsvChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {collegeStaff.length === 0 ? (
+              {filteredStaff.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center h-24 text-muted-foreground">
-                    لا توجد بيانات
+                    {searchQuery || departmentFilter !== "all" || titleFilter !== "all" || employmentFilter !== "all"
+                      ? "لا توجد نتائج مطابقة لمعايير البحث الحالية"
+                      : "لا توجد بيانات"}
                   </TableCell>
                 </TableRow>
               ) : (
-                collegeStaff.map((staff) => (
+                filteredStaff.map((staff) => (
                   <TableRow key={staff.id}>
                     <TableCell className="text-right font-medium">{staff.fullName}</TableCell>
                     <TableCell className="text-right">{staff.staffNumber}</TableCell>

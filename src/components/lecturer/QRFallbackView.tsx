@@ -6,7 +6,7 @@ import { Progress } from "@/components/ui/progress";
 import QRCode from "react-qr-code";
 import axios from "axios";
 import { api } from "@/lib/api";
-import { Loader2, Timer, Clock, Plus } from "lucide-react"; // ✅ تمت إضافة أيقونة Plus
+import { Loader2, Timer, Clock, Plus, Users } from "lucide-react"; // ✅ تمت إضافة أيقونة Users
 import { useToast } from "@/hooks/use-toast";
 import { AttendanceRecord, ActiveQRInfo } from "@/pages/LecturerPage";
 
@@ -18,8 +18,8 @@ interface QRFallbackViewProps {
   settings: QRSettings;
   initialQR: ActiveQRInfo;
   lectureId: string;
-  sessionStorageKey: string;
-  onActiveQRChange: (qr: ActiveQRInfo) => void;
+  expectedStudents?: number;
+  groupsDetail?: Array<{ groupId: string; groupName: string; studentsCount: number }>;
   onEndSession: (records: AttendanceRecord[]) => void;
 }
 
@@ -71,13 +71,13 @@ const formatTime = (totalSeconds: number) => {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 };
 
-export function QRFallbackView({
-  settings,
-  initialQR,
-  lectureId,
-  sessionStorageKey,
-  onActiveQRChange,
-  onEndSession,
+export function QRFallbackView({ 
+  settings, 
+  initialQR, 
+  lectureId, 
+  expectedStudents,
+  groupsDetail,
+  onEndSession 
 }: QRFallbackViewProps) {
   const { toast } = useToast();
 
@@ -94,7 +94,36 @@ export function QRFallbackView({
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
-  const autoEndAttempted = useRef(false);
+  const [liveRecords, setLiveRecords] = useState<any[]>([]);
+
+  // ✅ تتبع الحضور المباشر الحقيقي أثناء عرض الـ QR
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLive = async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const res = await api.get(`/v1/student-attendance`, {
+          params: { 
+            timetable_id: lectureId,
+            attendance_date: today,
+            per_page: 1000
+          }
+        });
+        if (isMounted && res.data?.data) {
+          setLiveRecords(res.data.data);
+        }
+      } catch (e) {
+        // تجاهل أخطاء التحديث التلقائي
+      }
+    };
+
+    fetchLive();
+    const liveInterval = setInterval(fetchLive, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(liveInterval);
+    };
+  }, [lectureId]);
 
   const handleRefreshQR = useCallback(async () => {
     if (isRefreshing || isEnding) return; 
@@ -270,6 +299,40 @@ export function QRFallbackView({
             <Clock className="w-6 h-6" />
             <span>الوقت المتبقي: {formatTime(sessionTimeLeft)}</span>
         </div>
+      </div>
+
+      {/* 📊 بطاقة إحصائيات الحضور الحية المباشرة */}
+      <div className="w-full max-w-sm bg-muted/30 border border-primary/20 rounded-xl p-4 text-right space-y-2.5 shadow-xs">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 font-bold text-foreground">
+            <Users className="w-4 h-4 text-primary" />
+            <span>إجمالي الحضور:</span>
+            <span className="text-primary font-mono text-base">{liveRecords.length} / {expectedStudents || 0}</span>
+          </div>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+            {expectedStudents ? Math.round((liveRecords.length / expectedStudents) * 100) : 0}%
+          </span>
+        </div>
+
+        <Progress 
+          value={expectedStudents ? (liveRecords.length / expectedStudents) * 100 : 0} 
+          className="h-2 bg-muted" 
+        />
+
+        {/* إحصائيات المجموعات الفردية للمحاضرة المشتركة */}
+        {groupsDetail && groupsDetail.length > 1 && (
+          <div className="flex flex-wrap gap-1.5 pt-2 border-t border-border/50">
+            {groupsDetail.map(g => {
+              const count = liveRecords.filter(r => String(r.group_id) === String(g.groupId)).length;
+              return (
+                <div key={g.groupId} className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-md bg-background border text-foreground/90 font-medium">
+                  <span>{g.groupName}:</span>
+                  <span className="font-bold text-primary font-mono">{count} / {g.studentsCount}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* ✅ --- منطقة الأزرار المعدلة --- */}

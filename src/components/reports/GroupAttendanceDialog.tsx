@@ -49,9 +49,8 @@ export function GroupAttendanceDialog({
   const printRef = useRef<HTMLDivElement>(null);
   
   // ✅ رابط الشعار الديناميكي من الباك إند
-  // نضيف timestamp لمنع المتصفح من تخزين الصورة القديمة (Cache busting)
   const currentCollegeLogo = collegeId 
-    ? `${storageUrl(`colleges/${collegeId}.png`)}?t=${new Date().toDateString()}` 
+    ? storageUrl(`colleges/${collegeId}.png?t=${new Date().toDateString()}`)
     : null;
 
   const currentDateTime = new Date().toLocaleString('ar-EG', {
