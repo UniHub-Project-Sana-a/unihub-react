@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { User, LogOut, GraduationCap, ClipboardList, Megaphone, FileCheck, Building2 } from "lucide-react"; // ✅ إضافة أيقونات جديدة
 import { useAuth } from "@/context/AuthContext";
-import { setAuthToken, api } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useState } from "react";
 
 // ✅ تحديث الواجهة لتستقبل دوال التحكم في العرض
@@ -41,14 +41,8 @@ export function LecturerWelcome({
     } catch (error) {
       console.error("Logout failed", error);
     }
-    
-    // تنظيف التوكن والبيانات
-    setAuthToken(undefined);
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    // توجيه المستخدم لصفحة الدخول
-    window.location.hash = "/login";
+    logout();
+    navigate("/login", { replace: true });
   };
 
   return (

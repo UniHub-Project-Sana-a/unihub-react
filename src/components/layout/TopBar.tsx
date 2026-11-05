@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, Bell, User, Menu, Settings, LogOut, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { setAuthToken, api } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import StudentNotificationsModal, { AnnouncementItem } from "@/components/student/StudentNotificationsModal";
 
@@ -13,7 +13,7 @@ interface TopBarProps {
 
 export function TopBar({ onMenuToggle }: TopBarProps) {
   const navigate = useNavigate();
-  const { user, myUserType } = useAuth();
+  const { user, myUserType, logout } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
 
   // حالة الإشعارات والتنبيهات للدكاترة
@@ -84,16 +84,10 @@ export function TopBar({ onMenuToggle }: TopBarProps) {
     try {
       await api.post("/v1/auth/logout");
     } catch (error) {
-      console.warn("Logout API failed, forcing local logout.");
+      console.warn("Logout API failed, forcing local logout.", error);
     }
-    if (setAuthToken) {
-      setAuthToken(null);
-    }
-    // تنظيف التخزين المحلي
-    localStorage.removeItem("token");
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("user");
-    window.location.hash = "/login";
+    logout();
+    navigate("/login", { replace: true });
   };
 
   return (

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { api, setAuthToken } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -170,7 +170,7 @@ type TabType =
   | "profile";
 
 export default function StudentPortalPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -551,13 +551,10 @@ export default function StudentPortalPage() {
     try {
       await api.post("/v1/auth/logout");
     } catch (error) {
-      console.error(error);
+      console.error("Logout failed", error);
     }
-    setAuthToken(undefined);
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    window.location.hash = "/login";
+    logout();
+    navigate("/login", { replace: true });
   };
 
   if (isLoading) {
@@ -3178,4 +3175,3 @@ export default function StudentPortalPage() {
     </AdminLayout>
   );
 }
-

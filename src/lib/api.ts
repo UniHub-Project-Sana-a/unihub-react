@@ -155,8 +155,9 @@ api.interceptors.response.use(
     // معالجة 401 Unauthorized
     if (error.response?.status === 401) {
       const isLoginPage = error.config?.url?.endsWith('/auth/login');
+      const isLogoutRequest = error.config?.url?.endsWith('/auth/logout');
       
-      if (!isLoginPage) {
+      if (!isLoginPage && !isLogoutRequest) {
         setAuthToken(undefined);
         window.location.hash = '#/login';
       }

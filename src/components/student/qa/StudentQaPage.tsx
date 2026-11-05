@@ -4,15 +4,18 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Lock, LogOut, BookOpen, User, Loader2, Clock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { setAuthToken, api } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 // ✅ استدعاء المكون الفرعي (تأكد أن هذا الملف موجود بجانبه)
 import StudentQaModule from './StudentQaModule'; 
 
 // ✅ لاحظ: هذا المكون لا يستقبل أي Props
 export default function StudentQaPage() {
+    const { logout } = useAuth();
+    const navigate = useNavigate();
     const [evaluations, setEvaluations] = useState<any[]>([]);
     const [activeEvaluation, setActiveEvaluation] = useState<any | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -25,19 +28,12 @@ export default function StudentQaPage() {
         if (loggingOut) return;
         setLoggingOut(true);
         try {
-          await api.post("/v1/auth/logout");
-        }  catch (error) {
-            console.warn("Logout API failed, forcing local logout.");
+            await api.post("/v1/auth/logout");
+        } catch (error) {
+            console.warn("Logout API failed, forcing local logout.", error);
         }
-        if (setAuthToken) { 
-            setAuthToken(null); 
-        }
-
-        // تنظيف التخزين المحلي
-        localStorage.removeItem("token");
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("user");
-        window.location.hash = "/login";
+        logout();
+        navigate("/login", { replace: true });
     };
     // جلب القائمة
     const fetchEvaluations = async () => {
