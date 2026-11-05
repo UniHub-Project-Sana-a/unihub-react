@@ -103,7 +103,6 @@ export default function TimetableModule({ collegeId }: TimetableModuleProps) {
   const collegeIdNum = Number(collegeId);
   const [importSource, setImportSource] = useState<"manual" | null>(null);
   const [importStatus, setImportStatus] = useState<"idle" | "success" | "conflict">("idle");
-  const [showTrash, setShowTrash] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
   
   // قائمة قاعات مخصصة لمودال التعويض (تحتوي على خاصية is_busy)
